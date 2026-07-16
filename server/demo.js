@@ -47,14 +47,13 @@ export function demoData(input) {
 export async function runDemo(inv) {
   const steps = [
     ['REI BlackBook', 'Opening lead and reviewing contact activity'],
-    ['County Records', 'Locating assessor / recorder pages'],
     ['PropertyRadar', 'Confirming recorded owner and mailing address'],
     ['Google', 'Searching public records'],
     ['Approved People Search', 'Reverse phone and address lookups'],
   ]
   inv.data = demoData(inv.input)
   for (const [source, msg] of steps) {
-    if (source === 'County Records') inv._backfillInput() // after CRM read
+    if (source === 'PropertyRadar') inv._backfillInput() // after the CRM read
     if (inv.state === 'stopped') break
     await inv._waitIfPaused()
     inv.emit({ type: 'source-start', source })
