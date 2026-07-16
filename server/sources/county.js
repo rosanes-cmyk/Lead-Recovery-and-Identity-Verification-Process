@@ -14,11 +14,10 @@ export const id = 'county'
 export const label = 'County Records'
 export const loginGated = false
 
+// Two focused queries keep it fast; both surface the assessor/recorder pages.
 const RECORD_QUERIES = [
-  '{address} county assessor property records',
+  '{address} county assessor parcel property records',
   '{address} county recorder deed',
-  '{address} property tax collector',
-  '{address} parcel GIS map',
 ]
 
 export async function run(ctx) {

@@ -49,23 +49,25 @@ export async function goto(page, url, { signal } = {}) {
   return true
 }
 
-// Wait until the page's visible text stops changing — a reliable signal that a
-// single-page app has finished loading its data. Falls back to the timeout.
-export async function settle(page, { timeout = 15000, minLen = 200 } = {}) {
-  // Let in-flight requests settle first (ignored if the site long-polls).
-  await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
+// Wait until the page has finished rendering. Uses the DOM node COUNT as the
+// readiness signal (it grows while a single-page app renders, then plateaus) —
+// unlike text length, it isn't disturbed by a ticking clock or activity feed,
+// so it settles quickly instead of always hitting the timeout.
+export async function settle(page, { timeout = 9000, minNodes = 60 } = {}) {
+  // Let initial requests finish (ignored quickly if the site long-polls).
+  await page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {})
   const start = Date.now()
   let last = -1
   let stable = 0
   while (Date.now() - start < timeout) {
-    const len = await page.evaluate(() => (document.body ? document.body.innerText.length : 0)).catch(() => 0)
-    if (len >= minLen && len === last) {
-      if (++stable >= 2) return
+    const count = await page.evaluate(() => document.querySelectorAll('*').length).catch(() => 0)
+    if (count >= minNodes && count === last) {
+      if (++stable >= 2) return // ~0.8s of stability -> rendered
     } else {
       stable = 0
     }
-    last = len
-    await page.waitForTimeout(500)
+    last = count
+    await page.waitForTimeout(400)
   }
 }
 
