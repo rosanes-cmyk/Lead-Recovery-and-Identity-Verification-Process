@@ -43,7 +43,7 @@ export async function run(ctx) {
   if (!directUrl && typeof pauseForAction === 'function') {
     emit({ type: 'log', source: label, message: 'Waiting for operator to open the property in PropertyRadar' })
     await pauseForAction(
-      `In the PropertyRadar window, search for ${input.address || 'the property'} and open its property page, then click Resume.`,
+      `In the PropertyRadar BROWSER window (not the black command window), search for ${input.address || 'the property'} and open its property page, then click Resume.`,
     )
     if (signal?.aborted) return res
   }

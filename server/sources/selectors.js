@@ -145,6 +145,22 @@ export const selectors = {
   },
 }
 
+// Known county parcel-search portals. When a lead's address matches, the app
+// opens the search tool directly (instead of a Google-found info page) so the
+// operator lands right on the search box. Add more counties as you work them.
+export const countyPortals = [
+  {
+    name: 'Yavapai County, AZ',
+    // Prescott / Prescott Valley / Chino Valley etc. — Yavapai zips are 863xx.
+    match: /\b(yavapai|prescott|chino valley|cottonwood|camp verde|dewey|humboldt)\b|\bAZ\b.*\b863\d\d\b|\b863\d\d\b/i,
+    searchUrl: 'https://gis.yavapaiaz.gov/v4/search.aspx',
+  },
+]
+
+export function matchCountyPortal(address) {
+  return countyPortals.find((p) => p.match.test(String(address || ''))) || null
+}
+
 // Fill a URL template like 'https://x/search?q={address}'.
 export function fillUrl(template, vars) {
   if (!template) return ''

@@ -7,7 +7,7 @@
 import { capture } from '../browser.js'
 import { emptyResult, goto } from './base.js'
 import { searchWeb } from './google.js'
-import { selectors } from './selectors.js'
+import { selectors, matchCountyPortal } from './selectors.js'
 import { extractFields, FIELD_NOT_FOUND } from './extract.js'
 
 export const id = 'county'
@@ -28,23 +28,30 @@ export async function run(ctx) {
     return res
   }
 
-  const found = []
-  for (const q of RECORD_QUERIES) {
-    if (signal?.aborted) break
-    const query = q.replace('{address}', input.address)
-    emit({ type: 'log', source: label, message: `Locating: ${query}` })
-    const { links, evidence } = await searchWeb(page, query, runDir, signal)
-    res.evidence.push(...evidence)
-    // Prefer official-looking .gov / county domains.
-    const official = links.filter((l) => /\.gov|county|assessor|recorder|parcel/i.test(l.url))
-    const pick = (official[0] || links[0]) || null
-    if (pick) found.push({ query, ...pick })
-  }
-
-  // Open the most promising official page, capture it, and attempt extraction
-  // using the generic label-based county field specs.
   res.audit = []
-  const top = found.find((f) => /\.gov|county|assessor/i.test(f.url)) || found[0]
+
+  // Fast path: if we know this county's parcel-search portal, open it directly
+  // so the operator lands right on the search box (no Google, no URL pasting).
+  const portal = matchCountyPortal(input.address)
+  const found = []
+  let top = null
+  if (portal) {
+    emit({ type: 'log', source: label, message: `Opening ${portal.name} parcel search: ${portal.searchUrl}` })
+    top = { query: portal.name, title: portal.name, url: portal.searchUrl }
+    found.push(top)
+  } else {
+    for (const q of RECORD_QUERIES) {
+      if (signal?.aborted) break
+      const query = q.replace('{address}', input.address)
+      emit({ type: 'log', source: label, message: `Locating: ${query}` })
+      const { links, evidence } = await searchWeb(page, query, runDir, signal)
+      res.evidence.push(...evidence)
+      const official = links.filter((l) => /\.gov|county|assessor|recorder|parcel/i.test(l.url))
+      const pick = official[0] || links[0] || null
+      if (pick) found.push({ query, ...pick })
+    }
+    top = found.find((f) => /\.gov|county|assessor/i.test(f.url)) || found[0]
+  }
   if (top) {
     try {
       emit({ type: 'log', source: label, message: `Opening ${top.url}` })
@@ -54,7 +61,7 @@ export async function run(ctx) {
       // are free but every one differs, so this is the reliable path.
       if (typeof pauseForAction === 'function') {
         await pauseForAction(
-          `In the county window, search for ${input.address} and open the parcel/property record (owner + mailing address), then click Resume.`,
+          `In the county window that just opened, type the address in the search box, open the parcel/property record (it shows the owner + mailing address), then click Resume. Do this in the BROWSER window, not the black command window.`,
         )
         if (signal?.aborted) return res
       }
