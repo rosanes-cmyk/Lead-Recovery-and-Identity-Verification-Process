@@ -16,6 +16,10 @@
 
 const semanticPhone = { type: 'semantic', selector: 'a[href^="tel:"]' }
 const semanticEmail = { type: 'semantic', selector: 'a[href^="mailto:"]' }
+// Fallbacks that scan the page text — many CRMs show phone/email as plain text,
+// not tel:/mailto: links or labelled fields.
+const patternPhone = { type: 'pattern', kind: 'phone' }
+const patternEmail = { type: 'pattern', kind: 'email' }
 
 export const selectors = {
   reiblackbook: {
@@ -48,8 +52,8 @@ export const selectors = {
         { type: 'labelValue', label: 'Mailing Address' },
         { type: 'labelValue', label: 'Owner Mailing Address' },
       ],
-      phones: [semanticPhone, { type: 'labelValue', label: 'Phone' }],
-      emails: [semanticEmail, { type: 'labelValue', label: 'Email' }],
+      phones: [semanticPhone, { type: 'labelValue', label: 'Phone' }, { type: 'labelValue', label: 'Mobile' }, { type: 'labelValue', label: 'Cell' }, patternPhone],
+      emails: [semanticEmail, { type: 'labelValue', label: 'Email' }, patternEmail],
       leadStage: [
         { type: 'labelValue', label: 'Stage' },
         { type: 'labelValue', label: 'Lead Stage' },
@@ -104,8 +108,8 @@ export const selectors = {
         { type: 'labelValue', label: 'Owner Occupied' },
       ],
       apn: [{ type: 'labelValue', label: 'APN' }, { type: 'labelValue', label: 'Parcel' }],
-      phones: [semanticPhone, { type: 'labelValue', label: 'Phone' }],
-      emails: [semanticEmail, { type: 'labelValue', label: 'Email' }],
+      phones: [semanticPhone, { type: 'labelValue', label: 'Phone' }, patternPhone],
+      emails: [semanticEmail, { type: 'labelValue', label: 'Email' }, patternEmail],
       trustEntity: [{ type: 'labelValue', label: 'Trust' }, { type: 'labelValue', label: 'Entity' }],
     },
   },
@@ -118,8 +122,8 @@ export const selectors = {
       ownerName: [{ type: 'labelValue', label: 'Owner' }, { type: 'labelValue', label: 'Owner Name' }],
       ownerMailingAddress: [{ type: 'labelValue', label: 'Mailing Address' }, { type: 'labelValue', label: 'Owner Address' }],
       propertyAddress: [{ type: 'labelValue', label: 'Property Address' }, { type: 'semantic', selector: 'address' }],
-      phones: [semanticPhone, { type: 'labelValue', label: 'Phone' }],
-      emails: [semanticEmail, { type: 'labelValue', label: 'Email' }],
+      phones: [semanticPhone, { type: 'labelValue', label: 'Phone' }, patternPhone],
+      emails: [semanticEmail, { type: 'labelValue', label: 'Email' }, patternEmail],
       occupancy: [{ type: 'labelValue', label: 'Occupancy' }, { type: 'labelValue', label: 'Owner Occupied' }],
       propertyDetails: [{ type: 'labelValue', label: 'Property Details' }, { type: 'labelValue', label: 'Details' }],
     },

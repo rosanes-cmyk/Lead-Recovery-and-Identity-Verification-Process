@@ -74,6 +74,10 @@ async function tryStrategy(page, s) {
         return await ariaValue(page, s.label)
       case 'labelValue':
         return await labelValue(page, s.label)
+      case 'pattern': {
+        const all = await patternAll(page, s.kind)
+        return all[0] || ''
+      }
       default:
         return ''
     }
@@ -84,9 +88,38 @@ async function tryStrategy(page, s) {
 
 async function tryStrategyAll(page, s) {
   try {
+    if (s.type === 'pattern') return await patternAll(page, s.kind)
     if (s.type === 'attr') return await allAttr(page, s.selector, s.attr || 'href')
     if (s.selector) return await allText(page, s.selector)
     return []
+  } catch {
+    return []
+  }
+}
+
+// Find all phone- or email-looking strings anywhere in the visible page text.
+// Used as a fallback when the value isn't a tel:/mailto: link or beside a label.
+const PATTERNS = {
+  email: '[\\w.+-]+@[\\w-]+\\.[\\w.-]+',
+  phone: '(?:\\+?1[-.\\s]?)?\\(?\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4}',
+}
+async function patternAll(page, kind) {
+  const reStr = PATTERNS[kind]
+  if (!reStr) return []
+  try {
+    return await page.evaluate((s) => {
+      // Match within each text node separately so adjacent elements (e.g. a
+      // phone next to an email) don't get concatenated into one bad match.
+      const re = new RegExp(s, 'g')
+      const found = new Set()
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+      let node
+      while ((node = walker.nextNode())) {
+        const m = (node.nodeValue || '').match(re)
+        if (m) m.forEach((x) => found.add(x.trim()))
+      }
+      return [...found]
+    }, reStr)
   } catch {
     return []
   }
@@ -222,6 +255,7 @@ function describe(s) {
     case 'aria': return `accessible label "${s.label}"`
     case 'labelValue': return `text label "${s.label}" -> nearby value`
     case 'semantic': return `semantic ${s.selector}`
+    case 'pattern': return `${s.kind} pattern in page text`
     case 'css': return `CSS ${s.selector}`
     default: return s.type
   }
