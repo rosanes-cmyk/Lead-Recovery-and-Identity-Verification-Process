@@ -45,9 +45,28 @@ export async function textOf(page, selector) {
 export async function goto(page, url, { signal } = {}) {
   if (signal?.aborted) throw new Error('stopped')
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
-  // Give SPA content a moment to render.
-  await page.waitForTimeout(1200)
+  await settle(page) // wait for the app's content to finish rendering
   return true
+}
+
+// Wait until the page's visible text stops changing — a reliable signal that a
+// single-page app has finished loading its data. Falls back to the timeout.
+export async function settle(page, { timeout = 15000, minLen = 200 } = {}) {
+  // Let in-flight requests settle first (ignored if the site long-polls).
+  await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
+  const start = Date.now()
+  let last = -1
+  let stable = 0
+  while (Date.now() - start < timeout) {
+    const len = await page.evaluate(() => (document.body ? document.body.innerText.length : 0)).catch(() => 0)
+    if (len >= minLen && len === last) {
+      if (++stable >= 2) return
+    } else {
+      stable = 0
+    }
+    last = len
+    await page.waitForTimeout(500)
+  }
 }
 
 // Normalize a US phone to digits for comparison.
