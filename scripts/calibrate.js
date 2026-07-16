@@ -87,8 +87,32 @@ const candidates = await page.evaluate(() => {
   return { dataAttrs: dataAttrs.slice(0, 200), aria: aria.slice(0, 100), labels: labels.slice(0, 200) }
 })
 
+// 3) Scan the page for anything that looks like a phone or email, with context.
+const contacts = await page.evaluate(() => {
+  const bodyText = document.body.innerText || ''
+  const emails = [...new Set(bodyText.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || [])].slice(0, 20)
+  const phones = [...new Set(bodyText.match(/(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g) || [])].slice(0, 20)
+  const telLinks = Array.from(document.querySelectorAll('a[href^="tel:"]')).map((a) => a.getAttribute('href'))
+  const mailLinks = Array.from(document.querySelectorAll('a[href^="mailto:"]')).map((a) => a.getAttribute('href'))
+  return { emails, phones, telLinks, mailLinks }
+})
+
+// Print the labels + values right here so you can copy-paste the output.
+console.log('\n=== Field labels found on the page (label -> value beside it) ===')
+candidates.labels
+  .filter((l) => l.nearbyValue && l.nearbyValue.length < 100)
+  .slice(0, 60)
+  .forEach((l) => console.log(`  "${l.label}" -> ${l.nearbyValue}`))
+
+console.log('\n=== Phones / emails detected anywhere on the page ===')
+console.log('  phones:', contacts.phones.join(', ') || '(none found in page text)')
+console.log('  emails:', contacts.emails.join(', ') || '(none found in page text)')
+console.log('  tel: links:', contacts.telLinks.join(', ') || '(none)')
+console.log('  mailto: links:', contacts.mailLinks.join(', ') || '(none)')
+
 fs.writeFileSync(path.join(outDir, 'candidates.json'), JSON.stringify(candidates, null, 2))
 fs.writeFileSync(path.join(outDir, 'extracted.json'), JSON.stringify({ values, audit }, null, 2))
+fs.writeFileSync(path.join(outDir, 'contacts.json'), JSON.stringify(contacts, null, 2))
 fs.writeFileSync(path.join(outDir, 'page.html'), await page.content())
 const shot = await capture(page, outDir, `${source}-calibration`)
 

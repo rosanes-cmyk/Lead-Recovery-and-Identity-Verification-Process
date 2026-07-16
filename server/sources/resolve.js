@@ -24,11 +24,17 @@ export async function resolveField(page, strategies = []) {
   for (let i = 0; i < strategies.length; i++) {
     const s = strategies[i]
     const value = await tryStrategy(page, s)
-    if (value && value.trim()) {
+    if (value && value.trim() && !isPlaceholder(value)) {
       return { value: value.trim(), ok: true, strategy: describe(s), fallbackIndex: i }
     }
   }
   return { value: FIELD_NOT_FOUND, ok: false, strategy: 'none matched' }
+}
+
+// Treat empty placeholders (a dash, "N/A", etc.) as "not found" rather than a
+// real value.
+export function isPlaceholder(v) {
+  return /^(-|—|–|n\/?a|none|null|--)$/i.test(String(v).trim())
 }
 
 // Resolve a multi-value field (e.g. all phone numbers). De-duplicates.
