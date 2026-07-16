@@ -21,7 +21,7 @@ const RECORD_QUERIES = [
 ]
 
 export async function run(ctx) {
-  const { page, input, emit, runDir, signal } = ctx
+  const { page, input, emit, runDir, signal, pauseForAction } = ctx
   const res = emptyResult(label)
   if (!input.address) {
     res.notes.push('No property address available; county lookup needs an address.')
@@ -49,6 +49,15 @@ export async function run(ctx) {
     try {
       emit({ type: 'log', source: label, message: `Opening ${top.url}` })
       await goto(page, top.url, { signal })
+      // Assisted: let the operator search the parcel by address on the county
+      // site and open the record, then read the page they land on. County sites
+      // are free but every one differs, so this is the reliable path.
+      if (typeof pauseForAction === 'function') {
+        await pauseForAction(
+          `In the county window, search for ${input.address} and open the parcel/property record (owner + mailing address), then click Resume.`,
+        )
+        if (signal?.aborted) return res
+      }
       res.evidence.push(await capture(page, runDir, 'county-official-page'))
       const { values, audit } = await extractFields(page, selectors.county.fields, {})
       audit.forEach((a) => res.audit.push({ page: 'County', ...a }))

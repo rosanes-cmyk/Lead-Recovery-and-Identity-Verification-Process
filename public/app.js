@@ -140,6 +140,7 @@ function handleEvent(ev) {
     case 'log': addLog(`${ev.source ? ev.source + ': ' : ''}${ev.message}`); break
     case 'input-updated': fillInputs(ev.input); addLog(ev.message, 'state'); break
     case 'login-required':
+    case 'action-required':
       setState('login')
       $('login-banner').hidden = false
       $('login-banner').textContent = ev.message

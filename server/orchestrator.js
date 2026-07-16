@@ -149,14 +149,7 @@ export class Investigation extends EventEmitter {
       this.emit({ type: 'source-start', source: source.label })
       let result
       try {
-        result = await source.run({
-          page,
-          input: this.input,
-          data: this.data,
-          emit: (e) => this.emit(e),
-          runDir: runDir(this.runId),
-          signal: this._abort.signal,
-        })
+        result = await source.run(this._ctx(page, source))
       } catch (err) {
         result = { source: source.label, ok: false, loginRequired: false, data: {}, evidence: [], notes: [`Unexpected error: ${String(err)}`] }
       }
@@ -166,10 +159,7 @@ export class Investigation extends EventEmitter {
         await this.requireLogin(source.label)
         if (this.state !== 'stopped') {
           try {
-            result = await source.run({
-              page, input: this.input, data: this.data,
-              emit: (e) => this.emit(e), runDir: runDir(this.runId), signal: this._abort.signal,
-            })
+            result = await source.run(this._ctx(page, source))
           } catch (err) {
             result.notes.push(`Retry after login failed: ${String(err)}`)
           }
@@ -192,6 +182,31 @@ export class Investigation extends EventEmitter {
     }
 
     return this.finalize(this.state === 'stopped' ? 'stopped' : 'done')
+  }
+
+  // Build the context object passed to each source module.
+  _ctx(page, source) {
+    return {
+      page,
+      input: this.input,
+      data: this.data,
+      emit: (e) => this.emit(e),
+      runDir: runDir(this.runId),
+      signal: this._abort.signal,
+      // Let a source pause and ask the operator to bring up a record (search /
+      // navigate) before it extracts. Resolves when the operator clicks Resume.
+      pauseForAction: (message) => this.requireAction(source.label, message),
+    }
+  }
+
+  // Pause and ask the operator to take an action (navigate/search), then resume.
+  async requireAction(source, message) {
+    if (this.state === 'stopped') return
+    this.state = 'login' // reuse the paused/resume UI affordance
+    this._beginPause()
+    this._pauseGate = new Promise((res) => (this._resume = res))
+    this.emit({ type: 'action-required', source, message })
+    await this._pauseGate
   }
 
   // Fill any blank input fields from the CRM lead the app just read, so the
