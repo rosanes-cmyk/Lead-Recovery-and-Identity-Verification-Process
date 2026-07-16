@@ -76,6 +76,15 @@ const candidates = await page.evaluate(() => {
     }
   })
   const aria = Array.from(document.querySelectorAll('[aria-label]')).map((e) => ({ label: e.getAttribute('aria-label'), text: short(e.textContent || e.value) }))
+  // Search boxes / text inputs — needed to automate a site's address search.
+  const inputs = Array.from(document.querySelectorAll('input,textarea')).map((e) => ({
+    tag: e.tagName.toLowerCase(),
+    type: e.getAttribute('type') || '',
+    id: e.id || '',
+    name: e.getAttribute('name') || '',
+    placeholder: e.getAttribute('placeholder') || '',
+    ariaLabel: e.getAttribute('aria-label') || '',
+  })).filter((i) => i.type !== 'hidden').slice(0, 60)
   const labels = []
   document.querySelectorAll('dt,th,label,strong,b').forEach((el) => {
     const t = short(el.textContent)
@@ -84,7 +93,7 @@ const candidates = await page.evaluate(() => {
       labels.push({ label: t, nearbyValue: val })
     }
   })
-  return { dataAttrs: dataAttrs.slice(0, 200), aria: aria.slice(0, 100), labels: labels.slice(0, 200) }
+  return { dataAttrs: dataAttrs.slice(0, 200), aria: aria.slice(0, 100), labels: labels.slice(0, 200), inputs }
 })
 
 // 3) Scan the page for anything that looks like a phone or email, with context.
@@ -103,6 +112,14 @@ candidates.labels
   .filter((l) => l.nearbyValue && l.nearbyValue.length < 100)
   .slice(0, 60)
   .forEach((l) => console.log(`  "${l.label}" -> ${l.nearbyValue}`))
+
+console.log('\n=== Input / search boxes on the page (for automating search) ===')
+if (!candidates.inputs.length) console.log('  (none found)')
+candidates.inputs.forEach((i) =>
+  console.log(`  ${i.tag}${i.type ? '[type=' + i.type + ']' : ''}` +
+    `${i.id ? ' #' + i.id : ''}${i.name ? ' name=' + i.name : ''}` +
+    `${i.placeholder ? ' placeholder="' + i.placeholder + '"' : ''}${i.ariaLabel ? ' aria-label="' + i.ariaLabel + '"' : ''}`),
+)
 
 console.log('\n=== Phones / emails detected anywhere on the page ===')
 console.log('  phones:', contacts.phones.join(', ') || '(none found in page text)')
