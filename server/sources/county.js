@@ -7,6 +7,8 @@
 import { capture } from '../browser.js'
 import { emptyResult, goto } from './base.js'
 import { searchWeb } from './google.js'
+import { selectors } from './selectors.js'
+import { extractFields, FIELD_NOT_FOUND } from './extract.js'
 
 export const id = 'county'
 export const label = 'County Records'
@@ -40,26 +42,32 @@ export async function run(ctx) {
     if (pick) found.push({ query, ...pick })
   }
 
-  // Open the most promising official page and capture it for the operator.
+  // Open the most promising official page, capture it, and attempt extraction
+  // using the generic label-based county field specs.
+  res.audit = []
   const top = found.find((f) => /\.gov|county|assessor/i.test(f.url)) || found[0]
   if (top) {
     try {
       emit({ type: 'log', source: label, message: `Opening ${top.url}` })
       await goto(page, top.url, { signal })
       res.evidence.push(await capture(page, runDir, 'county-official-page'))
+      const { values, audit } = await extractFields(page, selectors.county.fields, {})
+      audit.forEach((a) => res.audit.push({ page: 'County', ...a }))
+      res.data = { candidatePages: found, ...values }
+      const gotOwner = values.recordedOwner && values.recordedOwner !== FIELD_NOT_FOUND
+      if (gotOwner) emit({ type: 'log', source: label, message: `Recorded owner: ${values.recordedOwner}` })
     } catch (err) {
-      res.notes.push(`Could not open county page: ${String(err)}`)
+      res.notes.push(`Could not open/parse county page: ${String(err)}`)
     }
   }
 
-  res.data = { candidatePages: found }
+  if (!res.data) res.data = { candidatePages: found }
   res.ok = found.length > 0
-  if (!found.length)
-    res.notes.push('No county record pages located (search may have been blocked).')
+  if (!found.length) res.notes.push('No county record pages located (search may have been blocked).')
   else
     res.notes.push(
-      'County official pages located and captured. Recorded-owner extraction is per-county; ' +
-        'review the captured pages or add a county sub-module for automatic parsing.',
+      'County pages located and captured. Owner/APN extraction uses generic label matching; ' +
+        'many county sites need a county-specific parser — add one to selectors.js when known.',
     )
   return res
 }

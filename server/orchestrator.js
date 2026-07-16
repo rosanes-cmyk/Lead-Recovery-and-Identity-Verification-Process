@@ -6,6 +6,8 @@
 // approval endpoints, which refuse to act while the app is in dry-run mode.
 
 import { EventEmitter } from 'node:events'
+import fs from 'node:fs'
+import path from 'node:path'
 import { config } from './config.js'
 import { getPage, closeBrowser } from './browser.js'
 import { sources } from './sources/index.js'
@@ -27,6 +29,7 @@ export class Investigation extends EventEmitter {
     this.data = { input: this.input, crm: {}, ownership: {}, corroboration: {}, peoplesearch: {}, county: {}, google: {} }
     this.sourcesChecked = []
     this.evidence = []
+    this.audit = []
     this.report = null
     this._abort = new AbortController()
     this._pauseGate = null // Promise resolved on resume
@@ -169,17 +172,29 @@ export class Investigation extends EventEmitter {
   // Merge a source result into the consolidated data model.
   _absorb(source, result) {
     ;(result.evidence || []).forEach((e) => this.evidence.push({ ...e, source: source.label }))
+    ;(result.audit || []).forEach((a) => this.audit.push({ source: source.label, ...a }))
     this.sourcesChecked.push({
       source: source.label,
       summary: result.ok ? 'checked' : (result.notes?.[0] || 'not available'),
+      notes: result.notes || [],
     })
-    const d = result.data || {}
+    const d = cleanFields(result.data || {})
     switch (source.id) {
       case 'reiblackbook':
         this.data.crm = { ...this.data.crm, ...d }
         break
       case 'propertyradar':
-        this.data.ownership = { recordedOwner: d.ownerName, ownershipType: d.ownershipType, vesting: d.vesting, mailingAddress: d.mailingAddress, occupancy: d.occupancy, source: 'PropertyRadar', ...stripEmpty(this.data.ownership) }
+        this.data.ownership = {
+          ...this.data.ownership,
+          recordedOwner: d.ownerName || this.data.ownership.recordedOwner,
+          ownershipType: d.ownershipType || this.data.ownership.ownershipType,
+          vesting: d.vesting || this.data.ownership.vesting,
+          mailingAddress: d.mailingAddress || this.data.ownership.mailingAddress,
+          occupancy: d.occupancy || this.data.ownership.occupancy,
+          apn: d.apn || this.data.ownership.apn,
+          trustEntity: d.trustEntity || this.data.ownership.trustEntity,
+          source: d.ownerName ? 'PropertyRadar' : this.data.ownership.source,
+        }
         break
       case 'dealmachine':
         this.data.corroboration.dealmachine = d
@@ -190,6 +205,18 @@ export class Investigation extends EventEmitter {
         break
       case 'county':
         this.data.county = d
+        // County is a strong ownership source; fill gaps.
+        if (d.recordedOwner) {
+          if (!this.data.ownership.recordedOwner) {
+            this.data.ownership.recordedOwner = d.recordedOwner
+            this.data.ownership.source = 'County Records'
+          }
+          this.data.ownership.apn = this.data.ownership.apn || d.apn
+          this.data.ownership.vesting = this.data.ownership.vesting || d.vesting
+          this.data.ownership.mailingAddress = this.data.ownership.mailingAddress || d.ownerMailingAddress
+          this.data.ownership.documentNumber = d.documentNumber
+          this.data.ownership.recordingDate = d.recordingDate
+        }
         break
       case 'google':
         this.data.google = d
@@ -206,9 +233,22 @@ export class Investigation extends EventEmitter {
       input: this.input,
       data: this.data,
       evidence: this.evidence,
+      audit: this.audit,
       log: this.log,
       meta: this._meta(),
       state: this.state,
+    }
+  }
+
+  // Persist the extraction audit trail as a JSONL file (one line per field).
+  _writeAuditLog() {
+    try {
+      const dir = runDir(this.runId)
+      const lines = this.audit.map((a) => JSON.stringify(a)).join('\n')
+      fs.writeFileSync(path.join(dir, 'audit.jsonl'), lines + '\n')
+      return path.join(dir, 'audit.jsonl')
+    } catch {
+      return ''
     }
   }
 
@@ -226,7 +266,15 @@ export class Investigation extends EventEmitter {
 
   finalize(finalState) {
     const scored = score(this.data)
-    const meta = this._meta({ dueDate: this.input.dueDate || '' })
+    const dateChecked = new Date().toISOString().slice(0, 10)
+    const auditLogPath = this._writeAuditLog()
+    const meta = this._meta({
+      dueDate: this.input.dueDate || '',
+      dateChecked,
+      auditLogPath,
+      screenshotsDir: path.join(runDir(this.runId), 'evidence'),
+      peopleSearchEnabled: config.peopleSearchEnabled,
+    })
     const nextTask = buildNextTask(scored, meta)
     const report = {
       runId: this.runId,
@@ -235,6 +283,7 @@ export class Investigation extends EventEmitter {
       scored,
       nextTask,
       evidence: this.evidence,
+      audit: this.audit,
       log: this.log,
       meta,
       state: finalState,
@@ -282,9 +331,17 @@ function normalizeInput(raw = {}) {
   }
 }
 
-function stripEmpty(obj) {
+// Normalize a source's extracted fields: turn the FIELD NOT FOUND sentinel and
+// empty lists into empty values so downstream merge/scoring treats them as
+// "absent" (never as a real value), while the note still shows FIELD NOT FOUND
+// where the field was expected.
+function cleanFields(obj) {
   const out = {}
-  for (const [k, v] of Object.entries(obj || {})) if (v) out[k] = v
+  for (const [k, v] of Object.entries(obj || {})) {
+    if (v === 'FIELD NOT FOUND') out[k] = ''
+    else if (Array.isArray(v)) out[k] = v
+    else out[k] = v
+  }
   return out
 }
 

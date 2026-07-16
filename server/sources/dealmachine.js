@@ -1,9 +1,10 @@
-// DealMachine — cross-checks ownership, property info, and available contact
-// information. Used to corroborate PropertyRadar / county, not as sole proof.
+// DealMachine — cross-checks owner, mailing address, property, contacts,
+// occupancy, and property details.
 
 import { looksLikeLogin, capture } from '../browser.js'
-import { emptyResult, textOf, goto } from './base.js'
+import { emptyResult, goto } from './base.js'
 import { selectors, fillUrl } from './selectors.js'
+import { extractFields, FIELD_NOT_FOUND } from './extract.js'
 
 export const id = 'dealmachine'
 export const label = 'DealMachine'
@@ -12,6 +13,7 @@ export const loginGated = true
 export async function run(ctx) {
   const { page, input, emit, runDir, signal } = ctx
   const res = emptyResult(label)
+  res.audit = []
   const cfg = selectors.dealmachine
 
   if (!input.address) {
@@ -46,19 +48,20 @@ export async function run(ctx) {
   }
 
   res.evidence.push(await capture(page, runDir, 'dealmachine-result'))
+  const { values, audit } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
+  audit.forEach((a) => res.audit.push({ page: 'Property', ...a }))
+  emit({ type: 'log', source: label, message: `Fields: ${audit.filter((a) => a.ok).length}/${audit.length} found` })
 
-  const r = cfg.result
-  if (Object.values(r).some(Boolean)) {
-    res.data = {
-      ownerName: await textOf(page, r.ownerName),
-      mailingAddress: await textOf(page, r.mailingAddress),
-      phones: await textOf(page, r.phones),
-      emails: await textOf(page, r.emails),
-    }
-    res.ok = Boolean(res.data.ownerName || res.data.phones)
-  } else {
-    res.notes.push('DealMachine selectors not configured. Screenshot captured for review.')
-    res.ok = true
+  res.data = {
+    ownerName: values.ownerName,
+    mailingAddress: values.ownerMailingAddress,
+    propertyAddress: values.propertyAddress,
+    phones: values.phones,
+    emails: values.emails,
+    occupancy: values.occupancy,
+    propertyDetails: values.propertyDetails,
   }
+  res.ok = (values.ownerName && values.ownerName !== FIELD_NOT_FOUND) || (values.phones && values.phones.length > 0)
+  if (!res.ok) res.notes.push('Owner/contacts not found. Run `npm run calibrate dealmachine <url>` to capture selectors.')
   return res
 }

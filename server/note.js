@@ -1,29 +1,59 @@
 // Builds the REI BlackBook investigation note and the next-task recommendation
 // from the scored result. Mirrors the SOP note template.
 
+// Dedupe a phone list by digits, preferring a human-formatted representation.
+function dedupePhones(list = []) {
+  const byDigits = new Map()
+  for (const raw of list) {
+    const d = String(raw).replace(/\D/g, '').replace(/^1(\d{10})$/, '$1')
+    if (d.length < 10) continue
+    const formatted = /[()\-\s]/.test(String(raw))
+    if (!byDigits.has(d) || (formatted && !/[()\-\s]/.test(byDigits.get(d)))) byDigits.set(d, raw)
+  }
+  return [...byDigits.values()]
+}
+
 export function buildNote(report) {
   const { input, data, scored, meta } = report
   const L = []
   const line = (label, value) => L.push(`${label} ${value == null || value === '' ? '' : value}`.trimEnd())
+  const NF = 'FIELD NOT FOUND'
+  const show = (v) => (v && v !== NF ? v : NF)
+  const date = meta.dateChecked || (meta.date || '').slice(0, 10)
 
   L.push('LEAD RECOVERY INVESTIGATION', '')
   line('Task:', 'Investigate and Verify Seller Identity and Contact Information')
-  line('Seller Name:', data.crm?.sellerName || input.name || '')
-  line('Verified Name:', scored.verifiedName)
+  line('Seller Name (CRM):', data.crm?.sellerName || input.name || '')
+  line('Verified Name:', scored.verifiedName || NF)
+  line('  Source / Date / Confidence:', `${scored.verifiedNameSource || NF} / ${date} / ${scored.nameConfidence}`)
   line('Property Address:', input.address || data.crm?.propertyAddress || '')
-  line('Lead ID:', input.leadId || '')
+  line('Lead ID:', data.crm?.leadId && data.crm.leadId !== NF ? data.crm.leadId : input.leadId || '')
   line('Investigation Date:', meta.date)
   line('Investigation Type:', meta.type)
   line('Time Used:', `${meta.minutesUsed} min (limit ${meta.limitMin} min)`)
   line('Outreach Authorized:', 'No')
   line('Relative Contact Authorized:', 'No')
+  line('People Search:', meta.peopleSearchEnabled ? 'Enabled (approved)' : 'Disabled (no Cherry Hombre approval)')
+
+  L.push('', 'CRM LEAD SNAPSHOT (REI BlackBook)')
+  line('Lead Stage:', show(data.crm?.leadStage))
+  line('Disposition:', show(data.crm?.disposition))
+  line('Assigned Team Member:', show(data.crm?.assignedTeamMember))
+  line('Last Activity:', show(data.crm?.lastActivity))
+  line('Phones on File:', dedupePhones(data.crm?.phones || []).join(', ') || NF)
+  line('Emails on File:', [...new Set(data.crm?.emails || [])].join(', ') || NF)
+  line('Mailing on File:', show(data.crm?.mailingAddress))
 
   L.push('', 'OWNERSHIP FINDINGS')
-  line('Recorded Owner:', data.ownership?.recordedOwner || '')
-  line('Ownership Type / Vesting:', [data.ownership?.ownershipType, data.ownership?.vesting].filter(Boolean).join(' '))
-  line('Owner Mailing Address:', data.ownership?.mailingAddress || '')
-  line('Source:', data.ownership?.source || '')
-  line('Name Confidence:', scored.nameConfidence)
+  line('Recorded Owner:', show(data.ownership?.recordedOwner))
+  line('Ownership Type / Vesting:', [data.ownership?.ownershipType, data.ownership?.vesting].filter((v) => v && v !== NF).join(' ') || NF)
+  line('APN:', show(data.ownership?.apn))
+  line('Owner Mailing Address:', show(data.ownership?.mailingAddress))
+  line('Occupancy:', show(data.ownership?.occupancy))
+  line('Trust / Entity:', show(data.ownership?.trustEntity))
+  line('Recording Date:', show(data.ownership?.recordingDate))
+  line('Document Number:', show(data.ownership?.documentNumber))
+  line('Source / Date:', `${data.ownership?.source || NF} / ${date}`)
 
   L.push('', 'NAME COMPARISON')
   line('Recorded:', scored.nameComparison.recorded || '(none)')
@@ -34,16 +64,15 @@ export function buildNote(report) {
   L.push('', 'CONTACT VERIFICATION')
   if (scored.bestPhone) {
     line('Best Phone:', scored.bestPhone.number)
-    line('  Status:', scored.bestPhone.status)
-    line('  Confidence:', scored.bestPhone.confidence)
-    line('  Sources:', scored.bestPhone.sources.join(', '))
+    line('  Status / Confidence:', `${scored.bestPhone.status} / ${scored.bestPhone.confidence}`)
+    line('  Source / Date:', `${scored.bestPhone.sources.join(', ')} / ${date}`)
   } else {
-    line('Best Phone:', '(none confirmed)')
+    line('Best Phone:', NF)
   }
-  line('Best Email:', scored.bestEmail || '(none)')
-  line('  Email Confidence:', scored.emailConfidence || 'n/a')
-  line('Confirmed Mailing Address:', scored.bestMailing || '(unconfirmed)')
-  line('  Mailing Confidence:', scored.mailingConfidence)
+  line('Best Email:', scored.bestEmail || NF)
+  line('  Source / Date / Confidence:', `${scored.bestEmailSource || NF} / ${date} / ${scored.emailConfidence || 'n/a'}`)
+  line('Confirmed Mailing Address:', scored.bestMailing || NF)
+  line('  Source / Date / Confidence:', `${scored.bestMailingSource || NF} / ${date} / ${scored.mailingConfidence}`)
 
   if (scored.possibleContacts.length) {
     L.push('', 'POSSIBLE CONTACTS (UNVERIFIED CLUES)')
@@ -62,6 +91,11 @@ export function buildNote(report) {
 
   L.push('', 'SOURCES CHECKED')
   meta.sourcesChecked.forEach((s) => line(`${s.source}:`, s.summary))
+
+  L.push('', 'EVIDENCE & AUDIT')
+  line('Screenshots:', meta.screenshotsDir || '(none)')
+  line('Audit log:', meta.auditLogPath || '(none)')
+  line('Screenshots captured:', String((report.evidence || []).length))
 
   L.push('', 'FINAL RECOMMENDATION')
   line('Recommended Status:', scored.recommendedStatus)

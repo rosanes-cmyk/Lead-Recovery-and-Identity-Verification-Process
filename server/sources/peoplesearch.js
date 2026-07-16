@@ -13,6 +13,7 @@
 import { looksLikeLogin, capture } from '../browser.js'
 import { emptyResult, goto } from './base.js'
 import { selectors, fillUrl } from './selectors.js'
+import { config } from '../config.js'
 
 export const id = 'peoplesearch'
 export const label = 'Approved People Search'
@@ -21,13 +22,23 @@ export const loginGated = true
 export async function run(ctx) {
   const { page, input, data, emit, runDir, signal } = ctx
   const res = emptyResult(label)
-  const cfg = selectors.peoplesearch
+  const cfg = selectors.peoplesearch || {}
+
+  // Hard gate: disabled until Cherry Hombre approves an aggregator in writing.
+  if (!config.peopleSearchEnabled) {
+    res.notes.push(
+      'People search is DISABLED (PEOPLE_SEARCH_ENABLED=false). Do not use TruePeopleSearch, ' +
+        'Spokeo, FastPeopleSearch, or any aggregator unless Cherry Hombre has approved it in writing. ' +
+        'When approved, results are clues only and must be cross-checked with official/property sources.',
+    )
+    res.ok = true // intentional skip, not a failure
+    return res
+  }
 
   if (!cfg.name || !hasAnyUrl(cfg)) {
     res.notes.push(
-      'No approved people-search provider configured. Set selectors.js -> peoplesearch ' +
-        '(provider name, search URLs, and result selectors) for your company-approved tool. ' +
-        'People search is intentionally skipped until an approved tool is set.',
+      'People search enabled but no approved provider configured. Set selectors.js -> peoplesearch ' +
+        '(provider name, search URLs, and result selectors) for the Cherry-Hombre-approved tool.',
     )
     return res
   }

@@ -27,6 +27,10 @@ export const config = {
   autoCreateTask: bool(process.env.AUTO_CREATE_TASK, false),
   autoReassign: bool(process.env.AUTO_REASSIGN, false),
 
+  // People search stays OFF until Cherry Hombre approves an aggregator in
+  // writing. When enabled, results are clues only and must be cross-checked.
+  peopleSearchEnabled: bool(process.env.PEOPLE_SEARCH_ENABLED, false),
+
   // Demo mode: run the whole flow with synthetic findings and NO real browser,
   // so the UI can be explored without logging into any site. Off by default.
   demoMode: bool(process.env.DEMO_MODE, false),

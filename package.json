@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node server/index.js",
     "setup": "node scripts/setup.js",
+    "calibrate": "node scripts/calibrate.js",
+    "test:fixture": "node test/fixture-live-test.mjs",
     "install-browser": "npx playwright install chromium"
   },
   "dependencies": {

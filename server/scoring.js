@@ -26,6 +26,13 @@ export function score(data) {
   if (dmName) ownerSources.push({ name: dmName, source: 'DealMachine' })
 
   let verifiedName = recorded || dmName || crmName || ''
+  let verifiedNameSource = recorded
+    ? data.ownership?.source || 'PropertyRadar'
+    : dmName
+      ? 'DealMachine'
+      : crmName
+        ? 'REI BlackBook'
+        : ''
   let nameConfidence = 'Low'
 
   if (recorded && crmName) {
@@ -68,18 +75,17 @@ export function score(data) {
   }
 
   // ---- Mailing address ----------------------------------------------------
-  const mailingCandidates = uniq(
-    [
-      data.ownership?.mailingAddress,
-      data.corroboration?.dealmachine?.mailingAddress,
-      data.crm?.mailingAddress,
-    ]
-      .map(clean)
-      .filter(Boolean),
-  )
-  let bestMailing = mailingCandidates[0] || ''
+  const mailingWithSource = [
+    { addr: clean(data.ownership?.mailingAddress), source: data.ownership?.source || 'PropertyRadar', strong: true },
+    { addr: clean(data.corroboration?.dealmachine?.mailingAddress), source: 'DealMachine', strong: false },
+    { addr: clean(data.crm?.mailingAddress), source: 'REI BlackBook', strong: false },
+  ].filter((m) => m.addr)
+  const mailingCandidates = uniq(mailingWithSource.map((m) => m.addr))
+  const bestMailingRec = mailingWithSource[0] || null
+  let bestMailing = bestMailingRec?.addr || ''
+  let bestMailingSource = bestMailingRec?.source || ''
   let mailingConfidence = 'Low'
-  if (data.ownership?.mailingAddress) mailingConfidence = 'High' // county/PR of record
+  if (bestMailingRec?.strong) mailingConfidence = 'High' // county/PR of record
   else if (bestMailing) mailingConfidence = 'Medium'
   if (mailingCandidates.length > 1) {
     conflicts.push({
@@ -90,11 +96,14 @@ export function score(data) {
 
   // ---- Phones -------------------------------------------------------------
   const phoneMap = new Map() // normalized -> { number, sources:Set, names:Set }
+  const formatted = (raw) => /[()\-\s]/.test(String(raw))
   const addPhone = (raw, source, name) => {
     const n = normPhone(raw)
     if (n.length < 10) return
     if (!phoneMap.has(n)) phoneMap.set(n, { number: raw, sources: new Set(), names: new Set() })
     const rec = phoneMap.get(n)
+    // Prefer a human-formatted display over a bare tel: form for the same number.
+    if (formatted(raw) && !formatted(rec.number)) rec.number = raw
     rec.sources.add(source)
     if (name) rec.names.add(clean(name))
   }
@@ -124,11 +133,11 @@ export function score(data) {
   const bestPhone = phones.find((p) => p.confidence === 'Medium') || phones[0] || null
 
   // ---- Emails -------------------------------------------------------------
-  const emailSet = uniq(
-    [...(data.crm?.emails || []), data.input?.email].map(clean).filter(Boolean),
-  )
+  const crmEmails = (data.crm?.emails || []).map(clean).filter(Boolean)
+  const emailSet = uniq([...crmEmails, clean(data.input?.email)].filter(Boolean))
   const bestEmail = emailSet[0] || ''
-  const emailConfidence = emailSet.length ? (data.crm?.emails?.length ? 'Medium' : 'Low') : ''
+  const bestEmailSource = crmEmails.length ? 'REI BlackBook' : bestEmail ? 'Provided input' : ''
+  const emailConfidence = emailSet.length ? (crmEmails.length ? 'Medium' : 'Low') : ''
 
   // ---- Possible contacts (weak matches kept, never promoted) --------------
   psRows(data).forEach((row) => {
@@ -172,13 +181,16 @@ export function score(data) {
 
   return {
     verifiedName,
+    verifiedNameSource,
     nameConfidence,
     nameComparison: { recorded, crm: crmName, dealmachine: dmName, match: recorded && crmName ? nameMatch(recorded, crmName) : null },
     bestPhone,
     phones,
     bestEmail,
+    bestEmailSource,
     emailConfidence,
     bestMailing,
+    bestMailingSource,
     mailingConfidence,
     trustFlag,
     conflicts,
@@ -257,6 +269,8 @@ function psRows(data) {
   ;(data.peoplesearch?.results || []).forEach((r) => out.push(...(r.rows || [])))
   return out
 }
+// Only identity-level conflicts force Management Review. A property-vs-owner
+// mailing difference is normal and is preserved as a flag, not a blocker.
 function hasMismatch(conflicts) {
-  return conflicts.some((c) => /mismatch|another person|multiple/i.test(c.type))
+  return conflicts.some((c) => /owner name mismatch|another person|multiple possible owners/i.test(c.type))
 }

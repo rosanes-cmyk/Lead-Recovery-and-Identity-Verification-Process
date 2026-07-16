@@ -119,19 +119,65 @@ Reject · Save edits · Export note · Export report.**
 
 ---
 
-## Configuring the live sources
+## Configuring the live sources (calibration)
 
-The app is site-agnostic except for a few **selectors** — the small bits that
-tell it where owner name, mailing address, etc. sit on each site's page. Those
-differ per account and change over time, so they live in one file:
+The app is site-agnostic except for the **selectors** — the small specs that
+tell it where each field sits on a page. They live in one file:
 
-- **`server/sources/selectors.js`** — fill in URLs and selectors for REI
-  BlackBook, PropertyRadar, DealMachine, and your approved people-search tool.
+- **`server/sources/selectors.js`** — an ordered list of strategies per field.
 
-Until a selector is filled in, that source still **navigates, detects login
-walls, and captures a screenshot** as evidence — it just reports the field as
-"needs configuration" instead of guessing. Each source is a separate module, so
-an official API can be dropped in later without touching the rest of the app.
+The defaults lead with **label-based** strategies (find the visible field label,
+read the value next to it) and semantic ones (`tel:` / `mailto:` links for
+phones/emails). Those often work before any site-specific tuning. Strategy
+priority, per the SOP:
+
+1. Stable data attributes → 2. Accessible labels → 3. Text labels + nearby value
+→ 4. Semantic HTML → 5. Stable URLs/tabs → 6. CSS (last resort).
+
+If none match, the engine returns **`FIELD NOT FOUND`** — it never guesses or
+substitutes another value.
+
+### The calibration command
+
+To tune selectors against a real page, run:
+
+```bash
+npm run calibrate -- reiblackbook https://members.reiblackbook.com/leads/<id>
+```
+
+It opens the page, waits for you to log in and press ENTER, then prints which
+selectors matched, and saves to `runs/_calibration/<source>/`:
+
+- `candidates.json` — every data attribute, aria-label, and field label on the page
+- `extracted.json` — what the current selectors found
+- `page.html` + a screenshot
+
+Add the stable strategies you find (data attributes first) to the front of each
+field's list in `selectors.js`. Nothing on the website is ever changed.
+
+### The one-lead live test
+
+Run a full investigation against one real lead in dry-run mode from the UI, then
+confirm the report matches the sites by eye. The success bar: REI BlackBook lead
++ contact extracted, at least one ownership source extracted, names compared,
+contacts classified, conflicts preserved, note generated, stops at approval, no
+CRM change, and screenshots + `audit.jsonl` prove each step (saved under
+`runs/<runId>/`).
+
+A structural proof of the extract→compare→report pipeline (against local page
+fixtures, not real accounts) runs with:
+
+```bash
+npm run test:fixture
+```
+
+## People search — disabled by default
+
+`PEOPLE_SEARCH_ENABLED=false`. Do **not** use TruePeopleSearch, Spokeo,
+FastPeopleSearch, or any aggregator unless **Cherry Hombre approves it in
+writing.** When enabled, results are treated as clues only and cross-checked
+against official / property-data sources; nobody is labeled a relative without a
+lawful record.
 
 ---
 

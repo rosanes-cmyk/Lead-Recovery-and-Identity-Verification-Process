@@ -1,9 +1,10 @@
-// PropertyRadar — confirms ownership, vesting, mailing address, occupancy.
-// Treated as a strong ownership source.
+// PropertyRadar — recorded owner, vesting, ownership type, owner mailing
+// address, property address, occupancy, APN, phones, emails, trust/entity.
 
 import { looksLikeLogin, capture } from '../browser.js'
-import { emptyResult, textOf, goto } from './base.js'
+import { emptyResult, goto } from './base.js'
 import { selectors, fillUrl } from './selectors.js'
+import { extractFields, FIELD_NOT_FOUND } from './extract.js'
 
 export const id = 'propertyradar'
 export const label = 'PropertyRadar'
@@ -12,6 +13,7 @@ export const loginGated = true
 export async function run(ctx) {
   const { page, input, emit, runDir, signal } = ctx
   const res = emptyResult(label)
+  res.audit = []
   const cfg = selectors.propertyradar
 
   if (!input.address) {
@@ -21,7 +23,7 @@ export async function run(ctx) {
 
   const url = fillUrl(cfg.searchUrlForAddress, { address: input.address }) || cfg.loginUrl
   try {
-    emit({ type: 'log', source: label, message: `Searching ownership for ${input.address}` })
+    emit({ type: 'log', source: label, message: `Confirming ownership for ${input.address}` })
     await goto(page, url, { signal })
   } catch (err) {
     res.notes.push(`Could not open PropertyRadar: ${String(err)}`)
@@ -35,36 +37,34 @@ export async function run(ctx) {
     return res
   }
 
-  // If there's no direct search URL, try the on-page search box.
   if (!cfg.searchUrlForAddress && cfg.searchBox) {
     try {
       await page.fill(cfg.searchBox, input.address, { timeout: 4000 })
       await page.keyboard.press('Enter')
       await page.waitForTimeout(2500)
     } catch {
-      /* leave a screenshot; operator can complete the search */
+      /* screenshot only */
     }
   }
 
   res.evidence.push(await capture(page, runDir, 'propertyradar-result'))
+  const { values, audit } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
+  audit.forEach((a) => res.audit.push({ page: 'Property', ...a }))
+  emit({ type: 'log', source: label, message: `Fields: ${audit.filter((a) => a.ok).length}/${audit.length} found` })
 
-  const r = cfg.result
-  if (Object.values(r).some(Boolean)) {
-    res.data = {
-      ownerName: await textOf(page, r.ownerName),
-      ownershipType: await textOf(page, r.ownershipType),
-      vesting: await textOf(page, r.vesting),
-      mailingAddress: await textOf(page, r.mailingAddress),
-      occupancy: await textOf(page, r.occupancy),
-    }
-    res.ok = Boolean(res.data.ownerName)
-    if (!res.ok) res.notes.push('PropertyRadar page loaded but owner name selector matched nothing.')
-  } else {
-    res.notes.push(
-      'PropertyRadar selectors not configured. Ownership screenshot captured; configure ' +
-        'selectors.js result fields to auto-extract owner, vesting, and mailing address.',
-    )
-    res.ok = true
+  res.data = {
+    ownerName: values.recordedOwner,
+    ownershipType: values.ownershipType,
+    vesting: values.vesting,
+    mailingAddress: values.ownerMailingAddress,
+    propertyAddress: values.propertyAddress,
+    occupancy: values.occupancy,
+    apn: values.apn,
+    phones: values.phones,
+    emails: values.emails,
+    trustEntity: values.trustEntity,
   }
+  res.ok = values.recordedOwner && values.recordedOwner !== FIELD_NOT_FOUND
+  if (!res.ok) res.notes.push('Recorded owner not found. Run `npm run calibrate propertyradar <url>` to capture selectors.')
   return res
 }
