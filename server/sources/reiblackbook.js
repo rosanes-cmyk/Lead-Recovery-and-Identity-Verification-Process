@@ -51,26 +51,37 @@ export async function run(ctx) {
   const data = { ...lead.values }
 
   // --- Attached contact record ---
-  try {
-    const contactHref = await resolveField(page, cfg.contactLink)
-    if (contactHref.ok) {
-      const url = new URL(contactHref.value, page.url()).href
-      emit({ type: 'log', source: label, message: `Opening attached contact: ${url}` })
-      await goto(page, url, { signal })
-      if (await looksLikeLogin(page)) {
-        res.loginRequired = true
-        res.evidence.push(await capture(page, runDir, 'reibb-contact-login'))
-        return res
+  // If the lead link is ALREADY a contact record (…/contacts/<id>), we're on
+  // the contact — don't chase a separate link (that mistakenly grabbed a
+  // settings link before). Otherwise, follow a link to a real contact record.
+  const currentUrl = page.url()
+  const alreadyOnContact = /\/contacts?\/\d+/i.test(currentUrl)
+  if (alreadyOnContact) {
+    res.notes.push('Lead link is already a contact record; reading it directly (communication history is on this record’s tabs).')
+  } else {
+    try {
+      const contactHref = await resolveField(page, cfg.contactLink)
+      const candidate = contactHref.ok ? new URL(contactHref.value, currentUrl).href : ''
+      // Only follow links to an actual contact record: /contacts/<digits>.
+      const isRealContact = /\/contacts?\/\d+/i.test(candidate) && candidate !== currentUrl
+      if (isRealContact) {
+        emit({ type: 'log', source: label, message: `Opening attached contact: ${candidate}` })
+        await goto(page, candidate, { signal })
+        if (await looksLikeLogin(page)) {
+          res.loginRequired = true
+          res.evidence.push(await capture(page, runDir, 'reibb-contact-login'))
+          return res
+        }
+        res.evidence.push(await capture(page, runDir, 'reibb-contact'))
+        const contact = await extractFields(page, cfg.fields, { listFields: LIST_FIELDS, semantics: SEMANTICS })
+        contact.audit.forEach((a) => res.audit.push({ page: 'Contact', ...a }))
+        mergeContact(data, contact.values)
+      } else {
+        res.notes.push('No attached contact record link found on the lead. Review the lead page manually.')
       }
-      res.evidence.push(await capture(page, runDir, 'reibb-contact'))
-      const contact = await extractFields(page, cfg.fields, { listFields: LIST_FIELDS, semantics: SEMANTICS })
-      contact.audit.forEach((a) => res.audit.push({ page: 'Contact', ...a }))
-      mergeContact(data, contact.values)
-    } else {
-      res.notes.push('No attached contact record link found on the lead. Communication history may be missing — review the lead page manually.')
+    } catch (err) {
+      res.notes.push(`Contact record step failed: ${String(err)}`)
     }
-  } catch (err) {
-    res.notes.push(`Contact record step failed: ${String(err)}`)
   }
 
   res.data = data

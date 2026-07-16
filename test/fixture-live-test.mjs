@@ -41,14 +41,14 @@ fs.rmSync(runDir, { recursive: true, force: true })
 fs.mkdirSync(runDir, { recursive: true })
 const baseCtx = { page, input, data: {}, emit, runDir, signal: { aborted: false } }
 
-console.log('\n[1] REI BlackBook — lead + attached contact')
+console.log('\n[1] REI BlackBook — contact/lead record')
 const r1 = await reibb.run(baseCtx)
 check('lead ID extracted', r1.data.leadId === 'LEAD-100294', r1.data.leadId)
 check('seller name extracted', r1.data.sellerName === 'Philip Barber', r1.data.sellerName)
 check('stage extracted', r1.data.leadStage === 'Stalled', r1.data.leadStage)
-check('phone from contact record', (r1.data.phones || []).some((p) => p.includes('555')), (r1.data.phones || []).join(','))
-check('email from contact record', (r1.data.emails || []).includes('pbarber@example.com'), (r1.data.emails || []).join(','))
-check('mailing from contact record', /Evergreen/.test(r1.data.mailingAddress || ''), r1.data.mailingAddress)
+check('phone extracted', (r1.data.phones || []).some((p) => p.includes('555')), (r1.data.phones || []).join(','))
+check('email extracted', (r1.data.emails || []).includes('pbarber@example.com'), (r1.data.emails || []).join(','))
+check('mailing extracted', /Evergreen/.test(r1.data.mailingAddress || ''), r1.data.mailingAddress)
 check('audit trail present', Array.isArray(r1.audit) && r1.audit.length > 0, `${r1.audit?.length} entries`)
 
 console.log('\n[2] PropertyRadar — ownership')
