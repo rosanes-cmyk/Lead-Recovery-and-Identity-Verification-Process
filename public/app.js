@@ -216,6 +216,8 @@ function setState(s) {
   $('btn-pause').hidden = !running
   $('btn-resume').hidden = !(s === 'paused' || s === 'login')
   $('btn-stop').hidden = terminal
+  // Spinner spins while the app is actively working; hidden once finished.
+  $('spinner').hidden = s !== 'running'
   if (terminal) stopTimer()
 }
 function startTimer() {
