@@ -86,7 +86,8 @@ export const selectors = {
   propertyradar: {
     loginUrl: 'https://app.propertyradar.com/',
     searchUrlForAddress: '', // e.g. 'https://app.propertyradar.com/search?address={address}'
-    searchBox: '',
+    searchBox: '', // exact search-input selector (set after calibration for reliability)
+    resultRow: '', // exact first-result selector to click after searching
     fields: {
       recordedOwner: [
         { type: 'labelValue', label: 'Owner' },
