@@ -11,7 +11,42 @@ so the lead can be reassigned and followed up correctly.
 > fraud, or final business decisions. Those belong to a manager or authorized
 > operator.
 
-## What this repository contains
+## The app
+
+A React + Vite single-page app that turns the SOP into a guided tool with a
+lead dashboard. It runs entirely in the browser — **all data is stored in
+`localStorage`; there is no backend and no login.**
+
+### Features
+
+- **Dashboard** — every investigation as a card, with search and status filters
+  (In Progress, Seller Contact Located, Seller Confirmed Interested, No Contact
+  After Investigation, Management Review Required) and a QC progress count.
+- **Guided workflow** — a stepper walks through Setup & Scope, Baseline Review,
+  Ownership, People Search, Contact Verification, Conflicts & Relatives, Sources
+  Checked, Outreach, Recommendation, and QC & Note, each annotated with the SOP
+  rules for that step.
+- **Guardrails built in** — Standard/Enhanced time limits with an over-limit
+  warning, an outreach section that stays locked until outreach is authorized,
+  single-select final status, and a reassignment hint for Management Review.
+- **Findings capture** — add multiple people-search findings, phones (with
+  Confirmed/Likely/Possible/Invalid classification), and emails, each with a
+  source, date, and confidence level.
+- **Note generator** — produces the complete REI BlackBook note (matching the
+  template) to copy or download, plus a live Definition of Done checklist.
+
+### Run it
+
+```bash
+npm install
+npm run dev        # http://localhost:5173
+npm run build      # production build in dist/
+npm run preview    # preview the production build
+```
+
+The build output in `dist/` is a static site and can be hosted anywhere.
+
+## Documentation
 
 | File | Purpose |
 | --- | --- |
@@ -22,17 +57,16 @@ so the lead can be reassigned and followed up correctly.
 
 ## How to run an investigation
 
-1. Read the **[SOP](docs/SOP.md)** and confirm the investigation objective and
-   scope (Standard vs. Enhanced, whether outreach is authorized).
-2. Copy the **[investigation note template](docs/investigation-note-template.md)**
-   into a new REI BlackBook note for the lead.
-3. Work the 15-step workflow, recording a **source, date, and confidence level**
+1. Open the app and click **New investigation** (or read the
+   **[SOP](docs/SOP.md)** for the full process).
+2. Confirm the investigation objective and scope in **Setup & Scope** — Standard
+   vs. Enhanced, and whether outreach is authorized.
+3. Work through the stepper, recording a **source, date, and confidence level**
    for every finding.
-4. Run the **[QC checklist](docs/quality-control-checklist.md)** before
-   presenting the note for approval.
-5. Recommend one final status and the next task. The authorized operator
-   approves and executes: saving the note, setting the status, creating the
-   next task, and reassigning the lead.
+4. Complete the **QC checklist** before presenting the note for approval.
+5. Recommend one final status and the next task, then click **Generate note**.
+   The authorized operator approves and executes: saving the note, setting the
+   status, creating the next task, and reassigning the lead.
 
 ## Definition of Done
 
