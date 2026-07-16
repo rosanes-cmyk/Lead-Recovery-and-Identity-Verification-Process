@@ -58,7 +58,7 @@ export function buildNote(report) {
   L.push('', 'NAME COMPARISON')
   line('Recorded:', scored.nameComparison.recorded || '(none)')
   line('CRM:', scored.nameComparison.crm || '(none)')
-  line('DealMachine:', scored.nameComparison.dealmachine || '(none)')
+  if (scored.nameComparison.dealmachine) line('DealMachine:', scored.nameComparison.dealmachine)
   line('Match:', scored.nameComparison.match === null ? 'not comparable' : scored.nameComparison.match ? 'Yes' : 'No')
 
   L.push('', 'CONTACT VERIFICATION')

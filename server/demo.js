@@ -33,7 +33,7 @@ export function demoData(input) {
       documentNumber: '2014-0099123',
       source: 'PropertyRadar',
     },
-    corroboration: { dealmachine: { ownerName: 'Phillip L Barber', mailingAddress: 'PO Box 44, Anytown, CA 94000' } },
+    corroboration: {},
     county: { candidatePages: [{ query: 'assessor', title: 'County Assessor — Parcel 123-45-678', url: 'https://example.gov/assessor' }] },
     google: { links: [{ title: 'County records', url: 'https://example.gov' }] },
     // People search is disabled by default, so the demo leaves it empty to match
@@ -49,7 +49,6 @@ export async function runDemo(inv) {
     ['REI BlackBook', 'Opening lead and reviewing contact activity'],
     ['County Records', 'Locating assessor / recorder pages'],
     ['PropertyRadar', 'Confirming recorded owner and mailing address'],
-    ['DealMachine', 'Cross-checking ownership and contacts'],
     ['Google', 'Searching public records'],
     ['Approved People Search', 'Reverse phone and address lookups'],
   ]
