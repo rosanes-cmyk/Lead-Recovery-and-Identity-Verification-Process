@@ -25,7 +25,7 @@ export function buildNote(report) {
   line('Task:', 'Investigate and Verify Seller Identity and Contact Information')
   line('Seller Name (CRM):', data.crm?.sellerName || input.name || '')
   line('Verified Name:', scored.verifiedName || NF)
-  line('  Source / Date / Confidence:', `${scored.verifiedNameSource || NF} / ${date} / ${scored.nameConfidence}`)
+  line('  Source / Date / Confidence:', `${scored.verifiedNameSource || NF} / ${date} / ${scored.nameConfidence} (${scored.verifiedNameScore}% match)`)
   line('Property Address:', input.address || data.crm?.propertyAddress || '')
   line('Lead ID:', data.crm?.leadId && data.crm.leadId !== NF ? data.crm.leadId : input.leadId || '')
   line('Investigation Date:', meta.date)
@@ -64,22 +64,25 @@ export function buildNote(report) {
   L.push('', 'CONTACT VERIFICATION')
   if (scored.bestPhone) {
     line('Best Phone:', scored.bestPhone.number)
-    line('  Status / Confidence:', `${scored.bestPhone.status} / ${scored.bestPhone.confidence}`)
+    line('  Status / Confidence:', `${scored.bestPhone.status} / ${scored.bestPhone.confidence} (${scored.bestPhone.score}% match)`)
     line('  Source / Date:', `${scored.bestPhone.sources.join(', ')} / ${date}`)
   } else {
     line('Best Phone:', NF)
   }
   line('Best Email:', scored.bestEmail || NF)
-  line('  Source / Date / Confidence:', `${scored.bestEmailSource || NF} / ${date} / ${scored.emailConfidence || 'n/a'}`)
+  line('  Source / Date / Confidence:', `${scored.bestEmailSource || NF} / ${date} / ${scored.emailConfidence || 'n/a'}${scored.bestEmail ? ` (${scored.bestEmailScore}% match)` : ''}`)
   line('Confirmed Mailing Address:', scored.bestMailing || NF)
-  line('  Source / Date / Confidence:', `${scored.bestMailingSource || NF} / ${date} / ${scored.mailingConfidence}`)
+  line('  Source / Date / Confidence:', `${scored.bestMailingSource || NF} / ${date} / ${scored.mailingConfidence}${scored.bestMailing ? ` (${scored.bestMailingScore}% match)` : ''}`)
 
-  if (scored.possibleContacts.length) {
-    L.push('', 'POSSIBLE CONTACTS (UNVERIFIED CLUES)')
-    scored.possibleContacts.slice(0, 10).forEach((p, i) => {
-      line(`${i + 1}.`, `${p.name}${p.phones?.length ? ' — ' + p.phones.join(', ') : ''}`)
-      if (p.note) L.push(`   ${p.note}`)
+  if (scored.topContacts?.length) {
+    L.push('', 'TOP POSSIBLE CONTACTS (ranked)')
+    scored.topContacts.forEach((c, i) => {
+      const tag = c.verified ? 'VERIFIED CONNECTION' : 'UNVERIFIED CLUE'
+      line(`${i + 1}.`, `${c.name} — ${c.relationship} [${tag}, ${c.score}% match]`)
+      line('   Basis:', c.basis || '')
+      if (c.phones?.length) line('   Phones:', c.phones.join(', '))
     })
+    L.push('   Note: nobody is labeled a relative without a lawful record; clues are unverified.')
   }
 
   L.push('', 'CONFLICTS OR UNVERIFIED INFORMATION')

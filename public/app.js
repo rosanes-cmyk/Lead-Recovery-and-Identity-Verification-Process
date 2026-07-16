@@ -232,10 +232,10 @@ function onReport(report, state) {
   const grid = $('report-grid')
   grid.innerHTML = ''
   grid.append(
-    kv('Verified name', s.verifiedName || '—', s.nameConfidence),
-    kv('Best phone', s.bestPhone ? s.bestPhone.number : '—', s.bestPhone?.confidence, s.bestPhone?.status),
-    kv('Best email', s.bestEmail || '—', s.emailConfidence),
-    kv('Mailing address', s.bestMailing || '—', s.mailingConfidence),
+    kv('Verified name', s.verifiedName || '—', s.nameConfidence, null, s.verifiedNameScore),
+    kv('Best phone', s.bestPhone ? s.bestPhone.number : '—', s.bestPhone?.confidence, s.bestPhone?.status, s.bestPhone?.score),
+    kv('Best email', s.bestEmail || '—', s.emailConfidence, null, s.bestEmailScore),
+    kv('Mailing address', s.bestMailing || '—', s.mailingConfidence, null, s.bestMailingScore),
     kv('Time used', `${report.meta.minutesUsed} / ${report.meta.limitMin} min`),
     kv('Recorded owner', report.data.ownership?.recordedOwner || '—'),
   )
@@ -252,15 +252,25 @@ function onReport(report, state) {
     })
     cbox.append(ul)
   }
-  if (s.possibleContacts.length) {
-    cbox.append(el('h3', null, 'Possible contacts (unverified clues)'))
-    const ul = el('ul', 'conflict-list')
-    s.possibleContacts.slice(0, 8).forEach((p) => {
-      const li = el('li')
-      li.append(el('strong', null, (p.name || 'unknown') + ' '), el('span', 'muted', p.note || ''))
-      ul.append(li)
+  if (s.topContacts?.length) {
+    cbox.append(el('h3', null, 'Top possible contacts'))
+    const list = el('div', 'contacts')
+    s.topContacts.forEach((c, i) => {
+      const row = el('div', 'contact-row')
+      const rank = el('span', 'contact-rank', String(i + 1))
+      const main = el('div', 'contact-main')
+      const nameLine = el('div', 'contact-name')
+      nameLine.append(document.createTextNode(c.name || 'unknown'))
+      nameLine.append(el('span', 'tag ' + (c.verified ? 'tag-verified' : 'tag-clue'), c.verified ? 'Verified connection' : 'Unverified clue'))
+      if (c.score) nameLine.append(el('span', 'contact-score', c.score + '%'))
+      main.append(nameLine)
+      main.append(el('div', 'contact-meta', [c.relationship, c.basis].filter(Boolean).join(' · ')))
+      if (c.phones?.length) main.append(el('div', 'contact-meta', c.phones.join(', ')))
+      row.append(rank, main)
+      list.append(row)
     })
-    cbox.append(ul)
+    cbox.append(list)
+    cbox.append(el('p', 'muted contacts-note', 'Nobody is labeled a relative without a lawful record. Clues are unverified and must be cross-checked.'))
   }
 
   $('note').value = report.note || ''
@@ -280,12 +290,13 @@ function onReport(report, state) {
   loadRuns()
 }
 
-function kv(label, value, confidence, status) {
+function kv(label, value, confidence, status, score) {
   const d = el('div', 'kv')
   d.append(el('div', 'kv-label', label))
   const v = el('div', 'kv-value', value)
   if (confidence) v.append(el('span', 'conf conf-' + String(confidence).toLowerCase(), confidence))
   if (status) v.append(el('span', 'conf conf-status', status))
+  if (score) v.append(el('span', 'score', score + '%'))
   d.append(v)
   return d
 }

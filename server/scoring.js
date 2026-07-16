@@ -17,7 +17,12 @@ export function score(data) {
   const possibleContacts = []
 
   // ---- Owner name ---------------------------------------------------------
-  const recorded = clean(data.ownership?.recordedOwner)
+  // A recorded-owner field can name several people ("A and B"). Split into the
+  // primary owner (the verified name) and co-owners (verified connections).
+  const recordedRaw = clean(data.ownership?.recordedOwner)
+  const recordedNames = parseOwnerNames(recordedRaw)
+  const recorded = recordedNames[0] || recordedRaw
+  const coOwnerNames = recordedNames.slice(1)
   const crmName = clean(data.crm?.sellerName || data.input?.name)
   const dmName = clean(data.corroboration?.dealmachine?.ownerName)
 
@@ -128,7 +133,7 @@ export function score(data) {
       status = 'Possible'
     }
     // Automation can never reach "Confirmed" — that needs direct seller contact.
-    return { number: rec.number, status, confidence, sources, names }
+    return { number: rec.number, status, confidence, sources, names, score: pct(confidence, sources.length) }
   })
   const bestPhone = phones.find((p) => p.confidence === 'Medium') || phones[0] || null
 
@@ -157,6 +162,47 @@ export function score(data) {
     )
   })
 
+  // ---- Match scores (numeric) --------------------------------------------
+  // A calculated "match score", NOT a true statistical probability: it reflects
+  // confidence level plus how many independent sources agree.
+  const nameAgree =
+    ownerSources.filter((o) => nameMatch(o.name, verifiedName)).length +
+    (crmName && nameMatch(crmName, verifiedName) ? 1 : 0)
+  const verifiedNameScore = verifiedName ? pct(nameConfidence, nameAgree) : 0
+  const bestEmailScore = bestEmail ? pct(emailConfidence, 1) : 0
+  const mailingAgree = mailingWithSource.filter((m) => m.addr === bestMailing).length
+  const bestMailingScore = bestMailing ? pct(mailingConfidence, mailingAgree) : 0
+
+  // ---- Top 5 possible contacts -------------------------------------------
+  // Verified connections come only from recorded documents (co-owners). People-
+  // search clues stay clearly unverified. Nobody is labeled a relative without
+  // a lawful record.
+  const src = data.ownership?.source || 'Recorded document'
+  const verifiedConnections = coOwnerNames
+    .filter((nm) => !verifiedName || !nameMatch(nm, verifiedName))
+    .map((nm) => ({ name: nm, relationship: 'Co-owner named on recorded document', basis: src, verified: true, phones: [], score: 82 }))
+  const clueContacts = possibleContacts.map((p) => ({
+    name: p.name,
+    relationship: 'Unverified clue',
+    basis: 'People search',
+    verified: false,
+    phones: p.phones || [],
+    score: 40,
+    note: p.note,
+  }))
+  const ranked = [...verifiedConnections, ...clueContacts].sort(
+    (a, b) =>
+      Number(b.verified) - Number(a.verified) ||
+      b.score - a.score ||
+      (b.phones?.length || 0) - (a.phones?.length || 0),
+  )
+  // Dedupe by name (a verified co-owner outranks the same name as a clue).
+  const topContacts = []
+  for (const c of ranked) {
+    if (!topContacts.some((k) => nameMatch(k.name, c.name))) topContacts.push(c)
+    if (topContacts.length >= 5) break
+  }
+
   // ---- Recommended status -------------------------------------------------
   const ownerKnown = Boolean(verifiedName) && nameConfidence !== 'Low'
   const hasUsableContact =
@@ -182,22 +228,54 @@ export function score(data) {
   return {
     verifiedName,
     verifiedNameSource,
+    verifiedNameScore,
     nameConfidence,
     nameComparison: { recorded, crm: crmName, dealmachine: dmName, match: recorded && crmName ? nameMatch(recorded, crmName) : null },
     bestPhone,
     phones,
     bestEmail,
     bestEmailSource,
+    bestEmailScore,
     emailConfidence,
     bestMailing,
     bestMailingSource,
+    bestMailingScore,
     mailingConfidence,
     trustFlag,
     conflicts,
     possibleContacts,
+    topContacts,
     recommendedStatus: status,
     statusReason,
   }
+}
+
+// Confidence level -> numeric match score, nudged up by corroborating sources.
+// Deliberately capped per level so the number never implies more certainty than
+// the level itself allows.
+function pct(level, agree = 1) {
+  const base = { High: 88, Medium: 64, Low: 40 }
+  const cap = { High: 99, Medium: 84, Low: 49 }
+  if (!level || !base[level]) return 0
+  return Math.min(cap[level], base[level] + (Math.max(1, agree) - 1) * 4)
+}
+
+// Extract person names from a recorded-owner string that may list several
+// owners ("A and B", "A & B"). Conservative: a name needs 2+ non-boilerplate
+// words, so "Smith Family Trust" or "Husband and Wife" yield no person names
+// (the trust case is handled separately as an entity/conflict).
+const OWNER_STOP = /^(husband|wife|and|as|joint|tenant|tenants|tenancy|trustee|trust|the|family|living|revocable|irrevocable|survivor|survivorship|community|property|et|al|etal|jt|ten|com|his|her|their|spouse|married|unmarried|single|a|an|of)$/i
+function parseOwnerNames(str) {
+  const out = []
+  for (const rawPart of String(str || '').split(/\s+and\s+|\s*&\s*/i)) {
+    const part = clean(rawPart).replace(/,.*$/, '')
+    if (!part) continue
+    const words = part.split(/\s+/).filter((w) => !OWNER_STOP.test(w.replace(/[^a-z]/gi, '')))
+    if (words.length < 2) continue
+    const nm = words.join(' ')
+    if (!out.some((o) => nameMatch(o, nm))) out.push(nm)
+  }
+  return out
 }
 
 /* ---------- helpers ---------- */

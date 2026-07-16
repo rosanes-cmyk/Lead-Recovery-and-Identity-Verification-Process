@@ -23,7 +23,7 @@ export function demoData(input) {
       lastActivity: '2026-05-02 — outbound call, no answer',
     },
     ownership: {
-      recordedOwner: 'Phillip Lyman Barber',
+      recordedOwner: 'Phillip Lyman Barber and Jane A Barber',
       ownershipType: 'Joint Tenancy',
       vesting: 'Husband and Wife',
       mailingAddress: 'PO Box 44, Anytown, CA 94000',
@@ -36,11 +36,9 @@ export function demoData(input) {
     corroboration: { dealmachine: { ownerName: 'Phillip L Barber', mailingAddress: 'PO Box 44, Anytown, CA 94000' } },
     county: { candidatePages: [{ query: 'assessor', title: 'County Assessor — Parcel 123-45-678', url: 'https://example.gov/assessor' }] },
     google: { links: [{ title: 'County records', url: 'https://example.gov' }] },
-    peoplesearch: {
-      results: [
-        { kind: 'phone', rows: [{ name: 'Phillip Lyman Barber', phones: [input.phone || '(925) 555-1234'], addresses: [address], possibleRelatives: ['Jane Barber'] }] },
-      ],
-    },
+    // People search is disabled by default, so the demo leaves it empty to match
+    // what a real default run produces.
+    peoplesearch: { results: [] },
   }
 }
 
