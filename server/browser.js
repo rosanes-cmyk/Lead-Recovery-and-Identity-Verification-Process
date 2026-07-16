@@ -95,7 +95,8 @@ export async function capture(page, runDir, label) {
     return {
       label,
       url: page.url(),
-      file: path.join('evidence', file),
+      // Always forward-slash for the browser URL (path.join uses \ on Windows).
+      file: `evidence/${file}`,
       abs,
     }
   } catch (err) {

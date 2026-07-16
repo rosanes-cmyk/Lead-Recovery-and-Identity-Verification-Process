@@ -91,6 +91,11 @@ function resetWorkspace() {
   setState('running')
 }
 
+function showWorkspace() {
+  if (!$('empty').hidden) $('empty').hidden = true
+  if ($('workspace').hidden) $('workspace').hidden = false
+}
+
 // ---- SSE stream -------------------------------------------------------------
 function connectStream() {
   const es = new EventSource('/api/stream')
@@ -105,12 +110,13 @@ function connectStream() {
 const seenEvidence = new Set()
 function handleEvent(ev) {
   if (ev.runId && ev.runId !== currentRunId && ev.type === 'hello') {
-    // Adopt an in-progress run if the page was reloaded.
+    // Adopt an in-progress (or just-finished) run if the page was reloaded.
     currentRunId = ev.runId
-    $('empty').hidden = true
-    $('workspace').hidden = false
   }
   if (ev.runId && ev.runId !== currentRunId) return
+
+  // Any event for the active run means we're past the empty state.
+  if (ev.runId) showWorkspace()
 
   switch (ev.type) {
     case 'state': setState(ev.state); if (ev.message) addLog(ev.message, 'state'); break
@@ -171,7 +177,9 @@ function renderEvidence(list) {
     if (!added) { box.innerHTML = ''; added = true }
     const fig = el('figure', 'evi')
     const a = el('a')
-    a.href = `/evidence/${currentRunId}/${e.file.split('/').pop()}`
+    // Handle both / and \ separators (Windows stored paths).
+    const fileName = e.file.split(/[\\/]/).pop()
+    a.href = `/evidence/${e.runId || currentRunId}/${fileName}`
     a.target = '_blank'
     const img = el('img')
     img.src = a.href
@@ -189,9 +197,11 @@ function setState(s) {
   chip.textContent = s
   chip.className = 'chip chip-' + s
   const running = s === 'running'
+  const terminal = ['done', 'stopped', 'error'].includes(s)
   $('btn-pause').hidden = !running
   $('btn-resume').hidden = !(s === 'paused' || s === 'login')
-  if (['done', 'stopped', 'error'].includes(s)) stopTimer()
+  $('btn-stop').hidden = terminal
+  if (terminal) stopTimer()
 }
 function startTimer() {
   stopTimer()
