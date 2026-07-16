@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f7d5b'/%3E%3Ctext x='16' y='22' font-family='Arial' font-size='15' font-weight='bold' fill='white' text-anchor='middle'%3E%3F%3C/text%3E%3C/svg%3E"
+    />
+    <title>Lead Recovery Automation</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">LR</span>
+        <div>
+          <div class="brand-title">Lead Recovery &amp; Seller Identity Verification</div>
+          <div class="brand-sub">Automation — research &amp; prepare, human approves</div>
+        </div>
+      </div>
+      <div id="safety" class="safety">checking mode…</div>
+    </header>
+
+    <main class="layout">
+      <!-- LEFT: input + past runs -->
+      <aside class="side">
+        <section class="card" id="input-card">
+          <h2>New investigation</h2>
+          <p class="muted">Enter a lead. Provide at least one field. The app opens the sources in a real browser — log in when prompted.</p>
+          <label class="f"><span>REI BlackBook lead link</span><input id="in-reiLink" placeholder="https://members.reiblackbook.com/…" /></label>
+          <label class="f"><span>Property address</span><input id="in-address" placeholder="123 Main St, Anytown, CA 94000" /></label>
+          <div class="f-row">
+            <label class="f"><span>City</span><input id="in-city" /></label>
+            <label class="f"><span>State</span><input id="in-state" placeholder="CA" /></label>
+          </div>
+          <label class="f"><span>Seller name</span><input id="in-name" /></label>
+          <div class="f-row">
+            <label class="f"><span>Phone</span><input id="in-phone" /></label>
+            <label class="f"><span>Email</span><input id="in-email" /></label>
+          </div>
+          <label class="f"><span>Lead ID</span><input id="in-leadId" /></label>
+          <label class="toggle"><input type="checkbox" id="in-enhanced" /><span>Enhanced investigation (60 min — requires approval)</span></label>
+          <button class="btn btn-primary" id="btn-start">Start investigation</button>
+          <div id="input-error" class="error" hidden></div>
+        </section>
+
+        <section class="card">
+          <h2>Recent</h2>
+          <div id="runs" class="runs"><p class="muted">No past runs yet.</p></div>
+        </section>
+      </aside>
+
+      <!-- RIGHT: progress / evidence / report -->
+      <section class="main">
+        <div id="empty" class="empty">
+          <div class="empty-mark">🔎</div>
+          <h2>Ready to investigate</h2>
+          <p class="muted">Start a lead on the left. Progress, evidence, and the final report will appear here. Nothing is saved to your CRM without your approval.</p>
+        </div>
+
+        <div id="workspace" hidden>
+          <!-- status bar -->
+          <div class="statusbar">
+            <div class="status-left">
+              <span id="state-chip" class="chip">idle</span>
+              <span id="timer" class="timer">0.0 / 30 min</span>
+              <span id="current-source" class="muted"></span>
+            </div>
+            <div class="controls">
+              <button class="btn" id="btn-pause">Pause</button>
+              <button class="btn" id="btn-resume" hidden>Resume</button>
+              <button class="btn btn-danger" id="btn-stop">Stop</button>
+            </div>
+          </div>
+
+          <div id="login-banner" class="banner banner-warn" hidden></div>
+          <div id="time-banner" class="banner banner-warn" hidden></div>
+
+          <div class="cols">
+            <!-- progress log -->
+            <div class="card">
+              <h2>Progress</h2>
+              <ol id="steps" class="steps"></ol>
+              <div class="log" id="log"></div>
+            </div>
+
+            <!-- evidence -->
+            <div class="card">
+              <h2>Evidence <span class="muted" id="evi-count"></span></h2>
+              <div id="evidence" class="evidence"><p class="muted">Screenshots will appear as the app works.</p></div>
+            </div>
+          </div>
+
+          <!-- report / approval -->
+          <div id="report" class="card report" hidden>
+            <div class="report-head">
+              <h2>Investigation report</h2>
+              <span id="report-status" class="badge"></span>
+            </div>
+
+            <div class="report-grid" id="report-grid"></div>
+
+            <div class="conflicts" id="conflicts"></div>
+
+            <h3>REI BlackBook note <span class="muted">(editable before approval)</span></h3>
+            <textarea id="note" class="note" rows="16"></textarea>
+
+            <div class="next-task" id="next-task"></div>
+
+            <div class="approval">
+              <div id="approval-note" class="muted"></div>
+              <div class="approval-btns">
+                <button class="btn" id="btn-edit">Save edits</button>
+                <button class="btn btn-secondary" id="btn-export-note">Export note</button>
+                <button class="btn btn-secondary" id="btn-export-report">Export report</button>
+                <button class="btn btn-danger" id="btn-reject">Reject</button>
+                <button class="btn btn-primary" id="btn-approve">Approve</button>
+              </div>
+              <button class="btn btn-live" id="btn-save-approved" hidden>Save Approved Update to CRM</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      Research &amp; identity-verification only. Dry-run by default — no outreach, note saving, status change, task creation, or reassignment happens without your approval. Passwords are never stored.
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>

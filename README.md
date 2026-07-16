@@ -1,82 +1,164 @@
-# Lead Recovery and Identity Verification Project
+# Lead Recovery & Seller Identity Verification Automation
 
-A standardized process for investigating stalled, incomplete, or conflicting
-lead records — confirming the correct property owner or seller, verifying the
-connection between the person and the property, locating accurate contact
-information, flagging conflicts, and documenting every finding in REI BlackBook
-so the lead can be reassigned and followed up correctly.
+An app that **performs the investigation automatically**. You give it a property
+address or an REI BlackBook lead, and it opens the sources in a real browser,
+reads the lead, researches ownership and identity, cross-checks the results,
+scores confidence, flags conflicts, and prepares a complete REI BlackBook note
+and next-task recommendation — then **stops and waits for your approval** before
+anything is saved or changed.
 
-> **Scope reminder:** The investigator **gathers, verifies, and documents**
-> information. The investigator does **not** make pricing, negotiation, legal,
-> fraud, or final business decisions. Those belong to a manager or authorized
-> operator.
+It is **not** a manual form. You start a lead and watch it work.
 
-## The app
+> **Guardrail:** In the first version the app runs in **dry-run** mode. It
+> researches and prepares only. It never contacts anyone, saves a note, changes
+> a status, creates a task, or reassigns a lead without your explicit approval —
+> and even on approval it makes **no CRM changes** while dry-run is on.
 
-A React + Vite single-page app that turns the SOP into a guided tool with a
-lead dashboard. It runs entirely in the browser — **all data is stored in
-`localStorage`; there is no backend and no login.**
+---
 
-### Features
+## ⚠️ One important thing: this runs on your computer
 
-- **Dashboard** — every investigation as a card, with search and status filters
-  (In Progress, Seller Contact Located, Seller Confirmed Interested, No Contact
-  After Investigation, Management Review Required) and a QC progress count.
-- **Guided workflow** — a stepper walks through Setup & Scope, Baseline Review,
-  Ownership, People Search, Contact Verification, Conflicts & Relatives, Sources
-  Checked, Outreach, Recommendation, and QC & Note, each annotated with the SOP
-  rules for that step.
-- **Guardrails built in** — Standard/Enhanced time limits with an over-limit
-  warning, an outreach section that stays locked until outreach is authorized,
-  single-select final status, and a reassignment hint for Management Review.
-- **Findings capture** — add multiple people-search findings, phones (with
-  Confirmed/Likely/Possible/Invalid classification), and emails, each with a
-  source, date, and confidence level.
-- **Note generator** — produces the complete REI BlackBook note (matching the
-  template) to copy or download, plus a live Definition of Done checklist.
+This app opens a real browser and uses **your own logins** to REI BlackBook,
+PropertyRadar, DealMachine, etc. Because of that, it has to run **on your PC** —
+it cannot be a click-a-link website (a website can't touch your logged-in
+sessions). The good news: after a one-time setup, starting it is a single
+command, and it opens the screen for you automatically.
 
-### Run it
+The app **never stores your passwords.** You log in yourself in the browser
+window when it asks; only the resulting session lives in a local profile folder
+on your machine.
+
+---
+
+## Setup (one time)
+
+You need [Node.js](https://nodejs.org) (the "LTS" version) and, for real runs,
+your browser logins.
 
 ```bash
-npm install
-npm run dev        # http://localhost:5173
-npm run build      # production build in dist/
-npm run preview    # preview the production build
+npm install        # install the app's dependencies
+npm run setup      # creates your .env file and installs the browser it drives
 ```
 
-The build output in `dist/` is a static site and can be hosted anywhere.
+## Try it immediately (demo mode — no logins needed)
 
-## Documentation
+Want to see how it works before wiring up your accounts? Open `.env` and set:
 
-| File | Purpose |
-| --- | --- |
-| [`docs/SOP.md`](docs/SOP.md) | The full Standard Operating Procedure — roles, rules, sources, time limits, and the 15-step workflow. |
-| [`docs/investigation-note-template.md`](docs/investigation-note-template.md) | The fillable Lead Recovery Investigation note used in REI BlackBook. |
-| [`docs/quick-reference.md`](docs/quick-reference.md) | One-page cheat sheet: sources, time limits, confidence levels, statuses, reassignment. |
-| [`docs/quality-control-checklist.md`](docs/quality-control-checklist.md) | The final QC checklist to confirm before closing an investigation. |
+```
+DEMO_MODE=true
+```
 
-## How to run an investigation
+Then:
 
-1. Open the app and click **New investigation** (or read the
-   **[SOP](docs/SOP.md)** for the full process).
-2. Confirm the investigation objective and scope in **Setup & Scope** — Standard
-   vs. Enhanced, and whether outreach is authorized.
-3. Work through the stepper, recording a **source, date, and confidence level**
-   for every finding.
-4. Complete the **QC checklist** before presenting the note for approval.
-5. Recommend one final status and the next task, then click **Generate note**.
-   The authorized operator approves and executes: saving the note, setting the
-   status, creating the next task, and reassigning the lead.
+```bash
+npm start
+```
 
-## Definition of Done
+Your browser opens to the app. Enter any address and click **Start
+investigation** — it runs the full flow with sample data so you can see the
+progress, report, and approval screen. No logins, no real browser.
 
-An investigation is **not complete** until all four actions are done by the
-authorized operator:
+## Real investigations
 
-1. The complete investigation note is saved in REI BlackBook.
-2. The approved final status is selected.
-3. The next task and due date are created.
-4. The lead is reassigned to the correct person or department.
+1. In `.env`, set `DEMO_MODE=false`.
+2. `npm start` — the app opens.
+3. Enter a lead (address, REI BlackBook link, name, phone, or email) and click
+   **Start investigation**.
+4. A browser window opens and works through the sources. When a site needs a
+   login, the app **pauses** and shows "Login required" — sign in in that
+   window, then click **Resume**.
+5. Review the report, evidence screenshots, and the generated note. Edit the
+   note if needed.
+6. Click **Approve** or **Reject**. In dry-run mode, Approve records your
+   decision but makes no CRM change.
 
-The investigator **prepares and recommends** these actions. The authorized
-operator **approves and executes** them.
+---
+
+## What it does (the pipeline)
+
+For each lead the app:
+
+1. Opens and reviews the REI BlackBook lead and contact activity.
+2. Researches ownership via **County records**, **PropertyRadar**, and
+   **DealMachine**, and finds the recorded owner's full name.
+3. Compares the recorded name with the CRM name (tolerating spelling variants
+   and middle names — e.g. "Philip Barber" ↔ "Phillip Lyman Barber").
+4. Runs **approved people search** by address, name, phone, and email — as
+   research clues only.
+5. Identifies the best phone, email, and mailing address, cross-checking sources.
+6. Assigns **High / Medium / Low** confidence to each finding.
+7. Flags conflicts: differing owner names, multiple mailing addresses, a phone
+   tied to another person, or trust / estate / probate ownership.
+8. Recommends **one** status: *Seller Contact Located*, *No Contact After
+   Investigation*, or *Management Review Required*.
+9. Generates the full REI BlackBook note plus the next task, due date, and
+   reassignment recommendation.
+10. **Stops at the approval screen.** No CRM changes in dry-run mode.
+
+It enforces the SOP **time limits** (Standard 30 min / Enhanced 60 min): when the
+limit is reached it stops, keeps everything found, and finalizes the report.
+
+---
+
+## Safety controls (`.env`)
+
+Everything defaults to the safe posture — the app prepares, a human executes:
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `LIVE_MODE` | `false` | `false` = never write to any CRM |
+| `DRY_RUN` | `true` | `true` = prepare only, change nothing |
+| `AUTO_OUTREACH` | `false` | never contact anyone automatically |
+| `AUTO_SAVE_NOTE` | `false` | never save the note automatically |
+| `AUTO_CHANGE_STATUS` | `false` | never change status automatically |
+| `AUTO_CREATE_TASK` | `false` | never create the next task automatically |
+| `AUTO_REASSIGN` | `false` | never reassign automatically |
+
+The operator controls in the UI: **Start · Pause · Resume · Stop · Approve ·
+Reject · Save edits · Export note · Export report.**
+
+---
+
+## Configuring the live sources
+
+The app is site-agnostic except for a few **selectors** — the small bits that
+tell it where owner name, mailing address, etc. sit on each site's page. Those
+differ per account and change over time, so they live in one file:
+
+- **`server/sources/selectors.js`** — fill in URLs and selectors for REI
+  BlackBook, PropertyRadar, DealMachine, and your approved people-search tool.
+
+Until a selector is filled in, that source still **navigates, detects login
+walls, and captures a screenshot** as evidence — it just reports the field as
+"needs configuration" instead of guessing. Each source is a separate module, so
+an official API can be dropped in later without touching the rest of the app.
+
+---
+
+## Project structure
+
+```
+server/
+  index.js         HTTP server, live progress (SSE), approval endpoints
+  config.js        reads .env (safety flags, limits, browser)
+  browser.js       Playwright persistent profile + login detection + screenshots
+  orchestrator.js  the pipeline: controls, time limits, checkpoints
+  scoring.js       confidence, conflict detection, status recommendation
+  note.js          REI BlackBook note + next-task builder
+  demo.js          synthetic run for DEMO_MODE
+  store.js         saves each run (report.json + evidence screenshots) under runs/
+  sources/         one module per source (reiblackbook, propertyradar,
+                   dealmachine, county, google, peoplesearch) + selectors.js
+public/            the operator UI (input → progress → evidence → approval)
+docs/              the underlying SOP, note template, quick reference, QC checklist
+```
+
+## Roadmap
+
+- **Phase 1 (this version):** single lead at a time, dry-run, approval gate.
+- **Phase 2:** bulk CSV/spreadsheet upload and export, once single-lead accuracy
+  is confirmed.
+- **Later:** calibrated per-county parsers and official APIs where available.
+
+See [`docs/`](docs/) for the full standard operating procedure this automation
+follows.

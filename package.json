@@ -1,22 +1,17 @@
 {
-  "name": "lead-recovery-app",
+  "name": "lead-recovery-automation",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Guided tool and dashboard for the Lead Recovery and Identity Verification Process",
+  "description": "Lead Recovery & Seller Identity Verification Automation — browser-automation investigator that researches leads and stops for human approval before any CRM change.",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "build:single": "vite build --config vite.singlefile.config.js",
-    "preview": "vite preview"
+    "start": "node server/index.js",
+    "setup": "node scripts/setup.js",
+    "install-browser": "npx playwright install chromium"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^5.4.11",
-    "vite-plugin-singlefile": "^2.3.3"
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "playwright": "^1.56.1"
   }
 }
