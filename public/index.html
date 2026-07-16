@@ -27,20 +27,20 @@
       <aside class="side">
         <section class="card" id="input-card">
           <h2>New investigation</h2>
-          <p class="muted">Paste the REI BlackBook lead link — the app reads the address, name, phone, and email from the lead automatically. Or research by property address alone. Log in when prompted.</p>
-          <label class="f"><span>REI BlackBook lead link</span><input id="in-reiLink" placeholder="https://members.reiblackbook.com/…" /></label>
-          <label class="f"><span>Property address</span><input id="in-address" placeholder="123 Main St, Anytown, CA 94000" /></label>
+          <p class="muted">Paste the REI BlackBook lead link and hit Start. The app runs every source and reads the address, name, phone, and email from the lead automatically. Log in when prompted.</p>
+          <label class="f"><span>REI BlackBook lead link</span><input id="in-reiLink" placeholder="https://my.reiblackbook.com/contacts/…" /></label>
+          <p class="autofill-hint">The fields below fill in automatically from the lead. Type in any of them only to override.</p>
+          <label class="f"><span>Property address</span><input id="in-address" placeholder="Auto-fills from the lead" /></label>
           <div class="f-row">
-            <label class="f"><span>City</span><input id="in-city" /></label>
-            <label class="f"><span>State</span><input id="in-state" placeholder="CA" /></label>
+            <label class="f"><span>City</span><input id="in-city" placeholder="Auto" /></label>
+            <label class="f"><span>State</span><input id="in-state" placeholder="Auto" /></label>
           </div>
-          <label class="f"><span>Seller name</span><input id="in-name" /></label>
+          <label class="f"><span>Seller name</span><input id="in-name" placeholder="Auto-fills from the lead" /></label>
           <div class="f-row">
-            <label class="f"><span>Phone</span><input id="in-phone" /></label>
-            <label class="f"><span>Email</span><input id="in-email" /></label>
+            <label class="f"><span>Phone</span><input id="in-phone" placeholder="Auto-fills" /></label>
+            <label class="f"><span>Email</span><input id="in-email" placeholder="Auto-fills" /></label>
           </div>
-          <label class="f"><span>Lead ID</span><input id="in-leadId" /></label>
-          <label class="toggle"><input type="checkbox" id="in-enhanced" /><span>Enhanced investigation (60 min — requires approval)</span></label>
+          <label class="f"><span>Lead ID</span><input id="in-leadId" placeholder="Auto-fills from the lead" /></label>
           <button class="btn btn-primary" id="btn-start">Start investigation</button>
           <div id="input-error" class="error" hidden></div>
         </section>

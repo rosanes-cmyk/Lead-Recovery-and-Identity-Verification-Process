@@ -57,7 +57,6 @@ async function startInvestigation() {
     phone: $('in-phone').value,
     email: $('in-email').value,
     leadId: $('in-leadId').value,
-    enhanced: $('in-enhanced').checked,
   }
   $('input-error').hidden = true
   const r = await fetch('/api/investigate', {
@@ -73,7 +72,7 @@ async function startInvestigation() {
   }
   currentRunId = data.runId
   currentReport = null
-  activeLimit = input.enhanced ? limits.enhanced : limits.standard
+  activeLimit = limits.standard
   startedAt = Date.now()
   resetWorkspace()
   startTimer()

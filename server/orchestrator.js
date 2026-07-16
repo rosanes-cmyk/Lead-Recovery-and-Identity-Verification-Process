@@ -25,6 +25,8 @@ export class Investigation extends EventEmitter {
     this.limitMin = this.input.enhanced ? config.enhancedLimitMin : config.standardLimitMin
     this.state = 'idle' // idle | running | paused | login | done | stopped | error
     this.startedAt = null
+    this.pausedMs = 0
+    this.pauseStart = null
     this.log = []
     this.data = { input: this.input, crm: {}, ownership: {}, corroboration: {}, peoplesearch: {}, county: {}, google: {} }
     this.sourcesChecked = []
@@ -45,18 +47,34 @@ export class Investigation extends EventEmitter {
     super.emit('event', stamped)
   }
 
+  // Active research time only — time spent paused or waiting for a login does
+  // NOT count against the limit.
   minutesUsed() {
     if (!this.startedAt) return 0
-    return Math.round(((Date.now() - this.startedAt) / 60000) * 10) / 10
+    let paused = this.pausedMs
+    if (this.pauseStart) paused += Date.now() - this.pauseStart
+    const active = Date.now() - this.startedAt - paused
+    return Math.round((Math.max(0, active) / 60000) * 10) / 10
   }
 
   timeExceeded() {
     return this.minutesUsed() >= this.limitMin
   }
 
+  _beginPause() {
+    if (!this.pauseStart) this.pauseStart = Date.now()
+  }
+  _endPause() {
+    if (this.pauseStart) {
+      this.pausedMs += Date.now() - this.pauseStart
+      this.pauseStart = null
+    }
+  }
+
   pause() {
     if (this.state !== 'running') return
     this.state = 'paused'
+    this._beginPause()
     this._pauseGate = new Promise((res) => (this._resume = res))
     this.emit({ type: 'state', state: 'paused', message: 'Paused by operator.' })
   }
@@ -64,6 +82,7 @@ export class Investigation extends EventEmitter {
   resume() {
     if (this.state === 'paused' || this.state === 'login') {
       this.state = 'running'
+      this._endPause()
       this.emit({ type: 'state', state: 'running', message: 'Resumed.' })
       this._resume?.()
       this._pauseGate = null
@@ -74,6 +93,7 @@ export class Investigation extends EventEmitter {
   stop() {
     if (['done', 'stopped', 'error'].includes(this.state)) return
     this.state = 'stopped'
+    this._endPause()
     this._abort.abort()
     this._resume?.()
     this.emit({ type: 'state', state: 'stopped', message: 'Stopped by operator.' })
@@ -82,6 +102,7 @@ export class Investigation extends EventEmitter {
   // Pause and ask the operator to log in; resolves when they hit Resume.
   async requireLogin(source) {
     this.state = 'login'
+    this._beginPause()
     this._pauseGate = new Promise((res) => (this._resume = res))
     this.emit({
       type: 'login-required',
