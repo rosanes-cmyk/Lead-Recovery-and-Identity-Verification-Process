@@ -55,6 +55,7 @@ export async function runDemo(inv) {
   ]
   inv.data = demoData(inv.input)
   for (const [source, msg] of steps) {
+    if (source === 'County Records') inv._backfillInput() // after CRM read
     if (inv.state === 'stopped') break
     await inv._waitIfPaused()
     inv.emit({ type: 'source-start', source })

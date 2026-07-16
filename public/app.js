@@ -96,6 +96,21 @@ function showWorkspace() {
   if ($('workspace').hidden) $('workspace').hidden = false
 }
 
+// Reflect values the app discovered from the CRM lead back into the form, and
+// briefly highlight what changed.
+function fillInputs(input) {
+  if (!input) return
+  const map = { address: 'in-address', name: 'in-name', phone: 'in-phone', email: 'in-email', city: 'in-city', state: 'in-state', leadId: 'in-leadId' }
+  for (const [key, id] of Object.entries(map)) {
+    const elm = $(id)
+    if (elm && input[key] && !elm.value) {
+      elm.value = input[key]
+      elm.classList.add('autofilled')
+      setTimeout(() => elm.classList.remove('autofilled'), 2500)
+    }
+  }
+}
+
 // ---- SSE stream -------------------------------------------------------------
 function connectStream() {
   const es = new EventSource('/api/stream')
@@ -124,6 +139,7 @@ function handleEvent(ev) {
     case 'source-start': addStep(ev.source); $('current-source').textContent = '· ' + ev.source; break
     case 'source-done': completeStep(ev.source, ev.ok, ev.notes); break
     case 'log': addLog(`${ev.source ? ev.source + ': ' : ''}${ev.message}`); break
+    case 'input-updated': fillInputs(ev.input); addLog(ev.message, 'state'); break
     case 'login-required':
       setState('login')
       $('login-banner').hidden = false

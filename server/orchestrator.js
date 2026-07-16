@@ -156,6 +156,10 @@ export class Investigation extends EventEmitter {
       }
 
       this._absorb(source, result)
+      // After the CRM lead is read, auto-fill any blank inputs from it so the
+      // downstream sources (which need the address, etc.) can run without the
+      // operator having typed them.
+      if (source.id === 'reiblackbook') this._backfillInput()
       this.emit({
         type: 'source-done',
         source: source.label,
@@ -167,6 +171,22 @@ export class Investigation extends EventEmitter {
     }
 
     return this.finalize(this.state === 'stopped' ? 'stopped' : 'done')
+  }
+
+  // Fill any blank input fields from the CRM lead the app just read, so the
+  // operator only has to paste the REI BlackBook link. Announces what it found.
+  _backfillInput() {
+    const crm = this.data.crm || {}
+    const NF = 'FIELD NOT FOUND'
+    const val = (v) => (v && v !== NF ? String(v).trim() : '')
+    const filled = []
+    if (!this.input.address && val(crm.propertyAddress)) { this.input.address = val(crm.propertyAddress); filled.push(`address = ${this.input.address}`) }
+    if (!this.input.name && val(crm.sellerName)) { this.input.name = val(crm.sellerName); filled.push(`name = ${this.input.name}`) }
+    if (!this.input.phone && Array.isArray(crm.phones) && crm.phones[0]) { this.input.phone = crm.phones[0]; filled.push(`phone = ${this.input.phone}`) }
+    if (!this.input.email && Array.isArray(crm.emails) && crm.emails[0]) { this.input.email = crm.emails[0]; filled.push(`email = ${this.input.email}`) }
+    if (filled.length) {
+      this.emit({ type: 'input-updated', input: { ...this.input }, message: `Auto-filled from REI BlackBook: ${filled.join(', ')}` })
+    }
   }
 
   // Merge a source result into the consolidated data model.
