@@ -212,7 +212,6 @@ input.autofilled { border-color: var(--accent); box-shadow: 0 0 0 3px var(--acce
 .st-review { background: rgba(224, 96, 90, 0.18); color: #f1938e; }
 .st-nocontact { background: rgba(216, 164, 65, 0.18); color: #e7c063; }
 .st-progress { background: var(--surface-2); color: var(--muted); }
-.st-skipped { background: rgba(224, 96, 90, 0.18); color: #f1938e; }
 
 .report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 16px 0; }
 .kv { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 11px 13px; }
@@ -238,11 +237,6 @@ input.autofilled { border-color: var(--accent); box-shadow: 0 0 0 3px var(--acce
 .tag-verified { background: rgba(69, 193, 132, 0.2); color: #74d8a6; }
 .tag-clue { background: rgba(216, 164, 65, 0.18); color: #e7c063; }
 .contacts-note { margin-top: 8px; }
-
-.safety-warn { background: rgba(216, 164, 65, 0.12); border: 1px solid rgba(216, 164, 65, 0.45); color: #e7c063; border-radius: var(--r-sm); padding: 11px 14px; margin: 12px 0; }
-.safety-warn.safety-danger { background: rgba(224, 96, 90, 0.14); border-color: rgba(224, 96, 90, 0.55); color: #f1938e; }
-.safety-line { font-size: 13px; font-weight: 600; }
-.safety-line + .safety-line { margin-top: 6px; }
 
 .conflicts h3 { margin-top: 16px; }
 .conflict-list { margin: 6px 0; padding-left: 18px; font-size: 13px; color: var(--text-2); }

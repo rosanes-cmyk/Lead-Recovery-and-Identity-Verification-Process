@@ -260,14 +260,6 @@ function onReport(report, state) {
 
   const cbox = $('conflicts')
   cbox.innerHTML = ''
-  const cs = s.contactSafety || {}
-  if (cs.optOut || cs.alreadyContacted || cs.doNotAutomate) {
-    const warn = el('div', 'safety-warn' + (cs.optOut || cs.doNotAutomate ? ' safety-danger' : ''))
-    if (cs.doNotAutomate) warn.append(el('div', 'safety-line', '🚫 DO NOT AUTOMATE — this lead is tagged Do Not Automate.'))
-    if (cs.optOut) warn.append(el('div', 'safety-line', `🚫 DO NOT CONTACT — opt-out found ("${cs.optOutEvidence}").`))
-    if (cs.alreadyContacted) warn.append(el('div', 'safety-line', '⚠️ Already contacted — prior outreach in the history. Do not text again the same month; check the last contact date.'))
-    cbox.append(warn)
-  }
   if (s.conflicts.length) {
     cbox.append(el('h3', null, 'Conflicts flagged'))
     const ul = el('ul', 'conflict-list')
@@ -330,7 +322,6 @@ function statusClass(s) {
   if (s === 'Seller Contact Located') return 'st-located'
   if (s === 'Management Review Required') return 'st-review'
   if (s === 'No Contact After Investigation') return 'st-nocontact'
-  if (String(s).startsWith('Skipped')) return 'st-skipped'
   return 'st-progress'
 }
 

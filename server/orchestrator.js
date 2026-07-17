@@ -11,7 +11,7 @@ import path from 'node:path'
 import { config } from './config.js'
 import { getPage, closeBrowser } from './browser.js'
 import { sources } from './sources/index.js'
-import { score, analyzeContactSafety } from './scoring.js'
+import { score } from './scoring.js'
 import { buildNote, buildNextTask } from './note.js'
 import { ensureRunDir, runDir, saveReport, newRunId } from './store.js'
 import { runDemo } from './demo.js'
@@ -170,17 +170,7 @@ export class Investigation extends EventEmitter {
       // After the CRM lead is read, auto-fill any blank inputs from it so the
       // downstream sources (which need the address, etc.) can run without the
       // operator having typed them.
-      if (source.id === 'reiblackbook') {
-        this._backfillInput()
-        // Skip the whole lead if it's tagged Do Not Automate (or opted out) —
-        // don't run any further sources on it.
-        const cs = analyzeContactSafety(this.data)
-        if (cs.doNotAutomate) {
-          this._skipReason = `Do Not Automate tag found — lead skipped, no automation run.`
-          this.emit({ type: 'log', message: this._skipReason })
-          break
-        }
-      }
+      if (source.id === 'reiblackbook') this._backfillInput()
       this.emit({
         type: 'source-done',
         source: source.label,
@@ -332,12 +322,6 @@ export class Investigation extends EventEmitter {
 
   finalize(finalState) {
     const scored = score(this.data)
-    // If the lead was skipped (Do Not Automate), tag it clearly — it still shows
-    // in the results list, marked as skipped.
-    if (this._skipReason) {
-      scored.recommendedStatus = 'Skipped — Do Not Automate'
-      scored.statusReason = this._skipReason
-    }
     const dateChecked = new Date().toISOString().slice(0, 10)
     const auditLogPath = this._writeAuditLog()
     const meta = this._meta({

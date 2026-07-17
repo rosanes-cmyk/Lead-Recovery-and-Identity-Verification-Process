@@ -203,15 +203,6 @@ export function score(data) {
     if (topContacts.length >= 5) break
   }
 
-  // ---- Contact safety (check notes + history) -----------------------------
-  const contactSafety = analyzeContactSafety(data)
-  if (contactSafety.optOut) {
-    conflicts.push({
-      type: 'Do-Not-Contact / opt-out',
-      detail: `Opt-out signal found in the lead history ("${contactSafety.optOutEvidence}"). Do not contact.`,
-    })
-  }
-
   // ---- Recommended status -------------------------------------------------
   const ownerKnown = Boolean(verifiedName) && nameConfidence !== 'Low'
   const hasUsableContact =
@@ -254,42 +245,11 @@ export function score(data) {
     conflicts,
     possibleContacts,
     topContacts,
-    contactSafety,
     recommendedStatus: status,
     statusReason,
   }
 }
 
-// Scan the lead's notes + captured history for contact-safety signals:
-//  - opt-out / Do-Not-Contact (STOP, unsubscribe, "do not email/call", DNC)
-//  - prior outreach already sent (so a human doesn't double-text)
-// Do-Not-Contact / suppression tags & phrases, including "Do Not Automate".
-const OPTOUT_PHRASES = /\b(unsubscribe|do ?not ?(?:call|text|email|contact|automate|market|mail|solicit)|opt(?:ed)? ?out|remove me|\bdnc\b|no (?:more )?(?:texts?|calls?|emails?|contact)|stop (?:texting|calling|contacting))\b/i
-const OUTBOUND_MARKERS = /(are you still interested|reply yes or no|this is \w+ with|thinking about you|hope you (?:and )?your (?:family|)|been thinking about you)/i
-export function analyzeContactSafety(data) {
-  const notes = String(data.crm?.notes || '')
-  const history = String(data.crm?.history || '')
-  const tags = String(data.crm?.tags || '')
-  const text = `${notes}\n${history}\n${tags}`
-
-  let optOutEvidence = ''
-  const phrase = text.match(OPTOUT_PHRASES)
-  if (phrase) optOutEvidence = phrase[0]
-  else if (/\bSTOP\b/.test(text)) optOutEvidence = 'STOP'
-
-  const doNotAutomate = /\bdo ?not ?automate\b/i.test(text)
-  const alreadyContacted = OUTBOUND_MARKERS.test(text)
-  return {
-    optOut: Boolean(optOutEvidence),
-    optOutEvidence,
-    doNotAutomate,
-    alreadyContacted,
-    detail: alreadyContacted
-      ? 'Prior outreach found in the lead history — verify the last contact date and do not send a duplicate this month.'
-      : '',
-    checked: Boolean(notes || history || tags),
-  }
-}
 
 // Confidence level -> numeric match score, nudged up by corroborating sources.
 // Deliberately capped per level so the number never implies more certainty than

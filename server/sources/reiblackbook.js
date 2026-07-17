@@ -50,31 +50,6 @@ export async function run(ctx) {
 
   const data = { ...lead.values }
 
-  // --- Capture notes + activity history for contact-safety scanning ---
-  // (opt-out / STOP replies, and whether the lead was already contacted).
-  let history = await page.innerText('body').catch(() => '')
-  if (target.includes('activeTab=')) {
-    // Try the activity/communication tab for the message + call history.
-    for (const tab of ['activity', 'communications', 'communication', 'timeline']) {
-      if (signal?.aborted) break
-      const url = target.replace(/activeTab=[^&]*/, 'activeTab=' + tab)
-      if (url === page.url()) continue
-      try {
-        await goto(page, url, { signal })
-        if (await looksLikeLogin(page)) break
-        const t = await page.innerText('body').catch(() => '')
-        if (t && t.length > 100) {
-          history += '\n' + t
-          res.evidence.push(await capture(page, runDir, `reibb-${tab}`))
-          break // first tab that loads content is enough
-        }
-      } catch {
-        /* try next tab name */
-      }
-    }
-  }
-  data.history = (history || '').replace(/\s+/g, ' ').slice(0, 30000)
-
   // --- Attached contact record ---
   // If the lead link is ALREADY a contact record (…/contacts/<id>), we're on
   // the contact — don't chase a separate link (that mistakenly grabbed a
