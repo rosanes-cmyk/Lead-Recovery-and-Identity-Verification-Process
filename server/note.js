@@ -87,6 +87,7 @@ export function buildNote(report) {
 
   const cs = scored.contactSafety || {}
   L.push('', 'CONTACT SAFETY')
+  if (cs.doNotAutomate) line('Do Not Automate tag:', 'YES — this lead is tagged Do Not Automate. Do not process/contact via automation.')
   line('Do Not Contact / opt-out:', cs.optOut ? `YES — "${cs.optOutEvidence}". Do NOT contact.` : 'None detected')
   line('Already contacted:', cs.alreadyContacted ? 'YES — prior outreach in history; do not text again this month without checking the last date.' : 'No prior outreach detected')
   if (!cs.checked) L.push('(Notes/activity history was not captured — review the lead manually before any outreach.)')

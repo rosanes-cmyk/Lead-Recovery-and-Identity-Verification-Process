@@ -263,27 +263,31 @@ export function score(data) {
 // Scan the lead's notes + captured history for contact-safety signals:
 //  - opt-out / Do-Not-Contact (STOP, unsubscribe, "do not email/call", DNC)
 //  - prior outreach already sent (so a human doesn't double-text)
-const OPTOUT_PHRASES = /\b(unsubscribe|do ?not ?(call|text|email|contact)|opt(?:ed)? ?out|remove me|\bdnc\b|no more (?:texts|calls|emails)|stop (?:texting|calling|contacting))\b/i
+// Do-Not-Contact / suppression tags & phrases, including "Do Not Automate".
+const OPTOUT_PHRASES = /\b(unsubscribe|do ?not ?(?:call|text|email|contact|automate|market|mail|solicit)|opt(?:ed)? ?out|remove me|\bdnc\b|no (?:more )?(?:texts?|calls?|emails?|contact)|stop (?:texting|calling|contacting))\b/i
 const OUTBOUND_MARKERS = /(are you still interested|reply yes or no|this is \w+ with|thinking about you|hope you (?:and )?your (?:family|)|been thinking about you)/i
 function analyzeContactSafety(data) {
   const notes = String(data.crm?.notes || '')
   const history = String(data.crm?.history || '')
-  const text = `${notes}\n${history}`
+  const tags = String(data.crm?.tags || '')
+  const text = `${notes}\n${history}\n${tags}`
 
   let optOutEvidence = ''
   const phrase = text.match(OPTOUT_PHRASES)
   if (phrase) optOutEvidence = phrase[0]
-  else if (/\bSTOP\b/.test(history) || /\bSTOP\b/.test(notes)) optOutEvidence = 'STOP'
+  else if (/\bSTOP\b/.test(text)) optOutEvidence = 'STOP'
 
+  const doNotAutomate = /\bdo ?not ?automate\b/i.test(text)
   const alreadyContacted = OUTBOUND_MARKERS.test(text)
   return {
     optOut: Boolean(optOutEvidence),
     optOutEvidence,
+    doNotAutomate,
     alreadyContacted,
     detail: alreadyContacted
       ? 'Prior outreach found in the lead history — verify the last contact date and do not send a duplicate this month.'
       : '',
-    checked: Boolean(notes || history),
+    checked: Boolean(notes || history || tags),
   }
 }
 

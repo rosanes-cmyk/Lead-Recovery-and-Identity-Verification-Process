@@ -261,9 +261,10 @@ function onReport(report, state) {
   const cbox = $('conflicts')
   cbox.innerHTML = ''
   const cs = s.contactSafety || {}
-  if (cs.optOut || cs.alreadyContacted) {
-    const warn = el('div', 'safety-warn' + (cs.optOut ? ' safety-danger' : ''))
-    if (cs.optOut) warn.append(el('div', 'safety-line', `🚫 DO NOT CONTACT — opt-out found in history ("${cs.optOutEvidence}").`))
+  if (cs.optOut || cs.alreadyContacted || cs.doNotAutomate) {
+    const warn = el('div', 'safety-warn' + (cs.optOut || cs.doNotAutomate ? ' safety-danger' : ''))
+    if (cs.doNotAutomate) warn.append(el('div', 'safety-line', '🚫 DO NOT AUTOMATE — this lead is tagged Do Not Automate.'))
+    if (cs.optOut) warn.append(el('div', 'safety-line', `🚫 DO NOT CONTACT — opt-out found ("${cs.optOutEvidence}").`))
     if (cs.alreadyContacted) warn.append(el('div', 'safety-line', '⚠️ Already contacted — prior outreach in the history. Do not text again the same month; check the last contact date.'))
     cbox.append(warn)
   }
