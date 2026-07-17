@@ -212,6 +212,7 @@ input.autofilled { border-color: var(--accent); box-shadow: 0 0 0 3px var(--acce
 .st-review { background: rgba(224, 96, 90, 0.18); color: #f1938e; }
 .st-nocontact { background: rgba(216, 164, 65, 0.18); color: #e7c063; }
 .st-progress { background: var(--surface-2); color: var(--muted); }
+.st-skipped { background: rgba(224, 96, 90, 0.18); color: #f1938e; }
 
 .report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 16px 0; }
 .kv { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 11px 13px; }

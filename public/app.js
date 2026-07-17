@@ -330,6 +330,7 @@ function statusClass(s) {
   if (s === 'Seller Contact Located') return 'st-located'
   if (s === 'Management Review Required') return 'st-review'
   if (s === 'No Contact After Investigation') return 'st-nocontact'
+  if (String(s).startsWith('Skipped')) return 'st-skipped'
   return 'st-progress'
 }
 

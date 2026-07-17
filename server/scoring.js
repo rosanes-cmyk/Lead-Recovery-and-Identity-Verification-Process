@@ -266,7 +266,7 @@ export function score(data) {
 // Do-Not-Contact / suppression tags & phrases, including "Do Not Automate".
 const OPTOUT_PHRASES = /\b(unsubscribe|do ?not ?(?:call|text|email|contact|automate|market|mail|solicit)|opt(?:ed)? ?out|remove me|\bdnc\b|no (?:more )?(?:texts?|calls?|emails?|contact)|stop (?:texting|calling|contacting))\b/i
 const OUTBOUND_MARKERS = /(are you still interested|reply yes or no|this is \w+ with|thinking about you|hope you (?:and )?your (?:family|)|been thinking about you)/i
-function analyzeContactSafety(data) {
+export function analyzeContactSafety(data) {
   const notes = String(data.crm?.notes || '')
   const history = String(data.crm?.history || '')
   const tags = String(data.crm?.tags || '')
