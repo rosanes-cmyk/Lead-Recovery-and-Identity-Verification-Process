@@ -260,6 +260,13 @@ function onReport(report, state) {
 
   const cbox = $('conflicts')
   cbox.innerHTML = ''
+  const cs = s.contactSafety || {}
+  if (cs.optOut || cs.alreadyContacted) {
+    const warn = el('div', 'safety-warn' + (cs.optOut ? ' safety-danger' : ''))
+    if (cs.optOut) warn.append(el('div', 'safety-line', `🚫 DO NOT CONTACT — opt-out found in history ("${cs.optOutEvidence}").`))
+    if (cs.alreadyContacted) warn.append(el('div', 'safety-line', '⚠️ Already contacted — prior outreach in the history. Do not text again the same month; check the last contact date.'))
+    cbox.append(warn)
+  }
   if (s.conflicts.length) {
     cbox.append(el('h3', null, 'Conflicts flagged'))
     const ul = el('ul', 'conflict-list')

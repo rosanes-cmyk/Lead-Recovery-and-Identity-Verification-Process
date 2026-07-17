@@ -238,6 +238,11 @@ input.autofilled { border-color: var(--accent); box-shadow: 0 0 0 3px var(--acce
 .tag-clue { background: rgba(216, 164, 65, 0.18); color: #e7c063; }
 .contacts-note { margin-top: 8px; }
 
+.safety-warn { background: rgba(216, 164, 65, 0.12); border: 1px solid rgba(216, 164, 65, 0.45); color: #e7c063; border-radius: var(--r-sm); padding: 11px 14px; margin: 12px 0; }
+.safety-warn.safety-danger { background: rgba(224, 96, 90, 0.14); border-color: rgba(224, 96, 90, 0.55); color: #f1938e; }
+.safety-line { font-size: 13px; font-weight: 600; }
+.safety-line + .safety-line { margin-top: 6px; }
+
 .conflicts h3 { margin-top: 16px; }
 .conflict-list { margin: 6px 0; padding-left: 18px; font-size: 13px; color: var(--text-2); }
 .conflict-list li { margin: 5px 0; }

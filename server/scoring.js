@@ -203,6 +203,15 @@ export function score(data) {
     if (topContacts.length >= 5) break
   }
 
+  // ---- Contact safety (check notes + history) -----------------------------
+  const contactSafety = analyzeContactSafety(data)
+  if (contactSafety.optOut) {
+    conflicts.push({
+      type: 'Do-Not-Contact / opt-out',
+      detail: `Opt-out signal found in the lead history ("${contactSafety.optOutEvidence}"). Do not contact.`,
+    })
+  }
+
   // ---- Recommended status -------------------------------------------------
   const ownerKnown = Boolean(verifiedName) && nameConfidence !== 'Low'
   const hasUsableContact =
@@ -245,8 +254,36 @@ export function score(data) {
     conflicts,
     possibleContacts,
     topContacts,
+    contactSafety,
     recommendedStatus: status,
     statusReason,
+  }
+}
+
+// Scan the lead's notes + captured history for contact-safety signals:
+//  - opt-out / Do-Not-Contact (STOP, unsubscribe, "do not email/call", DNC)
+//  - prior outreach already sent (so a human doesn't double-text)
+const OPTOUT_PHRASES = /\b(unsubscribe|do ?not ?(call|text|email|contact)|opt(?:ed)? ?out|remove me|\bdnc\b|no more (?:texts|calls|emails)|stop (?:texting|calling|contacting))\b/i
+const OUTBOUND_MARKERS = /(are you still interested|reply yes or no|this is \w+ with|thinking about you|hope you (?:and )?your (?:family|)|been thinking about you)/i
+function analyzeContactSafety(data) {
+  const notes = String(data.crm?.notes || '')
+  const history = String(data.crm?.history || '')
+  const text = `${notes}\n${history}`
+
+  let optOutEvidence = ''
+  const phrase = text.match(OPTOUT_PHRASES)
+  if (phrase) optOutEvidence = phrase[0]
+  else if (/\bSTOP\b/.test(history) || /\bSTOP\b/.test(notes)) optOutEvidence = 'STOP'
+
+  const alreadyContacted = OUTBOUND_MARKERS.test(text)
+  return {
+    optOut: Boolean(optOutEvidence),
+    optOutEvidence,
+    alreadyContacted,
+    detail: alreadyContacted
+      ? 'Prior outreach found in the lead history — verify the last contact date and do not send a duplicate this month.'
+      : '',
+    checked: Boolean(notes || history),
   }
 }
 

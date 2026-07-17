@@ -21,6 +21,9 @@ export function demoData(input) {
       disposition: 'No answer',
       assignedTeamMember: 'Unassigned',
       lastActivity: '2026-05-02 — outbound call, no answer',
+      history:
+        'Hi, this is Juan with Equity Track Inc. You contacted us before about selling your home. ' +
+        'Are you still interested? Reply YES or NO. — Yes. I will have access to the property in 2 weeks.',
     },
     ownership: {
       recordedOwner: 'Phillip Lyman Barber and Jane A Barber',

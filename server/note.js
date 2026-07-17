@@ -85,6 +85,12 @@ export function buildNote(report) {
     L.push('   Note: nobody is labeled a relative without a lawful record; clues are unverified.')
   }
 
+  const cs = scored.contactSafety || {}
+  L.push('', 'CONTACT SAFETY')
+  line('Do Not Contact / opt-out:', cs.optOut ? `YES — "${cs.optOutEvidence}". Do NOT contact.` : 'None detected')
+  line('Already contacted:', cs.alreadyContacted ? 'YES — prior outreach in history; do not text again this month without checking the last date.' : 'No prior outreach detected')
+  if (!cs.checked) L.push('(Notes/activity history was not captured — review the lead manually before any outreach.)')
+
   L.push('', 'CONFLICTS OR UNVERIFIED INFORMATION')
   if (scored.conflicts.length) {
     scored.conflicts.forEach((c, i) => line(`Conflict ${i + 1}:`, `${c.type} — ${c.detail}`))
@@ -122,12 +128,28 @@ export function buildNote(report) {
 // Recommend the next task + reassignment from the status (SOP Steps 14-15).
 export function buildNextTask(scored, meta) {
   const dueDate = meta.dueDate // caller supplies (no Date math here for determinism)
+
+  // Contact-safety overrides: never recommend outreach to an opted-out lead,
+  // and warn against a duplicate contact.
+  const cs = scored.contactSafety || {}
+  if (cs.optOut) {
+    return {
+      action: `DO NOT CONTACT — opt-out found in the lead history ("${cs.optOutEvidence}"). Route to Cherry Hombre; no calls, texts, or emails.`,
+      dueDate,
+      reassignTo: 'Cherry Hombre',
+    }
+  }
+  const dupWarning = cs.alreadyContacted
+    ? ' NOTE: prior outreach already in the history — check the last contact date and do NOT text again the same month.'
+    : ''
+
   switch (scored.recommendedStatus) {
     case 'Seller Contact Located':
       return {
-        action: scored.bestPhone
-          ? `Acquisitions to call the verified seller at ${scored.bestPhone.number}.`
-          : 'Acquisitions to follow up with the verified seller using the confirmed contact info.',
+        action:
+          (scored.bestPhone
+            ? `Acquisitions to call the verified seller at ${scored.bestPhone.number}.`
+            : 'Acquisitions to follow up with the verified seller using the confirmed contact info.') + dupWarning,
         dueDate,
         reassignTo: 'Acquisitions',
       }
