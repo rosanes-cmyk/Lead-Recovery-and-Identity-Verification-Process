@@ -70,6 +70,19 @@ export async function run(ctx) {
 
   res.data = { results }
   res.ok = true
+
+  // Diagnostic summary so we can see exactly what was extracted.
+  const rows = results.flatMap((r) => r.rows || [])
+  const nPhones = rows.reduce((a, r) => a + (r.phones || []).length, 0)
+  const nRels = rows.reduce((a, r) => a + (r.relatives || []).length, 0)
+  const relPhone = rows.find((r) => r.bestRelative?.phones?.length)?.bestRelative
+  emit({
+    type: 'log',
+    source: label,
+    message: `Extracted: ${rows.length} match(es), ${nPhones} phone(s), ${nRels} relative(s)` +
+      (relPhone ? `, best relative ${relPhone.name} ${relPhone.phones[0]}` : ''),
+  })
+
   if (!results.length) res.notes.push('People search ran but nothing matched (blocked or no results). Clues only.')
   return res
 }
