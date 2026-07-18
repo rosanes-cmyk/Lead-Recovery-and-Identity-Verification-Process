@@ -80,11 +80,15 @@ async function startInvestigation() {
   btn.disabled = true
   const label = btn.textContent
   btn.textContent = 'Starting…'
+  // Don't wait forever — if the server doesn't answer in 20s, surface it.
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), 20000)
   try {
     const r = await fetch('/api/investigate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
+      signal: ac.signal,
     })
     // Read the body defensively — a crash returns HTML, not JSON.
     const raw = await r.text()
@@ -101,9 +105,14 @@ async function startInvestigation() {
     resetWorkspace()
     startTimer()
   } catch (err) {
-    // Network error / server not reachable — surface it instead of failing silent.
-    showError('Could not reach the server. Is it still running? (' + (err?.message || err) + ')')
+    if (err?.name === 'AbortError') {
+      showError('The server did not respond in time. Close any leftover automation Chrome windows, then Stop and Start again — or restart the server (Ctrl+C, npm start).')
+    } else {
+      // Network error / server not reachable — surface it instead of failing silent.
+      showError('Could not reach the server. Is it still running? (' + (err?.message || err) + ')')
+    }
   } finally {
+    clearTimeout(timer)
     btn.disabled = false
     btn.textContent = label
   }

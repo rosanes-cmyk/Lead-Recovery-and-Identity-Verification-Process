@@ -53,19 +53,28 @@ app.get('/api/config', (req, res) => {
 
 // --- start an investigation --------------------------------------------------
 app.post('/api/investigate', async (req, res) => {
-  if (current && ['running', 'paused', 'login'].includes(current.state)) {
-    return res.status(409).json({ error: 'An investigation is already running. Stop it first.' })
+  try {
+    if (current && ['running', 'paused', 'login'].includes(current.state)) {
+      return res.status(409).json({ error: 'An investigation is already running. Stop it first.' })
+    }
+    const input = req.body || {}
+    if (!input.address && !input.reiLink && !input.name && !input.phone && !input.email) {
+      return res.status(400).json({ error: 'Provide at least an address, REI BlackBook link, name, phone, or email.' })
+    }
+    const inv = new Investigation(input)
+    current = inv
+    inv.on('event', (ev) => broadcast({ runId: inv.runId, ...ev }))
+    // Respond immediately so the UI never hangs; the run proceeds over SSE. The
+    // browser launch happens inside run() and reports failures as SSE 'error'
+    // events (e.g. a leftover Chrome locking the profile).
+    res.json({ runId: inv.runId, state: inv.state })
+    inv.run().catch((err) => broadcast({ runId: inv.runId, type: 'error', message: String(err) }))
+  } catch (err) {
+    // Never leave the request hanging — an async throw before res.json() would
+    // otherwise stall the client on "Starting…" forever.
+    console.error('investigate failed:', err)
+    if (!res.headersSent) res.status(500).json({ error: 'Could not start: ' + String(err?.message || err) })
   }
-  const input = req.body || {}
-  if (!input.address && !input.reiLink && !input.name && !input.phone && !input.email) {
-    return res.status(400).json({ error: 'Provide at least an address, REI BlackBook link, name, phone, or email.' })
-  }
-  const inv = new Investigation(input)
-  current = inv
-  inv.on('event', (ev) => broadcast({ runId: inv.runId, ...ev }))
-  res.json({ runId: inv.runId, state: inv.state })
-  // Run asynchronously; progress flows over SSE.
-  inv.run().catch((err) => broadcast({ runId: inv.runId, type: 'error', message: String(err) }))
 })
 
 // --- live progress stream ----------------------------------------------------
