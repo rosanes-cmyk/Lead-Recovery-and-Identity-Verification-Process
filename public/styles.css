@@ -104,7 +104,10 @@ input:focus, select:focus, textarea:focus {
   outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-ghost);
 }
-.f-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+/* A two-field row (Phone / Email). The row owns the top spacing so BOTH fields
+   line up — otherwise :first-of-type tightens only the left one and they skew. */
+.f-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; align-items: start; }
+.f-row .f, .f-row .f:first-of-type { margin-top: 0; }
 input.autofilled { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ghost); animation: flash 0.4s ease; }
 @keyframes flash { 0% { background: var(--accent-ghost); } 100% { background: var(--bg); } }
 .toggle {

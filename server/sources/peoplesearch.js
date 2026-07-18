@@ -151,11 +151,12 @@ async function attachRelatives(page, row, ownerName, ctx) {
       .sort((a, b) => Number(b.sameSurname) - Number(a.sameSurname) || a.i - b.i)
 
     // Open the top candidates' pages to read each one's phone + address, so the
-    // Top possible contacts are actually REACHABLE (a phone to call). We check up
-    // to 5 (the size of the Top-contacts list). We don't stop at the first phone
-    // — we want a number for as many of the five as we can. Each is still an
-    // UNVERIFIED clue; contacting requires separate authorization (SOP).
-    const MAX_PROBE = 5
+    // Top possible contacts are actually REACHABLE (a phone to call). Kept to 3
+    // to balance coverage against speed — each extra page is another load and a
+    // possible TruePeopleSearch human-check. We don't stop at the first phone; we
+    // want a number for as many as we can. Each is an UNVERIFIED clue; contacting
+    // requires separate authorization (SOP).
+    const MAX_PROBE = 3
     const probed = []
     for (const cand of ranked.slice(0, MAX_PROBE)) {
       if (signal?.aborted) break
