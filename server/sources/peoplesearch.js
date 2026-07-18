@@ -150,31 +150,36 @@ async function attachRelatives(page, row, ownerName, ctx) {
       .map((r, i) => ({ ...r, i, sameSurname: sameSurname(r) }))
       .sort((a, b) => Number(b.sameSurname) - Number(a.sameSurname) || a.i - b.i)
 
-    // Probe up to 2 top candidates for a phone + address; stop at the first that
-    // has a reachable phone (that's the best contact). Kept to 2 so we don't
-    // trigger many extra TruePeopleSearch human-checks. Keep the address-only top
-    // candidate as a fallback if neither lists a phone.
+    // Open the top candidates' pages to read each one's phone + address, so the
+    // Top possible contacts are actually REACHABLE (a phone to call). We check up
+    // to 5 (the size of the Top-contacts list). We don't stop at the first phone
+    // — we want a number for as many of the five as we can. Each is still an
+    // UNVERIFIED clue; contacting requires separate authorization (SOP).
+    const MAX_PROBE = 5
     const probed = []
-    let best = null
-    for (const cand of ranked.slice(0, 2)) {
+    for (const cand of ranked.slice(0, MAX_PROBE)) {
       if (signal?.aborted) break
       if (!cand.href) continue
-      emit({ type: 'log', source: label, message: `Checking possible relative for a phone: ${cand.name}${cand.sameSurname ? ' (same surname)' : ''}` })
+      emit({ type: 'log', source: label, message: `Reading possible relative for a phone: ${cand.name}${cand.sameSurname ? ' (same surname)' : ''}` })
       try {
         await goto(page, new URL(cand.href, page.url()).href, { signal })
         await handleBlock(page, res, runDir, emit, signal, ctx, 'relative')
         res.evidence.push(await capture(page, runDir, 'peoplesearch-relative'))
         const phones = await phonesOnPage(page)
         const address = await addressOnPage(page)
-        const rec = { name: cand.name, phones, address, sameSurname: cand.sameSurname }
-        probed.push(rec)
-        if (phones.length) { best = rec; break } // reachable — done
-        if (!best) best = rec // fallback: first probed (may have an address)
+        probed.push({ name: cand.name, phones, address, sameSurname: cand.sameSurname })
+        emit({ type: 'log', source: label, message: `  ${cand.name}: ${phones[0] || 'no phone'}${address ? ' — ' + address : ''}` })
       } catch {
         /* skip this candidate */
       }
     }
     row.relativesDetailed = probed
+    // Best contact = a same-surname relative WITH a phone, else any with a phone,
+    // else the first we read.
+    const best =
+      probed.find((p) => p.sameSurname && (p.phones || []).length) ||
+      probed.find((p) => (p.phones || []).length) ||
+      probed[0]
     if (best) {
       row.bestRelative = {
         name: best.name,
