@@ -80,7 +80,7 @@ async function pickAndExtract(page, input, searchName, ctx) {
   const { res, runDir, emit, signal, pauseForAction } = ctx
   const cards = await readCards(page)
 
-  // No result cards? Might be a direct person page. Read it.
+  // No result cards? We may already be on a person page — read it directly.
   if (!cards.length) {
     const phones = await phonesOnPage(page)
     const name = await headingName(page)
@@ -96,14 +96,12 @@ async function pickAndExtract(page, input, searchName, ctx) {
   if (!best) best = cards[0]
 
   const name = parseName(best.text)
-  emit({ type: 'log', source: label, message: `${matched ? 'Address-matched' : 'Top'} result: ${name || '(unknown)'} — opening View Details` })
+  emit({ type: 'log', source: label, message: `${matched ? 'Address-matched' : 'Top'} result: ${name || '(unknown)'} — opening profile` })
 
+  // Navigate straight to the person's profile (more reliable than clicking).
   try {
-    const link = page.locator('a:has-text("View Details"), a[href*="/find/person/"]').nth(best.index)
-    if ((await link.count()) > 0) {
-      await link.click({ timeout: 4000 })
-      await page.waitForTimeout(1500)
-      await settle(page)
+    if (best.href) {
+      await goto(page, new URL(best.href, page.url()).href, { signal })
       await handleBlock(page, res, runDir, emit, signal, pauseForAction, 'detail')
       res.evidence.push(await capture(page, runDir, 'peoplesearch-detail'))
     }
@@ -174,20 +172,30 @@ async function extractRelatives(page) {
 
 /* ---------- page helpers ---------- */
 
-// Read each result card: its index (matching the "View Details" link order) and
-// its visible text.
+// Read each result card via its person-profile link (which always exists), with
+// the surrounding card's text and the profile href to navigate to.
 async function readCards(page) {
   try {
     return await page.evaluate(() => {
-      const links = Array.from(document.querySelectorAll('a')).filter((a) => /view details/i.test(a.textContent || ''))
-      return links.map((a, index) => {
+      const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
+      const seen = new Set()
+      const out = []
+      const distinctPeople = (node) =>
+        new Set(Array.from(node.querySelectorAll('a[href*="/find/person/"]')).map((x) => x.getAttribute('href'))).size
+      document.querySelectorAll('a[href*="/find/person/"]').forEach((a) => {
+        const href = a.getAttribute('href')
+        if (!href || seen.has(href)) return
+        seen.add(href)
+        // Climb to the card, but never into a parent that merges several people.
         let el = a
         for (let k = 0; k < 6 && el.parentElement; k++) {
+          if (distinctPeople(el.parentElement) > 1) break
           el = el.parentElement
-          if ((el.textContent || '').replace(/\s+/g, ' ').trim().length > 60) break
+          if (clean(el.textContent).length >= 40) break
         }
-        return { index, text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 400) }
+        out.push({ href, text: clean(el.textContent).slice(0, 400) })
       })
+      return out.slice(0, 25)
     })
   } catch {
     return []
