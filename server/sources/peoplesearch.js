@@ -150,12 +150,13 @@ async function attachRelatives(page, row, ownerName, ctx) {
       .map((r, i) => ({ ...r, i, sameSurname: sameSurname(r) }))
       .sort((a, b) => Number(b.sameSurname) - Number(a.sameSurname) || a.i - b.i)
 
-    // Probe up to 3 top candidates for a phone + address; stop at the first that
-    // has a reachable phone (that's the best contact). Keep the address-only top
-    // candidate as a fallback if none list a phone.
+    // Probe up to 2 top candidates for a phone + address; stop at the first that
+    // has a reachable phone (that's the best contact). Kept to 2 so we don't
+    // trigger many extra TruePeopleSearch human-checks. Keep the address-only top
+    // candidate as a fallback if neither lists a phone.
     const probed = []
     let best = null
-    for (const cand of ranked.slice(0, 3)) {
+    for (const cand of ranked.slice(0, 2)) {
       if (signal?.aborted) break
       if (!cand.href) continue
       emit({ type: 'log', source: label, message: `Checking possible relative for a phone: ${cand.name}${cand.sameSurname ? ' (same surname)' : ''}` })

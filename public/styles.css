@@ -255,6 +255,20 @@ input.autofilled { border-color: var(--accent); box-shadow: 0 0 0 3px var(--acce
 .approval-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; justify-content: flex-end; }
 
 /* ---------- Recent runs ---------- */
+/* Recent runs collapse into a dropdown so the sidebar stays short. */
+.recent-details > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+.recent-details > summary::-webkit-details-marker { display: none; }
+.recent-details > summary h2 { margin: 0; }
+.recent-details > summary .chevron { transition: transform 0.15s ease; color: var(--muted); }
+.recent-details[open] > summary .chevron { transform: rotate(180deg); }
+.recent-details .runs { margin-top: 10px; max-height: 320px; overflow-y: auto; }
 .runs { display: flex; flex-direction: column; gap: 7px; }
 .run-item {
   display: flex; align-items: center; gap: 8px; justify-content: space-between;
