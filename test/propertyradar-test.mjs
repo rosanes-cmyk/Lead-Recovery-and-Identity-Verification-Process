@@ -50,6 +50,24 @@ try {
   console.log('\n[PropertyRadar] personFromDeeds direct')
   check('recovers surname-first grantee', personFromDeeds(tabsText, 'Paulo Faga').toLowerCase().startsWith('faga paulo'), personFromDeeds(tabsText, 'Paulo Faga'))
   check('returns empty when surname absent', personFromDeeds(tabsText, 'Nonexistent Zzyzx') === '')
+
+  // Text-fallback path: the DOM yields nothing positionally (blank page), so
+  // every field must come from the rendered tab TEXT — the robust PropertyRadar
+  // path that survives React DOM nesting.
+  console.log('\n[PropertyRadar] text-fallback extraction (blank DOM)')
+  const page2 = await browser.newPage()
+  await page2.goto('data:text/html,<body>nothing</body>', { waitUntil: 'domcontentloaded' })
+  const res2 = emptyResult('PropertyRadar'); res2.audit = []
+  const prText =
+    'Address\n97 MANCHESTER DR, FAIRFIELD, CA 94533\n' +
+    'Taxpayer\nLAKEVIEW LN SERVICING LLC, 97 MANCHESTER DR, FAIRFIELD, CA 94533\n' +
+    'Assessor Parcel Number\n0174-340-380\n' +
+    'Mailing Address\n97 MANCHESTER DR, FAIRFIELD, CA 94533\n' + tabsText
+  await extractAndBuild(page2, selectors.propertyradar, res2, runDir, { name: 'Paulo Faga', address: '97 Manchester Dr, Fairfield, CA 94533' }, prText)
+  check('text owner of record', res2.data.ownerOfRecord === 'LAKEVIEW LN SERVICING LLC', res2.data.ownerOfRecord)
+  check('text APN', res2.data.apn === '0174-340-380', res2.data.apn)
+  check('text homeowner recovered', /faga\s+paulo/i.test(res2.data.ownerName), res2.data.ownerName)
+  check('text step green', res2.ok === true)
 } finally {
   await browser.close()
 }

@@ -231,6 +231,31 @@ function titleCase(s) {
   return String(s || '').toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase()).replace(/\s+/g, ' ').trim()
 }
 
+function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+
+// Read a label's value straight from the page's TEXT (innerText of the tabs),
+// independent of DOM nesting. PropertyRadar is a React app whose values don't
+// always sit in a sibling element a positional reader can grab, but in the
+// rendered text the value reliably follows its label ("Taxpayer" then the next
+// line, or "Label: value" inline). This is the robust path for PropertyRadar.
+export function textLabelValue(text, label) {
+  if (!text) return ''
+  const lines = text.split('\n').map((s) => s.replace(/\s+/g, ' ').trim())
+  const L = label.toLowerCase()
+  for (let i = 0; i < lines.length; i++) {
+    // "Label: value" / "Label - value" on one line.
+    const inline = lines[i].match(new RegExp('^' + escapeRe(label) + '\\s*[:\\-]\\s*(.+)$', 'i'))
+    if (inline && inline[1] && inline[1].toLowerCase() !== L) return inline[1].trim()
+    // "Label" on its own line, value on one of the next few non-empty lines.
+    if (lines[i].toLowerCase().replace(/:$/, '') === L) {
+      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+        if (lines[j]) return lines[j]
+      }
+    }
+  }
+  return ''
+}
+
 // Recover the INDIVIDUAL homeowner (the lead) from the deed-history text when the
 // owner of record is an entity/lender (post-foreclosure). We match the CRM
 // seller's surname in the Transactions text — PropertyRadar renders grantees like
@@ -260,6 +285,17 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
   res.evidence.push(await capture(page, runDir, 'propertyradar-result'))
   const { values, audit } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
   res.audit.push(...audit.map((a) => ({ page: 'Property', ...a })))
+
+  // Robust fallback: read key fields straight from the rendered tab TEXT when the
+  // positional selector engine couldn't (PropertyRadar's React DOM). Only fills
+  // fields the engine left empty.
+  const T = (lbl) => textLabelValue(tabsText, lbl)
+  const missing = (v) => !v || v === FIELD_NOT_FOUND
+  if (missing(values.recordedOwner)) values.recordedOwner = T('Taxpayer') || T('Owner Name') || values.recordedOwner
+  if (missing(values.apn)) values.apn = T('Assessor Parcel Number') || T('APN') || values.apn
+  if (missing(values.ownerMailingAddress)) values.ownerMailingAddress = T('Mailing Address') || values.ownerMailingAddress
+  if (missing(values.propertyAddress)) values.propertyAddress = T('Address') || values.propertyAddress
+  if (missing(values.occupancy)) values.occupancy = T('Primary Residence') || T('Occupancy') || values.occupancy
 
   // The "Taxpayer" value is "NAME, <mailing address>" — keep just the name.
   let owner = values.recordedOwner
