@@ -65,13 +65,15 @@ export async function run(ctx) {
   if (!out.ok && !signal?.aborted) {
     emit({ type: 'log', source: label, message: 'Auto-search did not open the property; asking operator (will auto-continue when the property is open)' })
     const msg = `Open the property for ${input.address || 'this lead'} in the PropertyRadar BROWSER window — I'll continue automatically once the property profile is on screen (or click Resume).`
+    // STRICT so we don't resume prematurely: continue only when we're on an
+    // actual property-detail page, OR a real owner name is already readable.
+    // (Loose page-text cues match PropertyRadar's app chrome even with no
+    // property open, which made it jump straight past without waiting.)
     const profileReady = async () => {
       try {
         if (/\/detail\//i.test(page.url())) return true
         const { values } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
-        if (values.recordedOwner && looksLikeName(values.recordedOwner)) return true
-        const txt = await page.innerText('body').catch(() => '')
-        return /owner of record|recorded owner|property profile|\bapn\b|value,?\s*equity/i.test(txt)
+        return Boolean(values.recordedOwner && looksLikeName(values.recordedOwner))
       } catch {
         return false
       }
