@@ -37,10 +37,13 @@ export async function run(ctx) {
   const { street, citystatezip } = splitAddress(input.address)
   const ownerName = data?.ownership?.recordedOwner || input.name
 
-  // SOP search sequence: address -> owner name -> phone.
+  // SOP search sequence: address (most precise) -> owner name -> phone.
+  // A name search WITHOUT a city returns hundreds of nationwide records whose
+  // top result is almost always the wrong person, so skip it unless we have a
+  // city/state to narrow it.
   const steps = [
     cfg.searchUrlForAddress && street ? { kind: 'address', url: fillUrl(cfg.searchUrlForAddress, { street, citystatezip }) } : null,
-    cfg.searchUrlForName && ownerName ? { kind: 'name', url: fillUrl(cfg.searchUrlForName, { name: ownerName, citystatezip }) } : null,
+    cfg.searchUrlForName && ownerName && citystatezip ? { kind: 'name', url: fillUrl(cfg.searchUrlForName, { name: ownerName, citystatezip }) } : null,
     cfg.searchUrlForPhone && input.phone ? { kind: 'phone', url: fillUrl(cfg.searchUrlForPhone, { phone: onlyDigits(input.phone) }) } : null,
   ].filter(Boolean)
 
@@ -94,9 +97,10 @@ export async function run(ctx) {
 // appear on the results list). Handles a human-verification prompt on the way.
 async function getDetailPhones(page, { runDir, res, emit, signal, pauseForAction }) {
   try {
-    const link = page.locator('a[href*="/find/person/"]').first()
+    // "View Details →" opens the person's detail page (where the phones are).
+    const link = page.locator('a:has-text("View Details"), a[href*="/find/person/"]').first()
     if ((await link.count()) === 0) return []
-    emit({ type: 'log', source: label, message: 'Opening top result for phone numbers' })
+    emit({ type: 'log', source: label, message: 'Opening top result (View Details) for phone numbers' })
     await link.click({ timeout: 4000 })
     await page.waitForTimeout(1500)
     await settle(page)
