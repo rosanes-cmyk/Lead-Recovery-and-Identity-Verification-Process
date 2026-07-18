@@ -25,7 +25,7 @@ export const loginGated = true
 const PROFILE_TABS = ['Contacts', 'Property', 'Value & Equity', 'Transactions']
 
 export async function run(ctx) {
-  const { page, input, emit, runDir, signal, pauseForAction } = ctx
+  const { page, input, emit, runDir, signal, pauseForAction, pauseForActionUntil } = ctx
   const res = emptyResult(label)
   res.audit = []
   const cfg = selectors.propertyradar
@@ -57,12 +57,23 @@ export async function run(ctx) {
 
   let out = await extractAndBuild(page, cfg, res, runDir)
 
-  // Fallback: if auto-search couldn't open the property, ask the operator once.
-  if (!out.ok && typeof pauseForAction === 'function' && !signal?.aborted) {
+  // Fallback: if auto-search couldn't open the property, ask the operator to
+  // open it — and AUTO-CONTINUE the moment a property profile is on screen (no
+  // Resume click needed). Detects the profile by the /detail/ URL or the
+  // on-page profile cues.
+  if (!out.ok && !signal?.aborted) {
     emit({ type: 'log', source: label, message: 'Auto-search did not open the property; asking operator' })
-    await pauseForAction(
-      `Couldn't open the property automatically. In the PropertyRadar BROWSER window, open the property for ${input.address || 'this lead'}, then click Resume.`,
-    )
+    const msg = `Couldn't open the property automatically. In the PropertyRadar BROWSER window, open the property for ${input.address || 'this lead'} — I'll continue automatically once it's open (or click Resume).`
+    const profileOpen = async () => {
+      if (/\/detail\//i.test(page.url())) return true
+      const txt = await page.innerText('body').catch(() => '')
+      return /property profile|value\s*&?\s*equity|recorded owner|owner of record/i.test(txt)
+    }
+    if (typeof pauseForActionUntil === 'function') {
+      await pauseForActionUntil(msg, profileOpen)
+    } else if (typeof pauseForAction === 'function') {
+      await pauseForAction(msg)
+    }
     if (!signal?.aborted) {
       await readProfileTabs(page, emit, signal)
       out = await extractAndBuild(page, cfg, res, runDir)

@@ -203,16 +203,30 @@ export function score(data) {
   const verifiedConnections = coOwnerNames
     .filter((nm) => !verifiedName || !nameMatch(nm, verifiedName))
     .map((nm) => ({ name: nm, relationship: 'Co-owner named on recorded document', basis: src, verified: true, phones: [], score: 82 }))
+  // Rank clues by how likely they are to be the seller's actual family AND
+  // reachable. The strongest signal we have is a SHARED SURNAME (immediate
+  // family), then a phone to call, then an address. The basis string spells out
+  // exactly which of these applied, so the ranking is never a black box.
+  const sellerSurname = clean(verifiedName || crmName).toLowerCase().split(/\s+/).pop() || ''
   const clueContacts = possibleContacts.map((p) => {
     const isRelative = /relative/i.test(p.note || '')
     const hasPhone = (p.phones || []).length > 0
     const hasAddr = (p.addresses || []).length > 0
-    // A reachable clue ranks higher: phone AND address > phone > nothing.
-    const score = hasPhone && hasAddr ? 60 : hasPhone ? 55 : 40
+    const sameSurname = Boolean(sellerSurname) && String(p.name || '').toLowerCase().split(/\s+/).includes(sellerSurname)
+    let score = 40
+    if (sameSurname) score += 15 // shares the seller's last name — likely family
+    if (hasPhone) score += 5 // reachable
+    if (hasAddr) score += 3
+    score = Math.min(score, 63) // still a clue — never implies verification
+    const reasons = [
+      sameSurname ? 'Same surname as seller' : null,
+      hasPhone ? 'Phone on file' : null,
+      hasAddr ? 'Address on file' : null,
+    ].filter(Boolean)
     return {
       name: p.name,
       relationship: isRelative ? 'Possible relative (unverified)' : 'Unverified clue',
-      basis: 'People search',
+      basis: ['People search', ...reasons].join(' · '),
       verified: false,
       phones: p.phones || [],
       addresses: p.addresses || [],
