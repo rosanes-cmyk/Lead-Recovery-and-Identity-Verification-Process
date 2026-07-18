@@ -57,33 +57,34 @@ export async function run(ctx) {
 
   let out = await extractAndBuild(page, cfg, res, runDir)
 
-  // If auto-search couldn't read the owner, DON'T skip ahead — pause and wait for
-  // the operator to open the property, then auto-continue the MOMENT a real owner
-  // name is readable on the page (so the step goes green instead of orange). Retry
-  // a few times with the operator's help; only give up if it truly can't be read.
-  let attempts = 0
-  while (!out.ok && !signal?.aborted && attempts < 3) {
-    attempts++
-    emit({ type: 'log', source: label, message: `Recorded owner not read yet — asking operator to open the property (attempt ${attempts}/3)` })
-    const msg = `Open the property for ${input.address || 'this lead'} in the PropertyRadar BROWSER window — I'll continue automatically once the owner is on screen (or click Resume).`
-    const ownerReady = async () => {
+  // If auto-search couldn't open/read the property, pause for the operator to
+  // open it — and AUTO-CONTINUE the moment the property profile is on screen,
+  // exactly like People Search auto-continues when its captcha clears. We resume
+  // as soon as EITHER the owner is already readable OR the property-detail page
+  // is clearly open (the operator's part is done) — no manual Resume needed.
+  if (!out.ok && !signal?.aborted) {
+    emit({ type: 'log', source: label, message: 'Auto-search did not open the property; asking operator (will auto-continue when the property is open)' })
+    const msg = `Open the property for ${input.address || 'this lead'} in the PropertyRadar BROWSER window — I'll continue automatically once the property profile is on screen (or click Resume).`
+    const profileReady = async () => {
       try {
+        if (/\/detail\//i.test(page.url())) return true
         const { values } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
-        return Boolean(values.recordedOwner && looksLikeName(values.recordedOwner))
+        if (values.recordedOwner && looksLikeName(values.recordedOwner)) return true
+        const txt = await page.innerText('body').catch(() => '')
+        return /owner of record|recorded owner|property profile|\bapn\b|value,?\s*equity/i.test(txt)
       } catch {
         return false
       }
     }
     if (typeof pauseForActionUntil === 'function') {
-      await pauseForActionUntil(msg, ownerReady, { timeoutMs: 4 * 60 * 1000 })
+      await pauseForActionUntil(msg, profileReady, { timeoutMs: 4 * 60 * 1000 })
     } else if (typeof pauseForAction === 'function') {
       await pauseForAction(msg)
-    } else {
-      break
     }
-    if (signal?.aborted) break
-    await readProfileTabs(page, emit, signal)
-    out = await extractAndBuild(page, cfg, res, runDir)
+    if (!signal?.aborted) {
+      await readProfileTabs(page, emit, signal)
+      out = await extractAndBuild(page, cfg, res, runDir)
+    }
   }
 
   if (!out.ok) res.notes.push('Recorded owner not found. If PropertyRadar changed its layout, re-share the search steps or run `npm run calibrate -- propertyradar <property-url>`.')

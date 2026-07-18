@@ -90,9 +90,15 @@ export const selectors = {
     resultRow: '', // exact first-result selector to click after searching
     fields: {
       recordedOwner: [
-        { type: 'labelValue', label: 'Owner' },
         { type: 'labelValue', label: 'Owner Name' },
+        { type: 'labelValue', label: 'Owner Names' },
+        { type: 'labelValue', label: 'Owner of Record' },
+        { type: 'labelValue', label: 'Recorded Owner' },
         { type: 'labelValue', label: 'Primary Owner' },
+        { type: 'labelValue', label: 'Owner 1' },
+        { type: 'labelValue', label: 'Assessee' },
+        { type: 'labelValue', label: 'Owners' },
+        { type: 'labelValue', label: 'Owner' },
       ],
       vesting: [{ type: 'labelValue', label: 'Vesting' }],
       ownershipType: [
