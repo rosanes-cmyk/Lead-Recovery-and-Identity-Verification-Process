@@ -49,33 +49,58 @@ function renderSafety(s) {
 // ---- start ------------------------------------------------------------------
 async function startInvestigation() {
   const input = {
-    reiLink: $('in-reiLink').value,
-    address: $('in-address').value,
-    city: $('in-city').value,
-    state: $('in-state').value,
-    name: $('in-name').value,
-    phone: $('in-phone').value,
-    email: $('in-email').value,
-    leadId: $('in-leadId').value,
+    reiLink: $('in-reiLink').value.trim(),
+    address: $('in-address').value.trim(),
+    city: $('in-city').value.trim(),
+    state: $('in-state').value.trim(),
+    name: $('in-name').value.trim(),
+    phone: $('in-phone').value.trim(),
+    email: $('in-email').value.trim(),
+    leadId: $('in-leadId').value.trim(),
+  }
+  const showError = (msg) => {
+    $('input-error').textContent = msg
+    $('input-error').hidden = false
   }
   $('input-error').hidden = true
-  const r = await fetch('/api/investigate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  const data = await r.json()
-  if (!r.ok) {
-    $('input-error').textContent = data.error || 'Could not start.'
-    $('input-error').hidden = false
+
+  // Guard: need at least one field before we bother the server.
+  if (!input.reiLink && !input.address && !input.name && !input.phone && !input.email) {
+    showError('Paste a REI BlackBook lead link or a property address first.')
     return
   }
-  currentRunId = data.runId
-  currentReport = null
-  activeLimit = limits.standard
-  startedAt = Date.now()
-  resetWorkspace()
-  startTimer()
+
+  const btn = $('btn-start')
+  btn.disabled = true
+  const label = btn.textContent
+  btn.textContent = 'Starting…'
+  try {
+    const r = await fetch('/api/investigate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    // Read the body defensively — a crash returns HTML, not JSON.
+    const raw = await r.text()
+    let data = {}
+    try { data = raw ? JSON.parse(raw) : {} } catch { data = { error: raw.slice(0, 300) } }
+    if (!r.ok) {
+      showError(data.error || `Could not start (HTTP ${r.status}).`)
+      return
+    }
+    currentRunId = data.runId
+    currentReport = null
+    activeLimit = limits.standard
+    startedAt = Date.now()
+    resetWorkspace()
+    startTimer()
+  } catch (err) {
+    // Network error / server not reachable — surface it instead of failing silent.
+    showError('Could not reach the server. Is it still running? (' + (err?.message || err) + ')')
+  } finally {
+    btn.disabled = false
+    btn.textContent = label
+  }
 }
 
 function resetWorkspace() {
