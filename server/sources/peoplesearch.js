@@ -32,17 +32,18 @@ export async function run(ctx) {
     return res
   }
 
-  const { street, citystatezip } = splitAddress(input.address)
-  const ownerName = data?.ownership?.recordedOwner || input.name
+  // Search by NAME only (one search = one possible human-check), then pick the
+  // result whose address matches the lead. Use the CRM seller name (reliable);
+  // fall back to the recorded owner. Include city/state to narrow it.
+  const { citystatezip } = splitAddress(input.address)
+  const searchName = input.name || data?.ownership?.recordedOwner
 
   const steps = [
-    cfg.searchUrlForAddress && street ? { kind: 'address', url: fillUrl(cfg.searchUrlForAddress, { street, citystatezip }) } : null,
-    cfg.searchUrlForName && ownerName ? { kind: 'name', url: fillUrl(cfg.searchUrlForName, { name: ownerName, citystatezip }) } : null,
-    cfg.searchUrlForPhone && input.phone ? { kind: 'phone', url: fillUrl(cfg.searchUrlForPhone, { phone: onlyDigits(input.phone) }) } : null,
+    cfg.searchUrlForName && searchName ? { kind: 'name', url: fillUrl(cfg.searchUrlForName, { name: searchName, citystatezip }) } : null,
   ].filter(Boolean)
 
   if (!steps.length) {
-    res.notes.push('Nothing to search (no address, name, or phone).')
+    res.notes.push('No seller name available to search.')
     res.ok = true
     return res
   }

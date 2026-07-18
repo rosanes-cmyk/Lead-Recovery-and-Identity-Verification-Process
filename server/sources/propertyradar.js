@@ -183,10 +183,18 @@ async function readProfileTabs(page, emit, signal) {
   } catch { /* ignore */ }
 }
 
+// PropertyRadar profile tab/section labels that must never be taken as an owner
+// name (the label-based match can grab these by mistake).
+const NOT_A_NAME = /^(value,?\s*equity\s*&?\s*tax|value\s*&?\s*equity|equity|transactions|neighborhood|listings|my info|contacts|property|overview|summary|tax)$/i
+
 async function extractAndBuild(page, cfg, res, runDir) {
   res.evidence.push(await capture(page, runDir, 'propertyradar-result'))
   const { values, audit } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
   res.audit.push(...audit.map((a) => ({ page: 'Property', ...a })))
+  // Reject section headers that slipped into the owner field.
+  if (values.recordedOwner && NOT_A_NAME.test(String(values.recordedOwner).trim())) {
+    values.recordedOwner = FIELD_NOT_FOUND
+  }
   res.data = {
     ownerName: values.recordedOwner,
     ownershipType: values.ownershipType,
