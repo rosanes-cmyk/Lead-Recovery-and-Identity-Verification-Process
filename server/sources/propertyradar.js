@@ -52,7 +52,7 @@ export async function run(ctx) {
   let searched = false
   let tabsText = ''
   if (!directUrl && input.address && ready) {
-    searched = await autoSearch(page, input.address, cfg, emit, signal)
+    searched = await autoSearch(page, input.address, cfg, emit, signal, res, runDir)
     if (searched) tabsText = await readProfileTabs(page, emit, signal)
   }
 
@@ -125,57 +125,68 @@ async function waitForAppReady(page, emit, signal) {
   return false
 }
 
-// Drive the Full Address search all the way to the property profile.
-async function autoSearch(page, address, cfg, emit, signal) {
+// Drive the "Full Address" toolbar search to the property profile. Captures a
+// screenshot at each step (into Evidence) so the exact PropertyRadar screens are
+// visible — PropertyRadar is behind the operator's login, so this is how we see
+// and refine the flow.
+async function autoSearch(page, address, cfg, emit, signal, res, runDir) {
   const streetNum = (address.match(/^\s*(\d+)/) || [])[1] || address.split(',')[0]
+  const snap = async (name) => { try { res?.evidence.push(await capture(page, runDir, 'propertyradar-' + name)) } catch { /* ignore */ } }
   try {
-    // If we're already on a property profile, nothing to search.
     if (/\/detail\//i.test(page.url())) return true
 
+    // Click the "Full Address" button in the top toolbar specifically.
     emit({ type: 'log', source: label, message: 'Opening Full Address search' })
     if (!(await clickFirst(page, [
       () => page.getByRole('button', { name: /^Full Address$/i }),
       () => page.getByRole('link', { name: /^Full Address$/i }),
-      () => page.locator('button:has-text("Full Address"), a:has-text("Full Address")'),
-      () => page.getByText(/^Full Address$/i),
+      () => page.getByRole('menuitem', { name: /^Full Address$/i }),
+      () => page.locator('button, a, [role="button"], span, div').filter({ hasText: /^\s*Full Address\s*$/i }),
     ]))) {
-      // No "Full Address" button on this layout — try the main search box.
       return await genericSearch(page, address, streetNum, emit, signal)
     }
-    await page.waitForTimeout(1200)
+    await page.waitForTimeout(1500)
+    await snap('fulladdress-panel')
 
+    // Type into the address input that appears in the Full Address panel. Avoid
+    // the "City, County or ZIP" box; take the first visible text input that's
+    // NOT that one.
     emit({ type: 'log', source: label, message: `Typing address: ${address}` })
     const box = await firstVisible(page, [
-      () => page.getByPlaceholder(/Enter Site Address/i),
       () => page.getByPlaceholder(/site address/i),
-      () => page.locator(cfg.searchBox || 'input[placeholder*="Address" i]'),
+      () => page.getByPlaceholder(/enter.*address/i),
+      () => page.getByPlaceholder(/full address/i),
+      () => page.getByPlaceholder(/street|address|number/i),
+      () => page.locator('input[type="text"], input:not([type])').filter({ hasNot: page.locator('[placeholder*="ZIP" i], [placeholder*="County" i]') }),
     ])
-    if (!box) return false
-    await box.click({ timeout: 3000 })
-    await box.fill(address, { timeout: 3000 })
-    await page.waitForTimeout(1800)
+    if (!box) { await snap('no-address-box'); return false }
+    await box.click({ timeout: 3000 }).catch(() => {})
+    await box.fill(address, { timeout: 3000 }).catch(async () => { await box.type(address, { delay: 20 }).catch(() => {}) })
+    await page.waitForTimeout(2000)
+    await snap('address-typed')
 
-    // Pick the ALL-CAPS autocomplete row that matches the address.
+    // Pick the autocomplete suggestion that matches the street number.
     const picked = await clickFirst(page, [
       () => page.getByRole('option').filter({ hasText: new RegExp(streetNum) }),
-      () => page.locator('[role="option"], li, .pac-item, .autocomplete-item, .dropdown-item').filter({ hasText: new RegExp(streetNum) }),
+      () => page.locator('[role="option"], li, .pac-item, .autocomplete-item, .dropdown-item, .suggestion').filter({ hasText: new RegExp(streetNum) }),
       () => page.getByText(new RegExp(streetNum + '\\s+\\w+', 'i')),
     ])
-    if (!picked) {
-      emit({ type: 'log', source: label, message: 'No autocomplete match — address may not be in PropertyRadar' })
-      return false
-    }
-    await page.waitForTimeout(800)
+    await page.waitForTimeout(1000)
+    await snap('after-autocomplete')
+    if (!picked) emit({ type: 'log', source: label, message: 'No autocomplete match — trying Add Criteria anyway' })
 
-    emit({ type: 'log', source: label, message: 'Running search (Add Criteria)' })
+    // Apply the criterion (green "Add Criteria" button in the panel).
     await clickFirst(page, [
       () => page.getByRole('button', { name: /^Add Criteria$/i }),
       () => page.locator('button:has-text("Add Criteria")'),
     ])
     await page.waitForTimeout(3000)
+    await snap('after-add-criteria')
 
     emit({ type: 'log', source: label, message: 'Waiting for results, then opening the property' })
-    return await openFirstResult(page, streetNum, signal)
+    const opened = await openFirstResult(page, streetNum, signal)
+    await snap(opened ? 'opened-detail' : 'results-not-opened')
+    return opened
   } catch (err) {
     emit({ type: 'log', source: label, message: `Auto-search issue: ${String(err).slice(0, 120)}` })
     return false
