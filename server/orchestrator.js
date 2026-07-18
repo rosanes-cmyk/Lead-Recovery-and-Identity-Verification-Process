@@ -216,7 +216,7 @@ export class Investigation extends EventEmitter {
     const NF = 'FIELD NOT FOUND'
     const val = (v) => (v && v !== NF ? String(v).trim() : '')
     const filled = []
-    if (!this.input.address && val(crm.propertyAddress)) { this.input.address = val(crm.propertyAddress); filled.push(`address = ${this.input.address}`) }
+    if (!this.input.address && val(crm.propertyAddress)) { this.input.address = cleanAddress(val(crm.propertyAddress)); filled.push(`address = ${this.input.address}`) }
     if (!this.input.name && val(crm.sellerName)) { this.input.name = val(crm.sellerName); filled.push(`name = ${this.input.name}`) }
     if (!this.input.phone && Array.isArray(crm.phones) && crm.phones[0]) { this.input.phone = crm.phones[0]; filled.push(`phone = ${this.input.phone}`) }
     if (!this.input.email && Array.isArray(crm.emails) && crm.emails[0]) { this.input.email = crm.emails[0]; filled.push(`email = ${this.input.email}`) }
@@ -371,8 +371,36 @@ function safetyLine() {
   }
 }
 
+// Clean a messy CRM address into "Street, City, ST ZIP" so property sites'
+// autocomplete can match it. Drops country words and duplicated segments.
+export function cleanAddress(a) {
+  let parts = String(a || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((p) => !/^(usa|u\.s\.a\.?|united states|us)$/i.test(p))
+  const seen = new Set()
+  parts = parts.filter((p) => {
+    const k = p.toLowerCase()
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+  // Merge a 2-letter state followed by a ZIP into "ST ZIP".
+  const out = []
+  for (let i = 0; i < parts.length; i++) {
+    if (/^[A-Za-z]{2}$/.test(parts[i]) && /^\d{5}(-\d{4})?$/.test(parts[i + 1] || '')) {
+      out.push(`${parts[i].toUpperCase()} ${parts[i + 1]}`)
+      i++
+    } else {
+      out.push(parts[i])
+    }
+  }
+  return out.join(', ')
+}
+
 function normalizeInput(raw = {}) {
-  const address = (raw.address || '').trim()
+  const address = cleanAddress((raw.address || '').trim())
   return {
     reiLink: (raw.reiLink || '').trim(),
     address,
