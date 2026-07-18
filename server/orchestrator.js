@@ -196,6 +196,9 @@ export class Investigation extends EventEmitter {
       // Let a source pause and ask the operator to bring up a record (search /
       // navigate) before it extracts. Resolves when the operator clicks Resume.
       pauseForAction: (message) => this.requireAction(source.label, message),
+      // Same, but auto-resumes when checkFn() becomes true (e.g. a captcha the
+      // operator solved in the browser has cleared).
+      pauseForActionUntil: (message, checkFn, opts) => this.requireActionUntil(source.label, message, checkFn, opts),
     }
   }
 
@@ -207,6 +210,39 @@ export class Investigation extends EventEmitter {
     this._pauseGate = new Promise((res) => (this._resume = res))
     this.emit({ type: 'action-required', source, message })
     await this._pauseGate
+  }
+
+  // Like requireAction, but AUTO-RESUMES the moment `checkFn()` returns true —
+  // e.g. the operator has solved a "verify you're human" check in the browser.
+  // The operator can still click Resume manually. Wait time is excluded from the
+  // research clock (it's a pause). The human still does the solving; we only
+  // detect that the page has cleared and carry on, so nothing is bypassed.
+  async requireActionUntil(source, message, checkFn, { intervalMs = 3000, timeoutMs = 5 * 60 * 1000 } = {}) {
+    if (this.state === 'stopped') return
+    this.state = 'login'
+    this._beginPause()
+    this._pauseGate = new Promise((res) => (this._resume = res))
+    this.emit({ type: 'action-required', source, message })
+
+    let finished = false
+    const startedAt = Date.now()
+    const poll = async () => {
+      while (!finished && this.state === 'login' && !this._abort.signal.aborted) {
+        await new Promise((r) => setTimeout(r, intervalMs))
+        if (finished || this.state !== 'login') break
+        let cleared = false
+        try { cleared = await checkFn() } catch { cleared = false }
+        if (cleared) {
+          this.emit({ type: 'log', source, message: 'Check cleared — continuing automatically.' })
+          this.resume() // resolves the gate below
+          break
+        }
+        if (Date.now() - startedAt > timeoutMs) break // give up auto; await manual Resume
+      }
+    }
+    poll()
+    await this._pauseGate
+    finished = true
   }
 
   // Fill any blank input fields from the CRM lead the app just read, so the

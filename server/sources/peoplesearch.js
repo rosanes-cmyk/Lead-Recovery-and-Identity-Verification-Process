@@ -18,7 +18,7 @@ export const label = 'Approved People Search'
 export const loginGated = true
 
 export async function run(ctx) {
-  const { page, input, data, emit, runDir, signal, pauseForAction } = ctx
+  const { page, input, data, emit, runDir, signal, pauseForAction, pauseForActionUntil } = ctx
   const res = emptyResult(label)
   const cfg = selectors.peoplesearch || {}
 
@@ -58,13 +58,13 @@ export async function run(ctx) {
       res.notes.push(`People search (${step.kind}) failed to open: ${String(err)}`)
       continue
     }
-    if (await handleBlock(page, res, runDir, emit, signal, pauseForAction, step.kind)) {
+    if (await handleBlock(page, res, runDir, emit, signal, { pauseForAction, pauseForActionUntil }, step.kind)) {
       if (signal?.aborted) break
     }
     if (await looksLikeLogin(page)) continue
 
     res.evidence.push(await capture(page, runDir, `peoplesearch-${step.kind}`))
-    const row = await pickAndExtract(page, input, searchName, { res, runDir, emit, signal, pauseForAction })
+    const row = await pickAndExtract(page, input, searchName, { res, runDir, emit, signal, pauseForAction, pauseForActionUntil })
     if (row && (row.name || row.phones.length || row.relatives?.length)) results.push({ kind: step.kind, rows: [row] })
   }
 
@@ -75,12 +75,12 @@ export async function run(ctx) {
   const rows = results.flatMap((r) => r.rows || [])
   const nPhones = rows.reduce((a, r) => a + (r.phones || []).length, 0)
   const nRels = rows.reduce((a, r) => a + (r.relatives || []).length, 0)
-  const relPhone = rows.find((r) => r.bestRelative?.phones?.length)?.bestRelative
+  const relBest = rows.find((r) => r.bestRelative?.phones?.length || r.bestRelative?.address)?.bestRelative
   emit({
     type: 'log',
     source: label,
     message: `Extracted: ${rows.length} match(es), ${nPhones} phone(s), ${nRels} relative(s)` +
-      (relPhone ? `, best relative ${relPhone.name} ${relPhone.phones[0]}` : ''),
+      (relBest ? `, best relative ${relBest.name} ${relBest.phones?.[0] || 'no phone'}${relBest.address ? ' — ' + relBest.address : ''}` : ''),
   })
 
   if (!results.length) res.notes.push('People search ran but nothing matched (blocked or no results). Clues only.')
@@ -90,7 +90,7 @@ export async function run(ctx) {
 // Gather all result cards, pick the one whose address matches the lead (else the
 // first), open its detail page, and pull the phone numbers.
 async function pickAndExtract(page, input, searchName, ctx) {
-  const { res, runDir, emit, signal, pauseForAction } = ctx
+  const { res, runDir, emit, signal } = ctx
   const cards = await readCards(page)
 
   // No result cards? We may already be on a person page — read it directly.
@@ -115,7 +115,7 @@ async function pickAndExtract(page, input, searchName, ctx) {
   try {
     if (best.href) {
       await goto(page, new URL(best.href, page.url()).href, { signal })
-      await handleBlock(page, res, runDir, emit, signal, pauseForAction, 'detail')
+      await handleBlock(page, res, runDir, emit, signal, ctx, 'detail')
       res.evidence.push(await capture(page, runDir, 'peoplesearch-detail'))
     }
   } catch {
@@ -132,7 +132,7 @@ async function pickAndExtract(page, input, searchName, ctx) {
 // same-surname one, open their page, and grab a valid phone. All UNVERIFIED
 // clues — contacting a relative needs separate authorization (SOP).
 async function attachRelatives(page, row, ownerName, ctx) {
-  const { res, runDir, emit, signal, pauseForAction } = ctx
+  const { res, runDir, emit, signal } = ctx
   try {
     const relatives = await extractRelatives(page)
     if (!relatives.length) return
@@ -145,10 +145,21 @@ async function attachRelatives(page, row, ownerName, ctx) {
     emit({ type: 'log', source: label, message: `Checking possible relative for a phone: ${best.name}` })
     const url = new URL(best.href, page.url()).href
     await goto(page, url, { signal })
-    await handleBlock(page, res, runDir, emit, signal, pauseForAction, 'relative')
+    await handleBlock(page, res, runDir, emit, signal, ctx, 'relative')
     res.evidence.push(await capture(page, runDir, 'peoplesearch-relative'))
     const phones = await phonesOnPage(page)
-    row.bestRelative = { name: best.name, phones, note: 'Possible relative (UNVERIFIED — aggregator label). Contacting requires separate authorization.' }
+    const address = await addressOnPage(page)
+    row.bestRelative = {
+      name: best.name,
+      phones,
+      address,
+      note: 'Possible relative (UNVERIFIED — aggregator label). Contacting requires separate authorization.',
+    }
+    emit({
+      type: 'log',
+      source: label,
+      message: `Best relative ${best.name}: ${phones[0] || 'no phone'}${address ? ' — ' + address : ''}`,
+    })
   } catch {
     /* relatives are a bonus; ignore failures */
   }
@@ -257,6 +268,37 @@ export async function phonesOnPage(page) {
   }
 }
 
+// Read the person's current address from a TruePeopleSearch detail page. Prefers
+// an explicit address link, else the line following a "Current Address" label.
+export async function addressOnPage(page) {
+  try {
+    return await page.evaluate(() => {
+      const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
+      const looksAddr = (t) => /\d/.test(t) && /,\s*[A-Z]{2}\b/.test(t) && t.length < 120
+      // Address-detail links are the most reliable (the current address is first).
+      for (const a of Array.from(document.querySelectorAll('a[href*="/find/address/"], a[href*="/address/"]'))) {
+        const t = clean(a.textContent)
+        if (looksAddr(t)) return t
+      }
+      // Otherwise, the first address-looking line after a "Current Address" label.
+      const label = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,strong,b,span,div,p'))
+        .find((n) => { const t = clean(n.textContent); return t.length <= 40 && /current address/i.test(t) })
+      if (label) {
+        let node = label
+        for (let i = 0; i < 10 && node; i++) {
+          node = node.nextElementSibling
+          if (!node) break
+          const t = clean(node.textContent)
+          if (looksAddr(t)) return t
+        }
+      }
+      return ''
+    })
+  } catch {
+    return ''
+  }
+}
+
 async function headingName(page) {
   try {
     const h = page.locator('h1, h2').first()
@@ -267,12 +309,22 @@ async function headingName(page) {
 }
 
 // Detect + clear a Cloudflare / CAPTCHA block. Returns true if it paused.
-async function handleBlock(page, res, runDir, emit, signal, pauseForAction, tag) {
+// Auto-resumes as soon as the operator has solved the check in the browser
+// (the app just detects that the challenge cleared — it never bypasses it).
+// `ctrls` carries { pauseForAction, pauseForActionUntil }.
+async function handleBlock(page, res, runDir, emit, signal, ctrls, tag) {
   if (!(await isBlocked(page))) return false
   res.evidence.push(await capture(page, runDir, `peoplesearch-${tag}-blocked`))
-  if (typeof pauseForAction === 'function' && !signal?.aborted) {
-    emit({ type: 'log', source: label, message: 'TruePeopleSearch is asking to verify you are human' })
-    await pauseForAction('TruePeopleSearch is showing a "verify you\'re human" check. Solve it in the BROWSER window, then click Resume.')
+  const pauseUntil = ctrls?.pauseForActionUntil
+  const pause = ctrls?.pauseForAction
+  emit({ type: 'log', source: label, message: 'TruePeopleSearch is asking to verify you are human' })
+  if (typeof pauseUntil === 'function' && !signal?.aborted) {
+    await pauseUntil(
+      'TruePeopleSearch is showing a "verify you\'re human" check. Solve it in the BROWSER window — I\'ll continue automatically the moment it clears (or click Resume).',
+      async () => !(await isBlocked(page)),
+    )
+  } else if (typeof pause === 'function' && !signal?.aborted) {
+    await pause('TruePeopleSearch is showing a "verify you\'re human" check. Solve it in the BROWSER window, then click Resume.')
   }
   return true
 }

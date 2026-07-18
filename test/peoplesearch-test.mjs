@@ -12,7 +12,7 @@
 import { chromium } from 'playwright'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { extractRelatives, phonesOnPage } from '../server/sources/peoplesearch.js'
+import { extractRelatives, phonesOnPage, addressOnPage } from '../server/sources/peoplesearch.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const fixture = pathToFileURL(path.join(__dirname, 'fixtures', 'peoplesearch-person.html')).href
@@ -45,6 +45,10 @@ try {
   check('phones found', phones.length >= 5, `${phones.length} phones`)
   check('possible-primary phone is first', phones[0] === '(713) 441-2672', phones[0])
   check('no phone-shaped junk from ages', !phones.some((p) => /Age|\b24\b$/.test(p)))
+
+  console.log('\n[People Search] Current address extraction')
+  const addr = await addressOnPage(page)
+  check('address extracted', /Fairfield, CA 94533/.test(addr), addr || '(none)')
 } finally {
   await browser.close()
 }

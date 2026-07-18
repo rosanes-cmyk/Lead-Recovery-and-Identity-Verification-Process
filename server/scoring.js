@@ -154,12 +154,13 @@ export function score(data) {
         note: 'People-search clue — unverified. Not a confirmed contact or relative.',
       })
     }
-    // Best possible relative WITH a phone (from the detail page) — a usable
-    // contact clue, still unverified and authorization-gated.
-    if (row.bestRelative && (row.bestRelative.phones || []).length) {
+    // Best possible relative WITH a phone and/or address (from the detail page) —
+    // a usable contact clue, still unverified and authorization-gated.
+    if (row.bestRelative && ((row.bestRelative.phones || []).length || row.bestRelative.address)) {
       possibleContacts.push({
         name: row.bestRelative.name,
-        phones: row.bestRelative.phones,
+        phones: row.bestRelative.phones || [],
+        addresses: row.bestRelative.address ? [row.bestRelative.address] : [],
         note: row.bestRelative.note || 'Possible relative (unverified). Contacting requires separate authorization.',
       })
     }
@@ -193,13 +194,17 @@ export function score(data) {
   const clueContacts = possibleContacts.map((p) => {
     const isRelative = /relative/i.test(p.note || '')
     const hasPhone = (p.phones || []).length > 0
+    const hasAddr = (p.addresses || []).length > 0
+    // A reachable clue ranks higher: phone AND address > phone > nothing.
+    const score = hasPhone && hasAddr ? 60 : hasPhone ? 55 : 40
     return {
       name: p.name,
       relationship: isRelative ? 'Possible relative (unverified)' : 'Unverified clue',
       basis: 'People search',
       verified: false,
       phones: p.phones || [],
-      score: hasPhone ? 55 : 40, // a reachable clue (has a number) ranks higher
+      addresses: p.addresses || [],
+      score,
       note: p.note,
     }
   })

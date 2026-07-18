@@ -81,6 +81,7 @@ export function buildNote(report) {
       line(`${i + 1}.`, `${c.name} — ${c.relationship} [${tag}, ${c.score}% match]`)
       line('   Basis:', c.basis || '')
       if (c.phones?.length) line('   Phones:', c.phones.join(', '))
+      if (c.addresses?.length) line('   Address:', c.addresses.join(' | '))
     })
     L.push('   Note: nobody is labeled a relative without a lawful record; clues are unverified.')
   }
