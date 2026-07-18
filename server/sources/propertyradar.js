@@ -64,6 +64,9 @@ export async function run(ctx) {
   // as soon as EITHER the owner is already readable OR the property-detail page
   // is clearly open (the operator's part is done) — no manual Resume needed.
   if (!out.ok && !signal?.aborted) {
+    // Snapshot whatever PropertyRadar screen we're stuck on so it shows in the
+    // Evidence panel (helps pinpoint the exact 'open property' click to automate).
+    res.evidence.push(await capture(page, runDir, 'propertyradar-search-screen'))
     emit({ type: 'log', source: label, message: 'Auto-search did not open the property; asking operator (will auto-continue when the property is open)' })
     const msg = `Open the property for ${input.address || 'this lead'} in the PropertyRadar BROWSER window — I'll continue automatically once the property profile is on screen (or click Resume).`
     // Resume only when a property is genuinely open: the /detail/ URL, or the
@@ -171,23 +174,39 @@ async function autoSearch(page, address, cfg, emit, signal) {
     ])
     await page.waitForTimeout(3000)
 
-    emit({ type: 'log', source: label, message: 'Opening property profile' })
-    const row = await firstVisible(page, [
-      () => page.locator('[role="row"], tr').filter({ hasText: new RegExp(streetNum) }),
-      () => page.getByText(new RegExp(streetNum + '\\s+\\w+', 'i')),
-    ])
-    if (row) {
-      await row.dblclick({ timeout: 4000 }).catch(async () => {
-        await row.click({ timeout: 3000 }).catch(() => {})
-      })
-    }
-    await page.waitForTimeout(3000)
-    await settle(page)
-    return /\/detail\//i.test(page.url()) || /property profile/i.test(await page.title().catch(() => ''))
+    emit({ type: 'log', source: label, message: 'Waiting for results, then opening the property' })
+    return await openFirstResult(page, streetNum, signal)
   } catch (err) {
     emit({ type: 'log', source: label, message: `Auto-search issue: ${String(err).slice(0, 120)}` })
     return false
   }
+}
+
+// After a search runs, wait for the results grid to render then OPEN the matching
+// property (reach a /detail/ page). PropertyRadar's grid can spin like the main
+// app, so poll, and try several ways to open the row: double-click, click, Enter.
+async function openFirstResult(page, streetNum, signal) {
+  const onDetail = () => /\/detail\//i.test(page.url())
+  for (let i = 0; i < 12; i++) { // up to ~24s for the grid to appear
+    if (signal?.aborted || onDetail()) break
+    const row = await firstVisible(page, [
+      () => page.getByRole('row').filter({ hasText: new RegExp(streetNum) }),
+      () => page.locator('[role="row"], tr, [class*="row" i], [class*="grid" i] [class*="cell" i]').filter({ hasText: new RegExp(streetNum) }),
+      () => page.getByText(new RegExp(streetNum + '\\s+\\w+', 'i')),
+      () => page.locator('a, button, div, span').filter({ hasText: new RegExp('\\b' + streetNum + '\\b') }),
+    ])
+    if (row) {
+      await row.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {})
+      await row.dblclick({ timeout: 3500 }).catch(async () => { await row.click({ timeout: 2500 }).catch(() => {}) })
+      await page.waitForTimeout(1500)
+      if (!onDetail()) await page.keyboard.press('Enter').catch(() => {})
+      await page.waitForTimeout(2500)
+      await settle(page)
+      if (onDetail()) return true
+    }
+    await page.waitForTimeout(2000)
+  }
+  return onDetail() || /property profile/i.test(await page.title().catch(() => ''))
 }
 
 // Fallback search when there's no "Full Address" button: type the address into
