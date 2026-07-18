@@ -89,19 +89,20 @@ export const selectors = {
     searchBox: '', // exact search-input selector (set after calibration for reliability)
     resultRow: '', // exact first-result selector to click after searching
     fields: {
+      // Owner of record. "Taxpayer" (name + mailing addr) is the most reliable
+      // label-anchored source on PropertyRadar; the extractor strips the address
+      // and, for entity/REO owners, recovers the individual from the deed history.
       recordedOwner: [
+        { type: 'labelValue', label: 'Taxpayer' },
         { type: 'labelValue', label: 'Owner Name' },
-        { type: 'labelValue', label: 'Owner Names' },
         { type: 'labelValue', label: 'Owner of Record' },
-        { type: 'labelValue', label: 'Recorded Owner' },
         { type: 'labelValue', label: 'Primary Owner' },
-        { type: 'labelValue', label: 'Owner 1' },
         { type: 'labelValue', label: 'Assessee' },
-        { type: 'labelValue', label: 'Owners' },
         { type: 'labelValue', label: 'Owner' },
       ],
-      vesting: [{ type: 'labelValue', label: 'Vesting' }],
+      vesting: [{ type: 'labelValue', label: 'Vesting' }, { type: 'labelValue', label: 'Ownership Role' }],
       ownershipType: [
+        { type: 'labelValue', label: 'Person Type' },
         { type: 'labelValue', label: 'Ownership Type' },
         { type: 'labelValue', label: 'Owner Type' },
       ],
@@ -109,12 +110,13 @@ export const selectors = {
         { type: 'labelValue', label: 'Mailing Address' },
         { type: 'labelValue', label: 'Owner Address' },
       ],
-      propertyAddress: [{ type: 'labelValue', label: 'Property Address' }, { type: 'semantic', selector: 'address' }],
+      propertyAddress: [{ type: 'labelValue', label: 'Address' }, { type: 'labelValue', label: 'Property Address' }, { type: 'semantic', selector: 'address' }],
       occupancy: [
+        { type: 'labelValue', label: 'Primary Residence' },
         { type: 'labelValue', label: 'Occupancy' },
         { type: 'labelValue', label: 'Owner Occupied' },
       ],
-      apn: [{ type: 'labelValue', label: 'APN' }, { type: 'labelValue', label: 'Parcel' }],
+      apn: [{ type: 'labelValue', label: 'Assessor Parcel Number' }, { type: 'labelValue', label: 'APN' }, { type: 'labelValue', label: 'Parcel' }],
       phones: [semanticPhone, { type: 'labelValue', label: 'Phone' }, patternPhone],
       emails: [semanticEmail, { type: 'labelValue', label: 'Email' }, patternEmail],
       trustEntity: [{ type: 'labelValue', label: 'Trust' }, { type: 'labelValue', label: 'Entity' }],

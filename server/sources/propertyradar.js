@@ -50,12 +50,13 @@ export async function run(ctx) {
   }
 
   let searched = false
+  let tabsText = ''
   if (!directUrl && input.address && ready) {
     searched = await autoSearch(page, input.address, cfg, emit, signal)
-    if (searched) await readProfileTabs(page, emit, signal)
+    if (searched) tabsText = await readProfileTabs(page, emit, signal)
   }
 
-  let out = await extractAndBuild(page, cfg, res, runDir)
+  let out = await extractAndBuild(page, cfg, res, runDir, input, tabsText)
 
   // If auto-search couldn't open/read the property, pause for the operator to
   // open it — and AUTO-CONTINUE the moment the property profile is on screen,
@@ -84,8 +85,8 @@ export async function run(ctx) {
       await pauseForAction(msg)
     }
     if (!signal?.aborted) {
-      await readProfileTabs(page, emit, signal)
-      out = await extractAndBuild(page, cfg, res, runDir)
+      tabsText = await readProfileTabs(page, emit, signal)
+      out = await extractAndBuild(page, cfg, res, runDir, input, tabsText)
     }
   }
 
@@ -182,15 +183,20 @@ async function autoSearch(page, address, cfg, emit, signal) {
   }
 }
 
-// Click through the profile tabs so the whole record is loaded/visible.
+// Click through the profile tabs so the whole record is loaded, and RETURN the
+// combined text of every tab. PropertyRadar is an SPA that swaps tab content, so
+// we capture each tab's text as we visit it — the Transactions tab in particular
+// holds the deed history we use to recover the individual homeowner on REO deals.
 async function readProfileTabs(page, emit, signal) {
+  let text = ''
   for (const tab of PROFILE_TABS) {
-    if (signal?.aborted) return
+    if (signal?.aborted) return text
     try {
       const t = page.getByText(new RegExp(`^${tab.replace(/&/g, '&')}$`, 'i')).first()
       if ((await t.count()) > 0) {
         await t.click({ timeout: 2000 })
         await page.waitForTimeout(800)
+        text += '\n\n' + (await page.innerText('body').catch(() => ''))
       }
     } catch {
       /* tab not present */
@@ -199,8 +205,9 @@ async function readProfileTabs(page, emit, signal) {
   // Return to Contacts so owner/contact fields are on screen for extraction.
   try {
     const c = page.getByText(/^Contacts$/i).first()
-    if ((await c.count()) > 0) { await c.click({ timeout: 2000 }); await settle(page) }
+    if ((await c.count()) > 0) { await c.click({ timeout: 2000 }); await settle(page); text += '\n\n' + (await page.innerText('body').catch(() => '')) }
   } catch { /* ignore */ }
+  return text
 }
 
 // PropertyRadar profile tab/section labels that must never be taken as an owner
@@ -216,17 +223,76 @@ function looksLikeName(v) {
   return true
 }
 
-async function extractAndBuild(page, cfg, res, runDir) {
+// A company/entity/lender owner — common on foreclosure/REO properties, where
+// the title has flipped to the lender and the person we want is a prior owner.
+const ENTITY_RE = /\b(LLC|L\.?L\.?C|INC|CORP|CO|COMPANY|SERVICING|TRUST|BANK|N\.?A\.?|MORTGAGE|LOAN|LOANDEPOT|FUND(?:ING)?|HOLDINGS|PROPERTIES|SERVICES|LP|LLP|ASSOCIATION|PARTNERS|CAPITAL|REO|HOA|ESCROW|TITLE)\b/i
+
+function titleCase(s) {
+  return String(s || '').toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase()).replace(/\s+/g, ' ').trim()
+}
+
+// Recover the INDIVIDUAL homeowner (the lead) from the deed-history text when the
+// owner of record is an entity/lender (post-foreclosure). We match the CRM
+// seller's surname in the Transactions text — PropertyRadar renders grantees like
+// "FAGA PAULO & HOSANNA U" — and return the fuller name if found.
+const DEED_STOP = /^(RECORDED|GRANT|DEED|LOAN|ASSIGNMENT|ASSIGN|TRUSTEE|TRUST|MARKET|PURCHASE|MONEY|LIEN|NOD|NTS|HOA|REO|SALE|DATE|AMOUNT|DOC|LLC|INC|CORP|SERVICING|BANK|MORTGAGE|LP|LLP|LN|NA|TO|AND|OF|THE|DOWN|PAYMENT|POSITION|STAGE|NOTICE)$/
+export function personFromDeeds(text, crmName) {
+  const surname = String(crmName || '').trim().split(/\s+/).pop()
+  if (!text || !surname || surname.length < 3) return ''
+  const S = surname.toUpperCase().replace(/[^A-Z]/g, '')
+  const up = text.toUpperCase()
+  // Surname-first (PropertyRadar grantee format): "FAGA PAULO [& HOSANNA U]".
+  // Skip a trailing word that's transaction boilerplate, not a first name.
+  let re = new RegExp(`\\b${S}\\s+([A-Z]{2,})(?:\\s*&\\s*[A-Z]{2,}(?:\\s+[A-Z])?)?`, 'g')
+  let m
+  while ((m = re.exec(up))) {
+    if (!DEED_STOP.test(m[1])) return titleCase(m[0])
+  }
+  // First-last: "PAULO FAGA".
+  re = new RegExp(`\\b([A-Z]{2,})\\s+${S}\\b`, 'g')
+  while ((m = re.exec(up))) {
+    if (!DEED_STOP.test(m[1])) return titleCase(m[0])
+  }
+  return ''
+}
+
+export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsText = '') {
   res.evidence.push(await capture(page, runDir, 'propertyradar-result'))
   const { values, audit } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
   res.audit.push(...audit.map((a) => ({ page: 'Property', ...a })))
-  // Reject section headers / labels that slipped into the owner field.
-  if (values.recordedOwner && !looksLikeName(values.recordedOwner)) {
-    values.recordedOwner = FIELD_NOT_FOUND
+
+  // The "Taxpayer" value is "NAME, <mailing address>" — keep just the name.
+  let owner = values.recordedOwner
+  if (owner && owner !== FIELD_NOT_FOUND) owner = owner.split(/,\s*(?=\d)/)[0].trim()
+  // Reject section headers / labels that slipped in (entity names are allowed).
+  if (owner && owner !== FIELD_NOT_FOUND && !looksLikeName(owner) && !ENTITY_RE.test(owner)) {
+    owner = FIELD_NOT_FOUND
   }
+
+  const ownerOfRecord = owner && owner !== FIELD_NOT_FOUND ? owner : ''
+  const isEntity = Boolean(ownerOfRecord && ENTITY_RE.test(ownerOfRecord))
+  let verifiedOwner = ownerOfRecord // what we treat as the seller identity
+  let titleHolder = ''
+
+  if (isEntity) {
+    // Title is held by a company (often a lender/REO). Recover the individual
+    // owner from the deed history so identity verification stays about the person.
+    titleHolder = ownerOfRecord
+    const person = personFromDeeds(tabsText, input.name)
+    if (person) {
+      verifiedOwner = person
+      res.notes.push(`Title held by entity "${titleHolder}" — likely post-foreclosure/REO. Individual owner from the deed history: ${person}.`)
+    } else {
+      res.notes.push(`Owner of record is an entity "${titleHolder}" (often a lender/REO after foreclosure). The individual seller is a prior owner in the Transactions/deed history.`)
+    }
+  }
+
   res.data = {
-    ownerName: values.recordedOwner,
-    ownershipType: values.ownershipType,
+    ownerName: verifiedOwner || FIELD_NOT_FOUND,
+    ownerOfRecord: ownerOfRecord || FIELD_NOT_FOUND,
+    isEntityOwner: isEntity,
+    titleHolder: titleHolder || '',
+    ownershipType: isEntity ? (values.ownershipType && values.ownershipType !== FIELD_NOT_FOUND ? values.ownershipType : 'Entity / REO') : values.ownershipType,
     vesting: values.vesting,
     mailingAddress: values.ownerMailingAddress,
     propertyAddress: values.propertyAddress,
@@ -234,9 +300,10 @@ async function extractAndBuild(page, cfg, res, runDir) {
     apn: values.apn,
     phones: values.phones,
     emails: values.emails,
-    trustEntity: values.trustEntity,
+    trustEntity: isEntity ? titleHolder : values.trustEntity,
   }
-  res.ok = Boolean(values.recordedOwner && values.recordedOwner !== FIELD_NOT_FOUND)
+  // Green when we have EITHER a usable owner identity or a clear owner of record.
+  res.ok = Boolean((verifiedOwner && verifiedOwner !== FIELD_NOT_FOUND) || ownerOfRecord)
   return res
 }
 
