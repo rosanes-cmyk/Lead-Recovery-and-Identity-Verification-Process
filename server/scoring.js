@@ -154,9 +154,21 @@ export function score(data) {
         note: 'People-search clue — unverified. Not a confirmed contact or relative.',
       })
     }
-    // Best possible relative WITH a phone and/or address (from the detail page) —
-    // a usable contact clue, still unverified and authorization-gated.
-    if (row.bestRelative && ((row.bestRelative.phones || []).length || row.bestRelative.address)) {
+    // Relatives we actually opened and read (phone + address). Each is a usable
+    // contact clue, still unverified and authorization-gated. The one with a
+    // reachable phone ranks highest below.
+    ;(row.relativesDetailed || []).forEach((rd) => {
+      if ((rd.phones || []).length || rd.address) {
+        possibleContacts.push({
+          name: rd.name,
+          phones: rd.phones || [],
+          addresses: rd.address ? [rd.address] : [],
+          note: `Possible relative (unverified${rd.sameSurname ? ', same surname as seller' : ''}). Contacting requires separate authorization.`,
+        })
+      }
+    })
+    // Best relative (fallback if relativesDetailed wasn't populated).
+    if (row.bestRelative && !(row.relativesDetailed || []).length && ((row.bestRelative.phones || []).length || row.bestRelative.address)) {
       possibleContacts.push({
         name: row.bestRelative.name,
         phones: row.bestRelative.phones || [],

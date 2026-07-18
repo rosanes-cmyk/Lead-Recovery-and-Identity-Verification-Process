@@ -138,28 +138,55 @@ async function attachRelatives(page, row, ownerName, ctx) {
     if (!relatives.length) return
     row.relatives = relatives.map((r) => r.name)
 
+    // Rank candidates so we probe the LIKELIEST family first. Signals we can use
+    // from the results list (all still UNVERIFIED clues):
+    //  - shares the seller's SURNAME  -> likely immediate family (parent/sibling/child/spouse)
+    //  - TruePeopleSearch's own order -> it tends to list closer relatives first
+    // We are careful never to assert a relationship; these only decide who to
+    // check first for a reachable phone.
     const lastName = String(ownerName || '').trim().split(/\s+/).pop()?.toLowerCase() || ''
-    let best = (lastName && relatives.find((r) => r.name.toLowerCase().split(/\s+/).includes(lastName))) || relatives[0]
-    if (!best?.href) return
+    const sameSurname = (r) => Boolean(lastName) && r.name.toLowerCase().split(/\s+/).includes(lastName)
+    const ranked = relatives
+      .map((r, i) => ({ ...r, i, sameSurname: sameSurname(r) }))
+      .sort((a, b) => Number(b.sameSurname) - Number(a.sameSurname) || a.i - b.i)
 
-    emit({ type: 'log', source: label, message: `Checking possible relative for a phone: ${best.name}` })
-    const url = new URL(best.href, page.url()).href
-    await goto(page, url, { signal })
-    await handleBlock(page, res, runDir, emit, signal, ctx, 'relative')
-    res.evidence.push(await capture(page, runDir, 'peoplesearch-relative'))
-    const phones = await phonesOnPage(page)
-    const address = await addressOnPage(page)
-    row.bestRelative = {
-      name: best.name,
-      phones,
-      address,
-      note: 'Possible relative (UNVERIFIED — aggregator label). Contacting requires separate authorization.',
+    // Probe up to 3 top candidates for a phone + address; stop at the first that
+    // has a reachable phone (that's the best contact). Keep the address-only top
+    // candidate as a fallback if none list a phone.
+    const probed = []
+    let best = null
+    for (const cand of ranked.slice(0, 3)) {
+      if (signal?.aborted) break
+      if (!cand.href) continue
+      emit({ type: 'log', source: label, message: `Checking possible relative for a phone: ${cand.name}${cand.sameSurname ? ' (same surname)' : ''}` })
+      try {
+        await goto(page, new URL(cand.href, page.url()).href, { signal })
+        await handleBlock(page, res, runDir, emit, signal, ctx, 'relative')
+        res.evidence.push(await capture(page, runDir, 'peoplesearch-relative'))
+        const phones = await phonesOnPage(page)
+        const address = await addressOnPage(page)
+        const rec = { name: cand.name, phones, address, sameSurname: cand.sameSurname }
+        probed.push(rec)
+        if (phones.length) { best = rec; break } // reachable — done
+        if (!best) best = rec // fallback: first probed (may have an address)
+      } catch {
+        /* skip this candidate */
+      }
     }
-    emit({
-      type: 'log',
-      source: label,
-      message: `Best relative ${best.name}: ${phones[0] || 'no phone'}${address ? ' — ' + address : ''}`,
-    })
+    row.relativesDetailed = probed
+    if (best) {
+      row.bestRelative = {
+        name: best.name,
+        phones: best.phones || [],
+        address: best.address || '',
+        note: `Possible relative (UNVERIFIED — aggregator label${best.sameSurname ? ', same surname as seller' : ''}). Contacting requires separate authorization.`,
+      }
+      emit({
+        type: 'log',
+        source: label,
+        message: `Best relative ${best.name}: ${best.phones?.[0] || 'no phone found'}${best.address ? ' — ' + best.address : ''}`,
+      })
+    }
   } catch {
     /* relatives are a bonus; ignore failures */
   }

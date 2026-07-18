@@ -29,6 +29,11 @@ async function init() {
   loadRuns()
 
   $('btn-start').onclick = startInvestigation
+  // Enter in any input box starts the investigation.
+  ;['in-reiLink', 'in-address', 'in-name', 'in-phone', 'in-email'].forEach((id) => {
+    const elm = $(id)
+    if (elm) elm.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); startInvestigation() } })
+  })
   $('btn-pause').onclick = () => control('pause')
   $('btn-resume').onclick = () => control('resume')
   $('btn-stop').onclick = () => control('stop')
@@ -48,15 +53,16 @@ function renderSafety(s) {
 
 // ---- start ------------------------------------------------------------------
 async function startInvestigation() {
+  const val = (id) => ($(id)?.value || '').trim()
   const input = {
-    reiLink: $('in-reiLink').value.trim(),
-    address: $('in-address').value.trim(),
-    city: $('in-city').value.trim(),
-    state: $('in-state').value.trim(),
-    name: $('in-name').value.trim(),
-    phone: $('in-phone').value.trim(),
-    email: $('in-email').value.trim(),
-    leadId: $('in-leadId').value.trim(),
+    reiLink: val('in-reiLink'),
+    address: val('in-address'),
+    city: val('in-city'),
+    state: val('in-state'),
+    name: val('in-name'),
+    phone: val('in-phone'),
+    email: val('in-email'),
+    leadId: val('in-leadId'),
   }
   const showError = (msg) => {
     $('input-error').textContent = msg

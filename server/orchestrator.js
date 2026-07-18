@@ -9,7 +9,7 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 import { config } from './config.js'
-import { getPage, closeBrowser } from './browser.js'
+import { getPage, closeBrowser, looksLikeLogin } from './browser.js'
 import { sources } from './sources/index.js'
 import { score } from './scoring.js'
 import { buildNote, buildNextTask } from './note.js'
@@ -99,17 +99,43 @@ export class Investigation extends EventEmitter {
     this.emit({ type: 'state', state: 'stopped', message: 'Stopped by operator.' })
   }
 
-  // Pause and ask the operator to log in; resolves when they hit Resume.
-  async requireLogin(source) {
+  // Pause and ask the operator to log in. Auto-resumes when `checkFn()` reports
+  // they're signed in (page no longer looks like a login screen); they can still
+  // click Resume manually. Wait time is excluded from the research clock.
+  async requireLogin(source, checkFn) {
     this.state = 'login'
     this._beginPause()
     this._pauseGate = new Promise((res) => (this._resume = res))
     this.emit({
       type: 'login-required',
       source,
-      message: `Login required for ${source}. Log in in the browser window, then click Resume.`,
+      message: `Login required for ${source}. Log in in the browser window — I'll continue automatically once you're signed in (or click Resume).`,
     })
+    if (typeof checkFn === 'function') this._autoResumePoll(source, checkFn)
     await this._pauseGate
+  }
+
+  // Background poller: auto-resume the current pause the moment `checkFn()`
+  // returns true (login done / captcha solved). Guarded to the pause it started
+  // for, so it never resumes a later, unrelated pause.
+  _autoResumePoll(source, checkFn, { intervalMs = 2500, timeoutMs = 5 * 60 * 1000 } = {}) {
+    const gate = this._pauseGate
+    const startedAt = Date.now()
+    const poll = async () => {
+      while (this.state === 'login' && this._pauseGate === gate && !this._abort.signal.aborted) {
+        await new Promise((r) => setTimeout(r, intervalMs))
+        if (this.state !== 'login' || this._pauseGate !== gate) break
+        let cleared = false
+        try { cleared = await checkFn() } catch { cleared = false }
+        if (cleared) {
+          this.emit({ type: 'log', source, message: 'Detected it cleared — continuing automatically.' })
+          this.resume()
+          break
+        }
+        if (Date.now() - startedAt > timeoutMs) break // give up auto; await manual Resume
+      }
+    }
+    poll()
   }
 
   async _waitIfPaused() {
@@ -154,9 +180,10 @@ export class Investigation extends EventEmitter {
         result = { source: source.label, ok: false, loginRequired: false, data: {}, evidence: [], notes: [`Unexpected error: ${String(err)}`] }
       }
 
-      // Handle login-required: pause, let operator sign in, retry once.
+      // Handle login-required: pause, let operator sign in, retry once. Auto-
+      // resumes the moment the page no longer looks like a login screen.
       if (result.loginRequired && this.state !== 'stopped') {
-        await this.requireLogin(source.label)
+        await this.requireLogin(source.label, async () => !(await looksLikeLogin(page)))
         if (this.state !== 'stopped') {
           try {
             result = await source.run(this._ctx(page, source))
@@ -217,32 +244,14 @@ export class Investigation extends EventEmitter {
   // The operator can still click Resume manually. Wait time is excluded from the
   // research clock (it's a pause). The human still does the solving; we only
   // detect that the page has cleared and carry on, so nothing is bypassed.
-  async requireActionUntil(source, message, checkFn, { intervalMs = 3000, timeoutMs = 5 * 60 * 1000 } = {}) {
+  async requireActionUntil(source, message, checkFn, opts) {
     if (this.state === 'stopped') return
     this.state = 'login'
     this._beginPause()
     this._pauseGate = new Promise((res) => (this._resume = res))
     this.emit({ type: 'action-required', source, message })
-
-    let finished = false
-    const startedAt = Date.now()
-    const poll = async () => {
-      while (!finished && this.state === 'login' && !this._abort.signal.aborted) {
-        await new Promise((r) => setTimeout(r, intervalMs))
-        if (finished || this.state !== 'login') break
-        let cleared = false
-        try { cleared = await checkFn() } catch { cleared = false }
-        if (cleared) {
-          this.emit({ type: 'log', source, message: 'Check cleared — continuing automatically.' })
-          this.resume() // resolves the gate below
-          break
-        }
-        if (Date.now() - startedAt > timeoutMs) break // give up auto; await manual Resume
-      }
-    }
-    poll()
+    this._autoResumePoll(source, checkFn, opts)
     await this._pauseGate
-    finished = true
   }
 
   // Fill any blank input fields from the CRM lead the app just read, so the
