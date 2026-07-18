@@ -1,14 +1,12 @@
 // Approved People Search (TruePeopleSearch, Cherry-Hombre approved).
 //
-// Guardrails baked in:
-//  - Results are CLUES, never verified ownership; cross-checked elsewhere.
-//  - "Possible relatives" are captured only as unverified clues. No one is
-//    labeled a relative here; that requires a lawful record.
-//  - Read-only. Disabled unless PEOPLE_SEARCH_ENABLED=true.
+// Guardrails: results are CLUES only, cross-checked elsewhere; nobody is labeled
+// a relative; read-only; disabled unless PEOPLE_SEARCH_ENABLED=true.
 //
-// TruePeopleSearch blocks bots hard (Cloudflare / "verify you're human"). When
-// that check appears, the app pauses so the operator can solve it, then reads
-// the results.
+// Matching logic (per operator guidance): among the search results, pick the
+// person whose address matches the lead's property address; if none match, use
+// the first result. Then open that person's "View Details" page for the phone
+// numbers. TruePeopleSearch blocks bots, so it pauses for the human-check.
 
 import { looksLikeLogin, capture } from '../browser.js'
 import { emptyResult, goto, settle } from './base.js'
@@ -25,25 +23,21 @@ export async function run(ctx) {
   const cfg = selectors.peoplesearch || {}
 
   if (!config.peopleSearchEnabled) {
-    res.notes.push('People search is DISABLED (PEOPLE_SEARCH_ENABLED=false). Enable it only with Cherry Hombre approval.')
-    res.ok = true // intentional skip
+    res.notes.push('People search is DISABLED (PEOPLE_SEARCH_ENABLED=false).')
+    res.ok = true
     return res
   }
   if (!cfg.name || !hasAnyUrl(cfg)) {
-    res.notes.push('People search enabled but no provider configured in selectors.js.')
+    res.notes.push('People search enabled but no provider configured.')
     return res
   }
 
   const { street, citystatezip } = splitAddress(input.address)
   const ownerName = data?.ownership?.recordedOwner || input.name
 
-  // SOP search sequence: address (most precise) -> owner name -> phone.
-  // A name search WITHOUT a city returns hundreds of nationwide records whose
-  // top result is almost always the wrong person, so skip it unless we have a
-  // city/state to narrow it.
   const steps = [
     cfg.searchUrlForAddress && street ? { kind: 'address', url: fillUrl(cfg.searchUrlForAddress, { street, citystatezip }) } : null,
-    cfg.searchUrlForName && ownerName && citystatezip ? { kind: 'name', url: fillUrl(cfg.searchUrlForName, { name: ownerName, citystatezip }) } : null,
+    cfg.searchUrlForName && ownerName ? { kind: 'name', url: fillUrl(cfg.searchUrlForName, { name: ownerName, citystatezip }) } : null,
     cfg.searchUrlForPhone && input.phone ? { kind: 'phone', url: fillUrl(cfg.searchUrlForPhone, { phone: onlyDigits(input.phone) }) } : null,
   ].filter(Boolean)
 
@@ -56,86 +50,123 @@ export async function run(ctx) {
   const results = []
   for (const step of steps) {
     if (signal?.aborted) break
-    emit({ type: 'log', source: `${label}`, message: `TruePeopleSearch by ${step.kind}` })
+    emit({ type: 'log', source: label, message: `TruePeopleSearch by ${step.kind}` })
     try {
       await goto(page, step.url, { signal })
     } catch (err) {
       res.notes.push(`People search (${step.kind}) failed to open: ${String(err)}`)
       continue
     }
-
-    // Human-verification / block? Pause so the operator can clear it.
-    if (await isBlocked(page)) {
-      res.evidence.push(await capture(page, runDir, `peoplesearch-${step.kind}-blocked`))
-      if (typeof pauseForAction === 'function' && !signal?.aborted) {
-        emit({ type: 'log', source: label, message: 'TruePeopleSearch is asking to verify you are human' })
-        await pauseForAction('TruePeopleSearch is showing a "verify you\'re human" check. Solve it in the BROWSER window, then click Resume.')
-      }
+    if (await handleBlock(page, res, runDir, emit, signal, pauseForAction, step.kind)) {
       if (signal?.aborted) break
     }
     if (await looksLikeLogin(page)) continue
 
     res.evidence.push(await capture(page, runDir, `peoplesearch-${step.kind}`))
-    const rows = await extractRows(page, cfg.result)
-
-    // Phone numbers live on the person's DETAIL page, not the results list.
-    // For address/name searches, open the top match and pull its numbers.
-    if (rows.length && step.kind !== 'phone' && !(rows[0].phones || []).length) {
-      const phones = await getDetailPhones(page, { runDir, res, emit, signal, pauseForAction })
-      if (phones.length) rows[0] = { ...rows[0], phones: [...new Set([...(rows[0].phones || []), ...phones])] }
-    }
-    if (rows.length) results.push({ kind: step.kind, rows })
+    const row = await pickAndExtract(page, input, { res, runDir, emit, signal, pauseForAction })
+    if (row && (row.name || row.phones.length)) results.push({ kind: step.kind, rows: [row] })
   }
 
   res.data = { results }
-  res.ok = true // running it (even with 0 rows) is a valid outcome
-  if (!results.some((r) => r.rows.length)) res.notes.push('People search ran but no rows were parsed (blocked or no match) — review the screenshots. Clues only.')
+  res.ok = true
+  if (!results.length) res.notes.push('People search ran but nothing matched (blocked or no results). Clues only.')
   return res
 }
 
-// Open the top result's detail page and pull its phone numbers (which don't
-// appear on the results list). Handles a human-verification prompt on the way.
-async function getDetailPhones(page, { runDir, res, emit, signal, pauseForAction }) {
+// Gather all result cards, pick the one whose address matches the lead (else the
+// first), open its detail page, and pull the phone numbers.
+async function pickAndExtract(page, input, { res, runDir, emit, signal, pauseForAction }) {
+  const cards = await readCards(page)
+
+  // No result cards? Might be a direct person page (reverse phone). Read it.
+  if (!cards.length) {
+    const phones = await phonesOnPage(page)
+    const name = await headingName(page)
+    return name || phones.length ? { name, addresses: [], phones, matched: false } : null
+  }
+
+  const wanted = addressTokens(input)
+  let best = cards.find((c) => tokensMatch(c.text, wanted))
+  const matched = Boolean(best)
+  if (!best) best = cards[0]
+
+  const name = parseName(best.text)
+  emit({ type: 'log', source: label, message: `${matched ? 'Address-matched' : 'Top'} result: ${name || '(unknown)'} — opening View Details` })
+
+  // Click that specific card's "View Details".
   try {
-    // "View Details →" opens the person's detail page (where the phones are).
-    const link = page.locator('a:has-text("View Details"), a[href*="/find/person/"]').first()
-    if ((await link.count()) === 0) return []
-    emit({ type: 'log', source: label, message: 'Opening top result (View Details) for phone numbers' })
-    await link.click({ timeout: 4000 })
-    await page.waitForTimeout(1500)
-    await settle(page)
-    if (await isBlocked(page)) {
-      res.evidence.push(await capture(page, runDir, 'peoplesearch-detail-blocked'))
-      if (typeof pauseForAction === 'function' && !signal?.aborted) {
-        await pauseForAction('TruePeopleSearch is showing a "verify you\'re human" check. Solve it in the BROWSER window, then click Resume.')
-      }
+    const link = page.locator('a:has-text("View Details"), a[href*="/find/person/"]').nth(best.index)
+    if ((await link.count()) > 0) {
+      await link.click({ timeout: 4000 })
+      await page.waitForTimeout(1500)
+      await settle(page)
+      await handleBlock(page, res, runDir, emit, signal, pauseForAction, 'detail')
+      res.evidence.push(await capture(page, runDir, 'peoplesearch-detail'))
     }
-    res.evidence.push(await capture(page, runDir, 'peoplesearch-detail'))
+  } catch {
+    /* stay on results; still return the card's summary */
+  }
+
+  const phones = await phonesOnPage(page)
+  return { name, addresses: parseAddresses(best.text), phones, matched }
+}
+
+/* ---------- page helpers ---------- */
+
+// Read each result card: its index (matching the "View Details" link order) and
+// its visible text.
+async function readCards(page) {
+  try {
     return await page.evaluate(() => {
-      const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
-      const tel = Array.from(document.querySelectorAll('a[href^="tel:"]')).map((a) => clean(a.textContent)).filter(Boolean)
-      if (tel.length) return [...new Set(tel)]
-      const m = (document.body.innerText || '').match(/\(?[2-9]\d{2}\)?[-.\s]?[2-9]\d{2}[-.\s]?\d{4}/g) || []
-      return [...new Set(m.map(clean))]
+      const links = Array.from(document.querySelectorAll('a')).filter((a) => /view details/i.test(a.textContent || ''))
+      return links.map((a, index) => {
+        let el = a
+        for (let k = 0; k < 6 && el.parentElement; k++) {
+          el = el.parentElement
+          if ((el.textContent || '').replace(/\s+/g, ' ').trim().length > 60) break
+        }
+        return { index, text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 400) }
+      })
     })
   } catch {
     return []
   }
 }
 
-function hasAnyUrl(cfg) {
-  return Boolean(cfg.searchUrlForAddress || cfg.searchUrlForName || cfg.searchUrlForPhone || cfg.searchUrlForEmail)
+async function phonesOnPage(page) {
+  try {
+    return await page.evaluate(() => {
+      const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
+      const tel = Array.from(document.querySelectorAll('a[href^="tel:"]')).map((a) => clean(a.textContent)).filter(Boolean)
+      if (tel.length) return [...new Set(tel)]
+      const m = (document.body.innerText || '').match(/\(?[2-9]\d{2}\)?[-.\s]?[2-9]\d{2}[-.\s]?\d{4}/g) || []
+      return [...new Set(m.map(clean))].slice(0, 10)
+    })
+  } catch {
+    return []
+  }
 }
 
-// "97 Manchester Dr, Fairfield, CA 94533" -> { street, citystatezip }
-function splitAddress(a) {
-  const parts = String(a || '').split(',').map((s) => s.trim()).filter(Boolean)
-  if (!parts.length) return { street: '', citystatezip: '' }
-  return { street: parts[0], citystatezip: parts.slice(1).join(', ') }
+async function headingName(page) {
+  try {
+    const h = page.locator('h1, h2').first()
+    return (await h.count()) ? ((await h.innerText().catch(() => '')) || '').replace(/\s+/g, ' ').trim().slice(0, 80) : ''
+  } catch {
+    return ''
+  }
 }
-const onlyDigits = (s) => String(s || '').replace(/\D/g, '')
 
-// Detect a Cloudflare / CAPTCHA / bot block.
+// Detect + clear a Cloudflare / CAPTCHA block. Returns true if it paused.
+async function handleBlock(page, res, runDir, emit, signal, pauseForAction, tag) {
+  if (!(await isBlocked(page))) return false
+  res.evidence.push(await capture(page, runDir, `peoplesearch-${tag}-blocked`))
+  if (typeof pauseForAction === 'function' && !signal?.aborted) {
+    emit({ type: 'log', source: label, message: 'TruePeopleSearch is asking to verify you are human' })
+    await pauseForAction('TruePeopleSearch is showing a "verify you\'re human" check. Solve it in the BROWSER window, then click Resume.')
+  }
+  return true
+}
+
 async function isBlocked(page) {
   try {
     const t = ((await page.title().catch(() => '')) + ' ' + (await page.locator('body').innerText().catch(() => ''))).toLowerCase().slice(0, 3000)
@@ -145,32 +176,43 @@ async function isBlocked(page) {
   }
 }
 
-async function extractRows(page, r) {
-  if (!r || !r.row) return []
-  try {
-    return await page.evaluate((sel) => {
-      const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
-      const rows = []
-      document.querySelectorAll(sel.row).forEach((el) => {
-        const pick = (s) => {
-          if (!s) return ''
-          const n = el.querySelector(s)
-          return n ? clean(n.textContent) : ''
-        }
-        const pickAll = (s) => (s ? Array.from(el.querySelectorAll(s)).map((n) => clean(n.textContent)).filter(Boolean) : [])
-        // Phones: prefer tel: links; else phone-shaped text in the card.
-        let phones = Array.from(el.querySelectorAll('a[href^="tel:"]')).map((a) => clean(a.textContent))
-        if (!phones.length) phones = (clean(el.textContent).match(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g) || [])
-        rows.push({
-          name: pick(sel.name),
-          addresses: pickAll(sel.addresses),
-          phones: [...new Set(phones)],
-          possibleRelatives: pickAll(sel.possibleRelatives),
-        })
-      })
-      return rows.filter((x) => x.name || x.phones.length).slice(0, 15)
-    }, r)
-  } catch {
-    return []
-  }
+/* ---------- text parsing ---------- */
+
+function hasAnyUrl(cfg) {
+  return Boolean(cfg.searchUrlForAddress || cfg.searchUrlForName || cfg.searchUrlForPhone || cfg.searchUrlForEmail)
+}
+function splitAddress(a) {
+  const parts = String(a || '').split(',').map((s) => s.trim()).filter(Boolean)
+  if (!parts.length) return { street: '', citystatezip: '' }
+  return { street: parts[0], citystatezip: parts.slice(1).join(', ') }
+}
+const onlyDigits = (s) => String(s || '').replace(/\D/g, '')
+
+// Tokens that identify the lead's address: street name, city, ZIP.
+function addressTokens(input) {
+  const out = []
+  const parts = String(input.address || '').split(',').map((s) => s.trim())
+  const streetName = (parts[0] || '')
+    .replace(/^\d+\s*/, '')
+    .replace(/\b(dr|drive|st|street|ave|avenue|rd|road|ln|lane|ct|court|blvd|way|cir|circle|pl|place|ter|terrace)\b\.?/gi, '')
+    .trim()
+  const city = parts[1] || ''
+  const zip = (String(input.address || '').match(/\b\d{5}\b/) || [])[0]
+  if (streetName) out.push(streetName.toLowerCase())
+  if (city) out.push(city.toLowerCase())
+  if (zip) out.push(zip)
+  return out.filter((t) => t && t.length > 2)
+}
+function tokensMatch(text, tokens) {
+  const t = String(text || '').toLowerCase()
+  return tokens.some((tok) => t.includes(tok))
+}
+function parseName(cardText) {
+  // Name is the text before "Age", the bullet, or "Used to live".
+  return String(cardText || '').split(/\s+age\b|•|used to live|related to/i)[0].replace(/\s+/g, ' ').trim().slice(0, 80)
+}
+function parseAddresses(cardText) {
+  const m = String(cardText || '').match(/used to live in ([^]*?)(?:related to|view details|$)/i)
+  if (!m) return []
+  return m[1].split(',').map((s) => s.trim()).filter(Boolean).slice(0, 6)
 }
