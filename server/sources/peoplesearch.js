@@ -169,8 +169,17 @@ async function handleBlock(page, res, runDir, emit, signal, pauseForAction, tag)
 
 async function isBlocked(page) {
   try {
-    const t = ((await page.title().catch(() => '')) + ' ' + (await page.locator('body').innerText().catch(() => ''))).toLowerCase().slice(0, 3000)
-    return /captcha|verify (?:you|that you)(?:'re| are)? (?:a )?human|are you a human|unusual traffic|checking your browser|attention required|access denied|press ?& ?hold|please verify/i.test(t)
+    // Text cues (Cloudflare / hCaptcha / reCAPTCHA / "press & hold").
+    const t = ((await page.title().catch(() => '')) + ' ' + (await page.locator('body').innerText().catch(() => ''))).toLowerCase().slice(0, 4000)
+    if (/captcha|verify (?:you|that you)(?:'re| are)? (?:a )?human|are you a human|unusual traffic|checking your browser|just a moment|attention required|access denied|press ?& ?hold|please verify|review the security of your connection|verifying you are human/i.test(t)) {
+      return true
+    }
+    // Structural cues: a challenge iframe or widget even without matching text.
+    const widget = await page
+      .locator('iframe[src*="captcha" i], iframe[src*="hcaptcha" i], iframe[src*="recaptcha" i], iframe[title*="captcha" i], #cf-challenge-running, .cf-challenge, [class*="captcha" i], [id*="challenge" i]')
+      .count()
+      .catch(() => 0)
+    return widget > 0
   } catch {
     return false
   }
