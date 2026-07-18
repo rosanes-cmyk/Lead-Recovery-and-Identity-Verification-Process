@@ -17,7 +17,15 @@ import { loadReport, listRuns, runDir, saveReport } from './store.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 app.use(express.json({ limit: '2mb' }))
-app.use(express.static(path.join(ROOT, 'public')))
+// Never cache the operator UI files, so pulling an update always shows the
+// latest HTML/CSS/JS on a normal reload (no hard-refresh needed).
+app.use(
+  express.static(path.join(ROOT, 'public'), {
+    etag: false,
+    lastModified: false,
+    setHeaders: (res) => res.setHeader('Cache-Control', 'no-store, max-age=0'),
+  }),
+)
 
 // One active investigation at a time (Phase 1 is single-lead).
 let current = null
