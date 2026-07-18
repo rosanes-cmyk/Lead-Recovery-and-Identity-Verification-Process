@@ -314,8 +314,8 @@ function onReport(report, state) {
       if (c.score) nameLine.append(el('span', 'contact-score', c.score + '%'))
       main.append(nameLine)
       main.append(el('div', 'contact-meta', [c.relationship, c.basis].filter(Boolean).join(' · ')))
-      if (c.phones?.length) main.append(el('div', 'contact-meta contact-phone', '📞 ' + c.phones.join(', ')))
-      if (c.addresses?.length) main.append(el('div', 'contact-meta contact-addr', '📍 ' + c.addresses.join(' · ')))
+      if (c.phones?.length) main.append(metaLine('📞', c.phones.join(', ')))
+      if (c.addresses?.length) main.append(metaLine('📍', c.addresses.join(' · ')))
       row.append(rank, main)
       list.append(row)
     })
@@ -338,6 +338,14 @@ function onReport(report, state) {
     ? `Already ${approved}${report.approval.note ? ' — ' + report.approval.note : ''}`
     : 'Review the findings and note above, then Approve or Reject. In dry-run mode, Approve records your decision but makes no CRM change.'
   loadRuns()
+}
+
+// A contact detail line: fixed icon on the left, text that wraps with a clean
+// hanging indent (wrapped phone numbers/addresses line up, not under the icon).
+function metaLine(icon, text) {
+  const d = el('div', 'contact-meta contact-line')
+  d.append(el('span', 'contact-ico', icon), el('span', 'contact-line-text', text))
+  return d
 }
 
 function kv(label, value, confidence, status, score) {

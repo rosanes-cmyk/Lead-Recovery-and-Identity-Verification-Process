@@ -364,17 +364,33 @@ async function handleBlock(page, res, runDir, emit, signal, ctrls, tag) {
 
 async function isBlocked(page) {
   try {
-    // Text cues (Cloudflare / hCaptcha / reCAPTCHA / "press & hold").
+    // Text cues (Cloudflare / hCaptcha / reCAPTCHA / "press & hold"). These are
+    // phrases that only appear on an ACTUAL challenge screen — deliberately NOT
+    // the bare word "captcha", which can sit in hidden markup on a normal page.
     const t = ((await page.title().catch(() => '')) + ' ' + (await page.locator('body').innerText().catch(() => ''))).toLowerCase().slice(0, 4000)
-    if (/captcha|verify (?:you|that you)(?:'re| are)? (?:a )?human|are you a human|unusual traffic|checking your browser|just a moment|attention required|access denied|press ?& ?hold|please verify|review the security of your connection|verifying you are human/i.test(t)) {
+    if (/verify (?:you|that you)(?:'re| are)? (?:a )?human|are you (?:a )?human|unusual traffic|checking your browser|just a moment|attention required|access denied|press ?& ?hold|please verify you|review the security of your connection|verifying you are human|complete the (?:security )?check/i.test(t)) {
       return true
     }
-    // Structural cues: a challenge iframe or widget even without matching text.
-    const widget = await page
-      .locator('iframe[src*="captcha" i], iframe[src*="hcaptcha" i], iframe[src*="recaptcha" i], iframe[title*="captcha" i], #cf-challenge-running, .cf-challenge, [class*="captcha" i], [id*="challenge" i]')
-      .count()
-      .catch(() => 0)
-    return widget > 0
+    // Structural: only a VISIBLE challenge widget counts. The invisible
+    // reCAPTCHA badge / hidden challenge containers that sites keep on every page
+    // must NOT be treated as a block, or auto-resume can never detect a clear.
+    return await page.evaluate(() => {
+      const sels = [
+        'iframe[src*="captcha" i]', 'iframe[src*="hcaptcha" i]', 'iframe[src*="recaptcha" i]',
+        'iframe[title*="captcha" i]', 'iframe[title*="challenge" i]', '#cf-challenge-running', '.cf-challenge',
+      ]
+      const visible = (el) => {
+        const r = el.getBoundingClientRect()
+        const s = getComputedStyle(el)
+        return r.width > 40 && r.height > 40 && s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) !== 0
+      }
+      for (const sel of sels) {
+        for (const el of document.querySelectorAll(sel)) {
+          if (visible(el)) return true
+        }
+      }
+      return false
+    }).catch(() => false)
   } catch {
     return false
   }
