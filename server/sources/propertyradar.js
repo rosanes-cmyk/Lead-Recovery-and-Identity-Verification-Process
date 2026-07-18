@@ -74,15 +74,26 @@ export async function run(ctx) {
 }
 
 // Wait until the SPA has finished the radar spinner and shows real content.
+// PropertyRadar can spin 5–30s (sometimes more); wait patiently and reload once
+// if it's still blank, per the verified flow.
+const READY_RE = /add criteria|discover|i'?m radar|full address|property profile/i
 async function waitForAppReady(page, emit, signal) {
-  for (let i = 0; i < 8; i++) {
-    if (signal?.aborted) return false
-    const txt = await page.innerText('body').catch(() => '')
-    if (/add criteria|discover|i'?m radar|full address|property profile/i.test(txt)) return true
-    if (await looksLikeLogin(page)) return false
-    if (i === 0) emit({ type: 'log', source: label, message: 'Waiting for PropertyRadar to finish loading…' })
-    await page.waitForTimeout(4000)
+  emit({ type: 'log', source: label, message: 'Waiting for PropertyRadar to finish loading…' })
+  for (let pass = 0; pass < 2; pass++) {
+    // Up to ~40s per pass.
+    for (let i = 0; i < 13; i++) {
+      if (signal?.aborted) return false
+      const txt = await page.innerText('body').catch(() => '')
+      if (READY_RE.test(txt)) return true
+      if (await looksLikeLogin(page)) return false
+      await page.waitForTimeout(3000)
+    }
+    if (pass === 0 && !signal?.aborted) {
+      emit({ type: 'log', source: label, message: 'Still loading — reloading PropertyRadar once…' })
+      await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {})
+    }
   }
+  emit({ type: 'log', source: label, message: 'PropertyRadar did not finish loading in time.' })
   return false
 }
 
