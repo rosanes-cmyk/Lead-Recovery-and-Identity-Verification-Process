@@ -66,15 +66,19 @@ export async function run(ctx) {
   if (!out.ok && !signal?.aborted) {
     emit({ type: 'log', source: label, message: 'Auto-search did not open the property; asking operator (will auto-continue when the property is open)' })
     const msg = `Open the property for ${input.address || 'this lead'} in the PropertyRadar BROWSER window — I'll continue automatically once the property profile is on screen (or click Resume).`
-    // STRICT so we don't resume prematurely: continue only when we're on an
-    // actual property-detail page, OR a real owner name is already readable.
-    // (Loose page-text cues match PropertyRadar's app chrome even with no
-    // property open, which made it jump straight past without waiting.)
+    // Resume only when a property is genuinely open: the /detail/ URL, or the
+    // rendered text shows a real owner (Taxpayer line). Reading from text is what
+    // survives PropertyRadar's React DOM — the positional engine can't see it.
     const profileReady = async () => {
       try {
         if (/\/detail\//i.test(page.url())) return true
-        const { values } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
-        return Boolean(values.recordedOwner && looksLikeName(values.recordedOwner))
+        const txt = await page.innerText('body').catch(() => '')
+        const taxpayer = textLabelValue(txt, 'Taxpayer')
+        if (taxpayer) {
+          const nm = taxpayer.split(/,\s*(?=\d)/)[0].trim()
+          if (looksLikeName(nm) || ENTITY_RE.test(nm)) return true
+        }
+        return false
       } catch {
         return false
       }
@@ -131,7 +135,10 @@ async function autoSearch(page, address, cfg, emit, signal) {
       () => page.getByRole('link', { name: /^Full Address$/i }),
       () => page.locator('button:has-text("Full Address"), a:has-text("Full Address")'),
       () => page.getByText(/^Full Address$/i),
-    ]))) return false
+    ]))) {
+      // No "Full Address" button on this layout — try the main search box.
+      return await genericSearch(page, address, streetNum, emit, signal)
+    }
     await page.waitForTimeout(1200)
 
     emit({ type: 'log', source: label, message: `Typing address: ${address}` })
@@ -179,6 +186,52 @@ async function autoSearch(page, address, cfg, emit, signal) {
     return /\/detail\//i.test(page.url()) || /property profile/i.test(await page.title().catch(() => ''))
   } catch (err) {
     emit({ type: 'log', source: label, message: `Auto-search issue: ${String(err).slice(0, 120)}` })
+    return false
+  }
+}
+
+// Fallback search when there's no "Full Address" button: type the address into
+// whatever primary search box the current PropertyRadar UI shows, take the
+// autocomplete match (or press Enter), then open the first result row.
+async function genericSearch(page, address, streetNum, emit, signal) {
+  try {
+    const box = await firstVisible(page, [
+      () => page.getByPlaceholder(/enter\s*(site\s*)?address/i),
+      () => page.getByPlaceholder(/what are you searching for/i),
+      () => page.getByPlaceholder(/find criteria/i),
+      () => page.getByPlaceholder(/address/i),
+      () => page.getByPlaceholder(/city.*zip|zip.*code/i),
+      () => page.locator('input[type="search"]'),
+      () => page.locator('textarea'),
+    ])
+    if (!box) return false
+    emit({ type: 'log', source: label, message: 'Searching PropertyRadar by address (main search box)' })
+    await box.click({ timeout: 3000 })
+    await box.fill(address, { timeout: 3000 })
+    await page.waitForTimeout(2000)
+
+    const picked = await clickFirst(page, [
+      () => page.getByRole('option').filter({ hasText: new RegExp(streetNum) }),
+      () => page.locator('[role="option"], li, .pac-item, .autocomplete-item, .dropdown-item').filter({ hasText: new RegExp(streetNum) }),
+      () => page.getByText(new RegExp(streetNum + '\\s+\\w+', 'i')),
+    ])
+    if (!picked) await page.keyboard.press('Enter').catch(() => {})
+    await page.waitForTimeout(3000)
+    await settle(page)
+    if (/\/detail\//i.test(page.url())) return true
+
+    // Open the first result row/link for the property.
+    const row = await firstVisible(page, [
+      () => page.locator('[role="row"], tr, .result, .property-row').filter({ hasText: new RegExp(streetNum) }),
+      () => page.getByText(new RegExp(streetNum + '\\s+\\w+', 'i')),
+    ])
+    if (row) {
+      await row.dblclick({ timeout: 4000 }).catch(async () => { await row.click({ timeout: 3000 }).catch(() => {}) })
+      await page.waitForTimeout(3000)
+      await settle(page)
+    }
+    return /\/detail\//i.test(page.url())
+  } catch {
     return false
   }
 }
