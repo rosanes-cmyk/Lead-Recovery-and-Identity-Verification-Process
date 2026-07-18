@@ -11,7 +11,7 @@
 // the results.
 
 import { looksLikeLogin, capture } from '../browser.js'
-import { emptyResult, goto } from './base.js'
+import { emptyResult, goto, settle } from './base.js'
 import { selectors, fillUrl } from './selectors.js'
 import { config } from '../config.js'
 
@@ -74,6 +74,13 @@ export async function run(ctx) {
 
     res.evidence.push(await capture(page, runDir, `peoplesearch-${step.kind}`))
     const rows = await extractRows(page, cfg.result)
+
+    // Phone numbers live on the person's DETAIL page, not the results list.
+    // For address/name searches, open the top match and pull its numbers.
+    if (rows.length && step.kind !== 'phone' && !(rows[0].phones || []).length) {
+      const phones = await getDetailPhones(page, { runDir, res, emit, signal, pauseForAction })
+      if (phones.length) rows[0] = { ...rows[0], phones: [...new Set([...(rows[0].phones || []), ...phones])] }
+    }
     if (rows.length) results.push({ kind: step.kind, rows })
   }
 
@@ -81,6 +88,35 @@ export async function run(ctx) {
   res.ok = true // running it (even with 0 rows) is a valid outcome
   if (!results.some((r) => r.rows.length)) res.notes.push('People search ran but no rows were parsed (blocked or no match) — review the screenshots. Clues only.')
   return res
+}
+
+// Open the top result's detail page and pull its phone numbers (which don't
+// appear on the results list). Handles a human-verification prompt on the way.
+async function getDetailPhones(page, { runDir, res, emit, signal, pauseForAction }) {
+  try {
+    const link = page.locator('a[href*="/find/person/"]').first()
+    if ((await link.count()) === 0) return []
+    emit({ type: 'log', source: label, message: 'Opening top result for phone numbers' })
+    await link.click({ timeout: 4000 })
+    await page.waitForTimeout(1500)
+    await settle(page)
+    if (await isBlocked(page)) {
+      res.evidence.push(await capture(page, runDir, 'peoplesearch-detail-blocked'))
+      if (typeof pauseForAction === 'function' && !signal?.aborted) {
+        await pauseForAction('TruePeopleSearch is showing a "verify you\'re human" check. Solve it in the BROWSER window, then click Resume.')
+      }
+    }
+    res.evidence.push(await capture(page, runDir, 'peoplesearch-detail'))
+    return await page.evaluate(() => {
+      const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
+      const tel = Array.from(document.querySelectorAll('a[href^="tel:"]')).map((a) => clean(a.textContent)).filter(Boolean)
+      if (tel.length) return [...new Set(tel)]
+      const m = (document.body.innerText || '').match(/\(?[2-9]\d{2}\)?[-.\s]?[2-9]\d{2}[-.\s]?\d{4}/g) || []
+      return [...new Set(m.map(clean))]
+    })
+  } catch {
+    return []
+  }
 }
 
 function hasAnyUrl(cfg) {
