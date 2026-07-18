@@ -1,0 +1,62 @@
+<!doctype html>
+<!--
+  Fixture mirroring a TruePeopleSearch person page (Paulo Faga), built from the
+  operator's real screenshots. The key detail that broke extraction: the
+  relatives/associates sections are preceded by BARE jump-anchors
+  (<div id="toc-relatives"></div>) — the anchor does NOT wrap the list, the
+  person links are siblings that follow it. Phones use a "Possible Primary
+  Phone" label. This is static markup only; no scripts, no network.
+-->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Paulo Faga - TruePeopleSearch</title></head>
+  <body>
+    <nav>Home / F / Faga / Paulo Faga</nav>
+
+    <h1>Paulo Faga</h1>
+    <p>Age 52, Born January 1974</p>
+    <p>Lives in Fairfield, CA</p>
+
+    <!-- Phones -->
+    <div id="toc-phone"></div>
+    <h5>Phone Numbers</h5>
+    <div class="phone">
+      <span class="label">Possible Primary Phone</span>
+      <a href="tel:+17134412672">(713) 441-2672</a>
+      <span>Last reported Jun 2026</span>
+    </div>
+    <div class="phone"><a href="tel:+17075551201">(707) 555-1201</a></div>
+    <div class="phone"><a href="tel:+17075551202">(707) 555-1202</a></div>
+    <div class="phone">(707) 555-1203</div>
+    <div class="phone">(707) 555-1204</div>
+
+    <!-- Current address -->
+    <div id="toc-address"></div>
+    <h5>Current Address</h5>
+    <a href="/find/address/xyz">97 Manchester Dr, Fairfield, CA 94533</a>
+
+    <!-- RELATIVES: bare anchor BEFORE the heading + list (the tricky part) -->
+    <div id="toc-relatives"></div>
+    <h5>Possible Relatives</h5>
+    <p class="section-desc">May include parents (mother, father), spouse (wife, husband), exes, brothers, sisters and children of Paulo Faga.</p>
+    <div class="relatives-grid">
+      <div class="rel"><a href="/find/person/puun2n6204n229u20r2u">Aireta Faga</a><div>Age 24</div></div>
+      <div class="rel"><a href="/find/person/rel-daisy">Daisy Briales</a><div>Age 38</div></div>
+      <div class="rel"><a href="/find/person/rel-falefia">Falefia Tuivai</a><div>Age 48</div></div>
+      <div class="rel"><a href="/find/person/rel-hosanna">Hosanna Faga</a><div>Age 42</div></div>
+      <div class="rel"><a href="/find/person/rel-jake">Jake Faga</a><div>Age 23</div></div>
+      <div class="rel"><a href="/find/person/rel-jumey">Jumey Faga</a><div>Age 27</div></div>
+      <div class="rel"><a href="/find/person/rel-me">Me Faga</a><div>Age 52</div></div>
+      <div class="rel"><a href="/find/person/rel-morgantane">Morgantane Faga</a><div>Age 26</div></div>
+    </div>
+
+    <!-- ASSOCIATES: must be EXCLUDED from relatives -->
+    <div id="toc-associates"></div>
+    <h5>Possible Associates</h5>
+    <p class="section-desc">May include current and past roommates, friends, and extended family of Paulo Faga.</p>
+    <div class="assoc-grid">
+      <div class="assoc"><a href="/find/person/assoc-janelle">Janelle Elisaia</a><div>Age 42</div></div>
+      <div class="assoc"><a href="/find/person/assoc-kathryn">Kathryn Peleki</a><div>Age 39</div></div>
+      <div class="assoc"><a href="/find/person/assoc-sefo">Sefo Peleki</a><div>Age 71</div></div>
+    </div>
+  </body>
+</html>

@@ -154,46 +154,42 @@ async function attachRelatives(page, row, ownerName, ctx) {
   }
 }
 
-// Collect the possible relatives. TruePeopleSearch wraps them in
-// #toc-relatives (associates are in #toc-associates), so scope to that exactly.
-// Falls back to the "Possible Relatives"→"Possible Associates" heading range.
-async function extractRelatives(page) {
+// Collect the possible relatives. TruePeopleSearch marks the section with a
+// "toc-relatives" jump-anchor (and "toc-associates" for the next section), but
+// that anchor is a MARKER placed before the list — not a box wrapping it — so we
+// can't just read links inside it. Instead we take every person-profile link
+// that sits AFTER the relatives boundary and BEFORE the associates boundary,
+// using either the #toc anchors or the visible headings, whichever exists.
+export async function extractRelatives(page) {
   try {
     return await page.evaluate(() => {
       const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
       const validName = (n) => n && /^[A-Za-z][A-Za-z .'-]{2,}$/.test(n)
-
-      // Primary: the exact relatives container.
-      const container = document.querySelector('#toc-relatives')
-      if (container) {
-        const out = []
-        container.querySelectorAll('a[href*="/find/person/"]').forEach((a) => {
-          const name = clean(a.textContent)
-          if (validName(name) && !out.some((o) => o.name === name)) out.push({ name, href: a.getAttribute('href') })
-        })
-        return out.slice(0, 20)
-      }
-
-      // Fallback: between the two headings by document order.
       const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING
-      let relHead = null
-      let assocHead = null
-      for (const n of Array.from(document.querySelectorAll('*'))) {
-        const t = clean(n.textContent)
-        if (t.length > 40) continue
-        if (!relHead && /possible relatives/i.test(t)) relHead = n
-        else if (!assocHead && /possible associates/i.test(t)) assocHead = n
+
+      // Find the start of a section by its #toc anchor or its short heading text.
+      const boundary = (id, re) => {
+        const anchor = document.getElementById(id)
+        if (anchor) return anchor
+        for (const n of Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,strong,b,span,div,p'))) {
+          const t = clean(n.textContent)
+          if (t.length <= 40 && re.test(t)) return n
+        }
+        return null
       }
+      const start = boundary('toc-relatives', /possible relatives/i)
+      const end = boundary('toc-associates', /possible associates/i)
+      if (!start) return []
+
       const out = []
       for (const a of Array.from(document.querySelectorAll('a[href*="/find/person/"]'))) {
         const name = clean(a.textContent)
         if (!validName(name)) continue
-        if (relHead) {
-          const afterRel = relHead.compareDocumentPosition(a) & FOLLOWING
-          const beforeAssoc = !assocHead || a.compareDocumentPosition(assocHead) & FOLLOWING
-          if (!(afterRel && beforeAssoc)) continue
+        const afterStart = (start.compareDocumentPosition(a) & FOLLOWING) !== 0
+        const beforeEnd = !end || (a.compareDocumentPosition(end) & FOLLOWING) !== 0
+        if (afterStart && beforeEnd && !out.some((o) => o.name === name)) {
+          out.push({ name, href: a.getAttribute('href') })
         }
-        if (!out.some((o) => o.name === name)) out.push({ name, href: a.getAttribute('href') })
       }
       return out.slice(0, 20)
     })
@@ -234,7 +230,7 @@ async function readCards(page) {
   }
 }
 
-async function phonesOnPage(page) {
+export async function phonesOnPage(page) {
   try {
     return await page.evaluate(() => {
       const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()

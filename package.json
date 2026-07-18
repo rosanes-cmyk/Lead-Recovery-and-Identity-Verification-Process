@@ -9,6 +9,8 @@
     "setup": "node scripts/setup.js",
     "calibrate": "node scripts/calibrate.js",
     "test:fixture": "node test/fixture-live-test.mjs",
+    "test:peoplesearch": "node test/peoplesearch-test.mjs",
+    "test": "node test/fixture-live-test.mjs && node test/peoplesearch-test.mjs",
     "install-browser": "npx playwright install chromium"
   },
   "dependencies": {
