@@ -58,10 +58,16 @@ export async function run(ctx) {
       res.notes.push(`People search (${step.kind}) failed to open: ${String(err)}`)
       continue
     }
-    if (await handleBlock(page, res, runDir, emit, signal, { pauseForAction, pauseForActionUntil }, step.kind)) {
+    const ctrls = { pauseForAction, pauseForActionUntil }
+    if (await handleBlock(page, res, runDir, emit, signal, ctrls, step.kind)) {
       if (signal?.aborted) break
     }
     if (await looksLikeLogin(page)) continue
+
+    // Wait for the result cards to actually render before reading — the page can
+    // return before the results paint, which otherwise reads as "0 matches".
+    await waitForResults(page, ctrls, res, runDir, emit, signal, step.kind)
+    if (signal?.aborted) break
 
     res.evidence.push(await capture(page, runDir, `peoplesearch-${step.kind}`))
     const row = await pickAndExtract(page, input, searchName, { res, runDir, emit, signal, pauseForAction, pauseForActionUntil })
@@ -85,6 +91,24 @@ export async function run(ctx) {
 
   if (!results.length) res.notes.push('People search ran but nothing matched (blocked or no results). Clues only.')
   return res
+}
+
+// Wait for TruePeopleSearch result cards to render (up to ~14s). If a human-check
+// appears while waiting, handle it and keep waiting. Stops early on a clear "no
+// records" message so we don't wait the full time when there genuinely are none.
+async function waitForResults(page, ctrls, res, runDir, emit, signal, kind) {
+  for (let i = 0; i < 14; i++) {
+    if (signal?.aborted) return
+    const n = await page.locator('a[href*="/find/person/"]').count().catch(() => 0)
+    if (n > 0) return // results are on screen
+    if (await isBlocked(page)) {
+      await handleBlock(page, res, runDir, emit, signal, ctrls, kind)
+      continue // re-check immediately after it clears
+    }
+    const txt = ((await page.locator('body').innerText().catch(() => '')) || '').toLowerCase()
+    if (/no records? found|0 records|we could ?n.?t find|no results found|didn'?t match/.test(txt)) return
+    await page.waitForTimeout(1000)
+  }
 }
 
 // Gather all result cards, pick the one whose address matches the lead (else the
