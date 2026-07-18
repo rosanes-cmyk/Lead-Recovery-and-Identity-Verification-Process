@@ -141,13 +141,27 @@ async function attachRelatives(page, row, ownerName, ctx) {
   }
 }
 
-// Collect person links that sit between the "Possible Relatives" heading and
-// the "Possible Associates" heading (document order), so associates aren't mixed
-// in. Falls back to all person links if headings aren't found.
+// Collect the possible relatives. TruePeopleSearch wraps them in
+// #toc-relatives (associates are in #toc-associates), so scope to that exactly.
+// Falls back to the "Possible Relatives"→"Possible Associates" heading range.
 async function extractRelatives(page) {
   try {
     return await page.evaluate(() => {
       const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
+      const validName = (n) => n && /^[A-Za-z][A-Za-z .'-]{2,}$/.test(n)
+
+      // Primary: the exact relatives container.
+      const container = document.querySelector('#toc-relatives')
+      if (container) {
+        const out = []
+        container.querySelectorAll('a[href*="/find/person/"]').forEach((a) => {
+          const name = clean(a.textContent)
+          if (validName(name) && !out.some((o) => o.name === name)) out.push({ name, href: a.getAttribute('href') })
+        })
+        return out.slice(0, 20)
+      }
+
+      // Fallback: between the two headings by document order.
       const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING
       let relHead = null
       let assocHead = null
@@ -158,10 +172,9 @@ async function extractRelatives(page) {
         else if (!assocHead && /possible associates/i.test(t)) assocHead = n
       }
       const out = []
-      const links = Array.from(document.querySelectorAll('a[href*="/find/person/"]'))
-      for (const a of links) {
+      for (const a of Array.from(document.querySelectorAll('a[href*="/find/person/"]'))) {
         const name = clean(a.textContent)
-        if (!name || !/^[A-Za-z][A-Za-z .'-]{2,}$/.test(name)) continue
+        if (!validName(name)) continue
         if (relHead) {
           const afterRel = relHead.compareDocumentPosition(a) & FOLLOWING
           const beforeAssoc = !assocHead || a.compareDocumentPosition(assocHead) & FOLLOWING
