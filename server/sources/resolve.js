@@ -99,9 +99,13 @@ async function tryStrategyAll(page, s) {
 
 // Find all phone- or email-looking strings anywhere in the visible page text.
 // Used as a fallback when the value isn't a tel:/mailto: link or beside a label.
+// Stricter patterns so page junk (e.g. a JS lib string "single-spa@5.9.5" or a
+// version number) isn't mistaken for a real email/phone:
+//  - email: domain must end in a letters-only TLD (2+), so "@5.9.5" won't match.
+//  - phone: US NANP shape — area code AND exchange must start 2–9.
 const PATTERNS = {
-  email: '[\\w.+-]+@[\\w-]+\\.[\\w.-]+',
-  phone: '(?:\\+?1[-.\\s]?)?\\(?\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4}',
+  email: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}',
+  phone: '(?:\\+?1[-.\\s]?)?\\(?[2-9]\\d{2}\\)?[-.\\s]?[2-9]\\d{2}[-.\\s]?\\d{4}',
 }
 async function patternAll(page, kind) {
   const reStr = PATTERNS[kind]
