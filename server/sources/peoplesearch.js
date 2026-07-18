@@ -64,8 +64,8 @@ export async function run(ctx) {
     if (await looksLikeLogin(page)) continue
 
     res.evidence.push(await capture(page, runDir, `peoplesearch-${step.kind}`))
-    const row = await pickAndExtract(page, input, { res, runDir, emit, signal, pauseForAction })
-    if (row && (row.name || row.phones.length)) results.push({ kind: step.kind, rows: [row] })
+    const row = await pickAndExtract(page, input, searchName, { res, runDir, emit, signal, pauseForAction })
+    if (row && (row.name || row.phones.length || row.relatives?.length)) results.push({ kind: step.kind, rows: [row] })
   }
 
   res.data = { results }
@@ -76,14 +76,18 @@ export async function run(ctx) {
 
 // Gather all result cards, pick the one whose address matches the lead (else the
 // first), open its detail page, and pull the phone numbers.
-async function pickAndExtract(page, input, { res, runDir, emit, signal, pauseForAction }) {
+async function pickAndExtract(page, input, searchName, ctx) {
+  const { res, runDir, emit, signal, pauseForAction } = ctx
   const cards = await readCards(page)
 
-  // No result cards? Might be a direct person page (reverse phone). Read it.
+  // No result cards? Might be a direct person page. Read it.
   if (!cards.length) {
     const phones = await phonesOnPage(page)
     const name = await headingName(page)
-    return name || phones.length ? { name, addresses: [], phones, matched: false } : null
+    if (!name && !phones.length) return null
+    const row = { name, addresses: [], phones, matched: false }
+    await attachRelatives(page, row, name || searchName, ctx)
+    return row
   }
 
   const wanted = addressTokens(input)
@@ -94,7 +98,6 @@ async function pickAndExtract(page, input, { res, runDir, emit, signal, pauseFor
   const name = parseName(best.text)
   emit({ type: 'log', source: label, message: `${matched ? 'Address-matched' : 'Top'} result: ${name || '(unknown)'} — opening View Details` })
 
-  // Click that specific card's "View Details".
   try {
     const link = page.locator('a:has-text("View Details"), a[href*="/find/person/"]').nth(best.index)
     if ((await link.count()) > 0) {
@@ -105,11 +108,68 @@ async function pickAndExtract(page, input, { res, runDir, emit, signal, pauseFor
       res.evidence.push(await capture(page, runDir, 'peoplesearch-detail'))
     }
   } catch {
-    /* stay on results; still return the card's summary */
+    /* stay on results */
   }
 
   const phones = await phonesOnPage(page)
-  return { name, addresses: parseAddresses(best.text), phones, matched }
+  const row = { name, addresses: parseAddresses(best.text), phones, matched }
+  await attachRelatives(page, row, name || searchName, ctx)
+  return row
+}
+
+// From the owner's detail page, collect Possible Relatives, pick the best
+// same-surname one, open their page, and grab a valid phone. All UNVERIFIED
+// clues — contacting a relative needs separate authorization (SOP).
+async function attachRelatives(page, row, ownerName, ctx) {
+  const { res, runDir, emit, signal, pauseForAction } = ctx
+  try {
+    const relatives = await extractRelatives(page)
+    if (!relatives.length) return
+    row.relatives = relatives.map((r) => r.name)
+
+    const lastName = String(ownerName || '').trim().split(/\s+/).pop()?.toLowerCase() || ''
+    let best = (lastName && relatives.find((r) => r.name.toLowerCase().split(/\s+/).includes(lastName))) || relatives[0]
+    if (!best?.href) return
+
+    emit({ type: 'log', source: label, message: `Checking possible relative for a phone: ${best.name}` })
+    const url = new URL(best.href, page.url()).href
+    await goto(page, url, { signal })
+    await handleBlock(page, res, runDir, emit, signal, pauseForAction, 'relative')
+    res.evidence.push(await capture(page, runDir, 'peoplesearch-relative'))
+    const phones = await phonesOnPage(page)
+    row.bestRelative = { name: best.name, phones, note: 'Possible relative (UNVERIFIED — aggregator label). Contacting requires separate authorization.' }
+  } catch {
+    /* relatives are a bonus; ignore failures */
+  }
+}
+
+// Collect person links inside the "Possible Relatives" section.
+async function extractRelatives(page) {
+  try {
+    return await page.evaluate(() => {
+      const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
+      // Find the "Possible Relatives" heading and scope to its section.
+      let scope = null
+      const nodes = Array.from(document.querySelectorAll('h1,h2,h3,h4,strong,div,span'))
+      for (const n of nodes) {
+        if (/possible relatives/i.test(clean(n.textContent)) && clean(n.textContent).length < 60) {
+          scope = n.closest('section, div') || n.parentElement
+          break
+        }
+      }
+      const root = scope || document.body
+      const out = []
+      root.querySelectorAll('a[href*="/find/person/"]').forEach((a) => {
+        const name = clean(a.textContent)
+        if (name && /^[A-Za-z][A-Za-z .'-]{2,}$/.test(name) && !out.some((o) => o.name === name)) {
+          out.push({ name, href: a.getAttribute('href') })
+        }
+      })
+      return out.slice(0, 20)
+    })
+  } catch {
+    return []
+  }
 }
 
 /* ---------- page helpers ---------- */

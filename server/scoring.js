@@ -154,7 +154,16 @@ export function score(data) {
         note: 'People-search clue — unverified. Not a confirmed contact or relative.',
       })
     }
-    ;(row.possibleRelatives || []).forEach((r) =>
+    // Best possible relative WITH a phone (from the detail page) — a usable
+    // contact clue, still unverified and authorization-gated.
+    if (row.bestRelative && (row.bestRelative.phones || []).length) {
+      possibleContacts.push({
+        name: row.bestRelative.name,
+        phones: row.bestRelative.phones,
+        note: row.bestRelative.note || 'Possible relative (unverified). Contacting requires separate authorization.',
+      })
+    }
+    ;(row.relatives || row.possibleRelatives || []).slice(0, 8).forEach((r) =>
       possibleContacts.push({
         name: r,
         note: 'Aggregator "possible relative" — NOT verified. A relationship needs a lawful record.',
@@ -181,15 +190,19 @@ export function score(data) {
   const verifiedConnections = coOwnerNames
     .filter((nm) => !verifiedName || !nameMatch(nm, verifiedName))
     .map((nm) => ({ name: nm, relationship: 'Co-owner named on recorded document', basis: src, verified: true, phones: [], score: 82 }))
-  const clueContacts = possibleContacts.map((p) => ({
-    name: p.name,
-    relationship: 'Unverified clue',
-    basis: 'People search',
-    verified: false,
-    phones: p.phones || [],
-    score: 40,
-    note: p.note,
-  }))
+  const clueContacts = possibleContacts.map((p) => {
+    const isRelative = /relative/i.test(p.note || '')
+    const hasPhone = (p.phones || []).length > 0
+    return {
+      name: p.name,
+      relationship: isRelative ? 'Possible relative (unverified)' : 'Unverified clue',
+      basis: 'People search',
+      verified: false,
+      phones: p.phones || [],
+      score: hasPhone ? 55 : 40, // a reachable clue (has a number) ranks higher
+      note: p.note,
+    }
+  })
   const ranked = [...verifiedConnections, ...clueContacts].sort(
     (a, b) =>
       Number(b.verified) - Number(a.verified) ||
