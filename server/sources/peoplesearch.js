@@ -1,14 +1,14 @@
-// Approved People Search — search by address, name, phone, or email.
+// Approved People Search (TruePeopleSearch, Cherry-Hombre approved).
 //
 // Guardrails baked in:
-//  - Results are CLUES, never verified ownership. They are cross-checked
-//    elsewhere against property/official records.
+//  - Results are CLUES, never verified ownership; cross-checked elsewhere.
 //  - "Possible relatives" are captured only as unverified clues. No one is
-//    labeled a spouse/child/sibling/relative here; that requires a lawful
-//    record, handled in the scoring/conflict stage.
+//    labeled a relative here; that requires a lawful record.
+//  - Read-only. Disabled unless PEOPLE_SEARCH_ENABLED=true.
 //
-// Only ONE approved provider is used, configured in selectors.js. When it is
-// not configured the module explains what to set and captures nothing private.
+// TruePeopleSearch blocks bots hard (Cloudflare / "verify you're human"). When
+// that check appears, the app pauses so the operator can solve it, then reads
+// the results.
 
 import { looksLikeLogin, capture } from '../browser.js'
 import { emptyResult, goto } from './base.js'
@@ -20,113 +20,115 @@ export const label = 'Approved People Search'
 export const loginGated = true
 
 export async function run(ctx) {
-  const { page, input, data, emit, runDir, signal } = ctx
+  const { page, input, data, emit, runDir, signal, pauseForAction } = ctx
   const res = emptyResult(label)
   const cfg = selectors.peoplesearch || {}
 
-  // Hard gate: disabled until Cherry Hombre approves an aggregator in writing.
   if (!config.peopleSearchEnabled) {
-    res.notes.push(
-      'People search is DISABLED (PEOPLE_SEARCH_ENABLED=false). Do not use TruePeopleSearch, ' +
-        'Spokeo, FastPeopleSearch, or any aggregator unless Cherry Hombre has approved it in writing. ' +
-        'When approved, results are clues only and must be cross-checked with official/property sources.',
-    )
-    res.ok = true // intentional skip, not a failure
+    res.notes.push('People search is DISABLED (PEOPLE_SEARCH_ENABLED=false). Enable it only with Cherry Hombre approval.')
+    res.ok = true // intentional skip
     return res
   }
-
   if (!cfg.name || !hasAnyUrl(cfg)) {
-    res.notes.push(
-      'People search enabled but no approved provider configured. Set selectors.js -> peoplesearch ' +
-        '(provider name, search URLs, and result selectors) for the Cherry-Hombre-approved tool.',
-    )
+    res.notes.push('People search enabled but no provider configured in selectors.js.')
     return res
   }
 
-  // Search sequence per the SOP: address -> owner name -> phone -> email.
+  const { street, citystatezip } = splitAddress(input.address)
   const ownerName = data?.ownership?.recordedOwner || input.name
+
+  // SOP search sequence: address -> owner name -> phone.
   const steps = [
-    cfg.searchUrlForAddress && input.address
-      ? { kind: 'address', url: fillUrl(cfg.searchUrlForAddress, { address: input.address }) }
-      : null,
-    cfg.searchUrlForName && ownerName
-      ? {
-          kind: 'name',
-          url: fillUrl(cfg.searchUrlForName, {
-            name: ownerName,
-            city: input.city || '',
-            state: input.state || '',
-          }),
-        }
-      : null,
-    cfg.searchUrlForPhone && input.phone
-      ? { kind: 'phone', url: fillUrl(cfg.searchUrlForPhone, { phone: input.phone }) }
-      : null,
-    cfg.searchUrlForEmail && input.email
-      ? { kind: 'email', url: fillUrl(cfg.searchUrlForEmail, { email: input.email }) }
-      : null,
+    cfg.searchUrlForAddress && street ? { kind: 'address', url: fillUrl(cfg.searchUrlForAddress, { street, citystatezip }) } : null,
+    cfg.searchUrlForName && ownerName ? { kind: 'name', url: fillUrl(cfg.searchUrlForName, { name: ownerName, citystatezip }) } : null,
+    cfg.searchUrlForPhone && input.phone ? { kind: 'phone', url: fillUrl(cfg.searchUrlForPhone, { phone: onlyDigits(input.phone) }) } : null,
   ].filter(Boolean)
+
+  if (!steps.length) {
+    res.notes.push('Nothing to search (no address, name, or phone).')
+    res.ok = true
+    return res
+  }
 
   const results = []
   for (const step of steps) {
     if (signal?.aborted) break
-    emit({ type: 'log', source: label, message: `People search by ${step.kind}` })
+    emit({ type: 'log', source: `${label}`, message: `TruePeopleSearch by ${step.kind}` })
     try {
       await goto(page, step.url, { signal })
     } catch (err) {
       res.notes.push(`People search (${step.kind}) failed to open: ${String(err)}`)
       continue
     }
-    if (await looksLikeLogin(page)) {
-      res.loginRequired = true
-      res.evidence.push(await capture(page, runDir, `peoplesearch-login`))
-      return res
+
+    // Human-verification / block? Pause so the operator can clear it.
+    if (await isBlocked(page)) {
+      res.evidence.push(await capture(page, runDir, `peoplesearch-${step.kind}-blocked`))
+      if (typeof pauseForAction === 'function' && !signal?.aborted) {
+        emit({ type: 'log', source: label, message: 'TruePeopleSearch is asking to verify you are human' })
+        await pauseForAction('TruePeopleSearch is showing a "verify you\'re human" check. Solve it in the BROWSER window, then click Resume.')
+      }
+      if (signal?.aborted) break
     }
+    if (await looksLikeLogin(page)) continue
+
     res.evidence.push(await capture(page, runDir, `peoplesearch-${step.kind}`))
     const rows = await extractRows(page, cfg.result)
-    results.push({ kind: step.kind, rows })
+    if (rows.length) results.push({ kind: step.kind, rows })
   }
 
   res.data = { results }
-  res.ok = results.some((r) => r.rows.length > 0)
-  if (!res.ok)
-    res.notes.push('People search ran but no rows were parsed; review the captured screenshots.')
+  res.ok = true // running it (even with 0 rows) is a valid outcome
+  if (!results.some((r) => r.rows.length)) res.notes.push('People search ran but no rows were parsed (blocked or no match) — review the screenshots. Clues only.')
   return res
 }
 
 function hasAnyUrl(cfg) {
-  return Boolean(
-    cfg.searchUrlForAddress ||
-      cfg.searchUrlForName ||
-      cfg.searchUrlForPhone ||
-      cfg.searchUrlForEmail,
-  )
+  return Boolean(cfg.searchUrlForAddress || cfg.searchUrlForName || cfg.searchUrlForPhone || cfg.searchUrlForEmail)
+}
+
+// "97 Manchester Dr, Fairfield, CA 94533" -> { street, citystatezip }
+function splitAddress(a) {
+  const parts = String(a || '').split(',').map((s) => s.trim()).filter(Boolean)
+  if (!parts.length) return { street: '', citystatezip: '' }
+  return { street: parts[0], citystatezip: parts.slice(1).join(', ') }
+}
+const onlyDigits = (s) => String(s || '').replace(/\D/g, '')
+
+// Detect a Cloudflare / CAPTCHA / bot block.
+async function isBlocked(page) {
+  try {
+    const t = ((await page.title().catch(() => '')) + ' ' + (await page.locator('body').innerText().catch(() => ''))).toLowerCase().slice(0, 3000)
+    return /captcha|verify (?:you|that you)(?:'re| are)? (?:a )?human|are you a human|unusual traffic|checking your browser|attention required|access denied|press ?& ?hold|please verify/i.test(t)
+  } catch {
+    return false
+  }
 }
 
 async function extractRows(page, r) {
   if (!r || !r.row) return []
   try {
     return await page.evaluate((sel) => {
+      const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
       const rows = []
       document.querySelectorAll(sel.row).forEach((el) => {
         const pick = (s) => {
           if (!s) return ''
           const n = el.querySelector(s)
-          return n ? n.textContent.trim() : ''
+          return n ? clean(n.textContent) : ''
         }
-        const pickAll = (s) => {
-          if (!s) return []
-          return Array.from(el.querySelectorAll(s)).map((n) => n.textContent.trim()).filter(Boolean)
-        }
+        const pickAll = (s) => (s ? Array.from(el.querySelectorAll(s)).map((n) => clean(n.textContent)).filter(Boolean) : [])
+        // Phones: prefer tel: links; else phone-shaped text in the card.
+        let phones = Array.from(el.querySelectorAll('a[href^="tel:"]')).map((a) => clean(a.textContent))
+        if (!phones.length) phones = (clean(el.textContent).match(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g) || [])
         rows.push({
           name: pick(sel.name),
           addresses: pickAll(sel.addresses),
-          phones: pickAll(sel.phones),
-          // labeled explicitly as UNVERIFIED clues
+          phones: [...new Set(phones)],
           possibleRelatives: pickAll(sel.possibleRelatives),
         })
       })
-      return rows.slice(0, 15)
+      return rows.filter((x) => x.name || x.phones.length).slice(0, 15)
     }, r)
   } catch {
     return []

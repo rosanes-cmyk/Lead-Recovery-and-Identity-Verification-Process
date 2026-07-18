@@ -130,6 +130,26 @@ export const selectors = {
     },
   },
 
+  // Approved people-search provider (Cherry Hombre approved TruePeopleSearch).
+  // Results are CLUES ONLY, cross-checked elsewhere. TruePeopleSearch blocks
+  // bots aggressively, so expect a human "verify you're human" check the app
+  // pauses for. {street}/{citystatezip} are filled from the parsed address.
+  peoplesearch: {
+    name: 'TruePeopleSearch',
+    loginUrl: 'https://www.truepeoplesearch.com/',
+    searchUrlForAddress: 'https://www.truepeoplesearch.com/resultaddress?streetaddress={street}&citystatezip={citystatezip}',
+    searchUrlForName: 'https://www.truepeoplesearch.com/results?name={name}&citystatezip={citystatezip}',
+    searchUrlForPhone: 'https://www.truepeoplesearch.com/resultphone?phoneno={phone}',
+    searchUrlForEmail: '', // TPS has no reverse-email search
+    result: {
+      row: '.card-summary',
+      name: 'a[href*="/find/person/"], .h4',
+      addresses: '[itemprop="address"], .content-value',
+      phones: 'a[href^="tel:"]',
+      possibleRelatives: '', // captured as unverified clues only, never as facts
+    },
+  },
+
   county: {
     // County sites are located via Google (no login). When a specific county's
     // record page is known, add its field strategies here keyed by county.
