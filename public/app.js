@@ -195,14 +195,16 @@ const stepNodes = {}
 function addStep(name) {
   if (stepNodes[name]) return
   const li = el('li', 'step running')
-  li.append(el('span', 'step-dot'), el('span', 'step-name', name), el('span', 'step-note', '…'))
+  const body = el('div', 'step-body')
+  body.append(el('span', 'step-name', name), el('span', 'step-note', 'working…'))
+  li.append(el('span', 'step-dot'), body)
   $('steps').append(li)
   stepNodes[name] = li
 }
 function completeStep(name, ok, notes) {
   const li = stepNodes[name] || (addStep(name), stepNodes[name])
   li.className = 'step ' + (ok ? 'ok' : 'warn')
-  li.querySelector('.step-note').textContent = ok ? 'done' : (notes && notes[0] ? notes[0].slice(0, 80) : 'needs attention')
+  li.querySelector('.step-note').textContent = ok ? 'Done' : (notes && notes[0] ? notes[0] : 'Needs attention')
   $('current-source').textContent = ''
 }
 function addLog(msg, kind) {
