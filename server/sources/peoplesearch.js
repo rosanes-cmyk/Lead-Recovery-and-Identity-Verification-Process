@@ -141,28 +141,34 @@ async function attachRelatives(page, row, ownerName, ctx) {
   }
 }
 
-// Collect person links inside the "Possible Relatives" section.
+// Collect person links that sit between the "Possible Relatives" heading and
+// the "Possible Associates" heading (document order), so associates aren't mixed
+// in. Falls back to all person links if headings aren't found.
 async function extractRelatives(page) {
   try {
     return await page.evaluate(() => {
       const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
-      // Find the "Possible Relatives" heading and scope to its section.
-      let scope = null
-      const nodes = Array.from(document.querySelectorAll('h1,h2,h3,h4,strong,div,span'))
-      for (const n of nodes) {
-        if (/possible relatives/i.test(clean(n.textContent)) && clean(n.textContent).length < 60) {
-          scope = n.closest('section, div') || n.parentElement
-          break
-        }
+      const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING
+      let relHead = null
+      let assocHead = null
+      for (const n of Array.from(document.querySelectorAll('*'))) {
+        const t = clean(n.textContent)
+        if (t.length > 40) continue
+        if (!relHead && /possible relatives/i.test(t)) relHead = n
+        else if (!assocHead && /possible associates/i.test(t)) assocHead = n
       }
-      const root = scope || document.body
       const out = []
-      root.querySelectorAll('a[href*="/find/person/"]').forEach((a) => {
+      const links = Array.from(document.querySelectorAll('a[href*="/find/person/"]'))
+      for (const a of links) {
         const name = clean(a.textContent)
-        if (name && /^[A-Za-z][A-Za-z .'-]{2,}$/.test(name) && !out.some((o) => o.name === name)) {
-          out.push({ name, href: a.getAttribute('href') })
+        if (!name || !/^[A-Za-z][A-Za-z .'-]{2,}$/.test(name)) continue
+        if (relHead) {
+          const afterRel = relHead.compareDocumentPosition(a) & FOLLOWING
+          const beforeAssoc = !assocHead || a.compareDocumentPosition(assocHead) & FOLLOWING
+          if (!(afterRel && beforeAssoc)) continue
         }
-      })
+        if (!out.some((o) => o.name === name)) out.push({ name, href: a.getAttribute('href') })
+      }
       return out.slice(0, 20)
     })
   } catch {
@@ -206,10 +212,23 @@ async function phonesOnPage(page) {
   try {
     return await page.evaluate(() => {
       const clean = (s) => (s || '').replace(/\s+/g, ' ').trim()
-      const tel = Array.from(document.querySelectorAll('a[href^="tel:"]')).map((a) => clean(a.textContent)).filter(Boolean)
-      if (tel.length) return [...new Set(tel)]
-      const m = (document.body.innerText || '').match(/\(?[2-9]\d{2}\)?[-.\s]?[2-9]\d{2}[-.\s]?\d{4}/g) || []
-      return [...new Set(m.map(clean))].slice(0, 10)
+      const RE = /\(?[2-9]\d{2}\)?[-.\s]?[2-9]\d{2}[-.\s]?\d{4}/
+      const digits = (s) => String(s).replace(/\D/g, '')
+
+      // All phone-shaped numbers on the page, in order.
+      let all = [...new Set(((document.body.innerText || '').match(new RegExp(RE.source, 'g')) || []).map(clean))]
+
+      // Find the number TruePeopleSearch marks as the primary / most recent.
+      let primary = ''
+      for (const n of Array.from(document.querySelectorAll('*'))) {
+        if (/possible primary phone|primary phone/i.test(n.textContent || '')) {
+          const around = clean((n.closest('div') || n.parentElement || n).textContent)
+          const m = around.match(RE)
+          if (m) { primary = clean(m[0]); break }
+        }
+      }
+      if (primary) all = [primary, ...all.filter((p) => digits(p) !== digits(primary))]
+      return all.slice(0, 10)
     })
   } catch {
     return []
