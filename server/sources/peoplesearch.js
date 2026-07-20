@@ -174,16 +174,18 @@ async function attachRelatives(page, row, ownerName, ctx) {
       .map((r, i) => ({ ...r, i, sameSurname: sameSurname(r) }))
       .sort((a, b) => Number(b.sameSurname) - Number(a.sameSurname) || a.i - b.i)
 
-    // Open the top candidates' pages to read each one's phone + address, so the
-    // Top possible contacts are actually REACHABLE (a phone to call). Kept to 3
-    // to balance coverage against speed — each extra page is another load and a
-    // possible TruePeopleSearch human-check. We don't stop at the first phone; we
-    // want a number for as many as we can. Each is an UNVERIFIED clue; contacting
-    // requires separate authorization (SOP).
-    const MAX_PROBE = 3
+    // Open relatives' pages to read each one's phone + address so the Top
+    // possible contacts are actually REACHABLE. We keep going until we have
+    // PHONE_TARGET relatives WITH a phone, or hit MAX_PROBE pages (a bound so a
+    // lead with many phone-less relatives doesn't run forever). Same-surname
+    // first. Each is an UNVERIFIED clue; contacting requires separate auth (SOP).
+    const PHONE_TARGET = 5
+    const MAX_PROBE = 7
     const probed = []
+    let withPhone = 0
     for (const cand of ranked.slice(0, MAX_PROBE)) {
       if (signal?.aborted) break
+      if (withPhone >= PHONE_TARGET) break
       if (!cand.href) continue
       emit({ type: 'log', source: label, message: `Reading possible relative for a phone: ${cand.name}${cand.sameSurname ? ' (same surname)' : ''}` })
       try {
@@ -193,6 +195,7 @@ async function attachRelatives(page, row, ownerName, ctx) {
         const phones = await phonesOnPage(page)
         const address = await addressOnPage(page)
         probed.push({ name: cand.name, phones, address, sameSurname: cand.sameSurname })
+        if (phones.length) withPhone++
         emit({ type: 'log', source: label, message: `  ${cand.name}: ${phones[0] || 'no phone'}${address ? ' — ' + address : ''}` })
       } catch {
         /* skip this candidate */
