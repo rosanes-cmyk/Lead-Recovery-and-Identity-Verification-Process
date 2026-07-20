@@ -58,6 +58,16 @@ export async function run(ctx) {
 
   let out = await extractAndBuild(page, cfg, res, runDir, input, tabsText)
 
+  // PropertyRadar's single-session limit: a second login (another browser/run on
+  // the same account) evicts this one. Detect it and say so plainly — no amount
+  // of retrying helps until only one session is active.
+  if (!out.ok && (await sessionKicked(page))) {
+    res.evidence.push(await capture(page, runDir, 'propertyradar-session-kicked'))
+    res.notes.push('PropertyRadar logged this session out: "Another user has logged in to this account." PropertyRadar allows only ONE active session — close other PropertyRadar logins (other browsers/tabs, or a second run) and try again.')
+    emit({ type: 'log', source: label, message: 'PropertyRadar kicked this session (single-session limit — another login is active). Close other PropertyRadar sessions and retry.' })
+    return res
+  }
+
   // If auto-search couldn't open/read the property, pause for the operator to
   // open it — and AUTO-CONTINUE the moment the property profile is on screen,
   // exactly like People Search auto-continues when its captcha clears. We resume
@@ -180,7 +190,10 @@ async function autoSearch(page, address, cfg, emit, signal, res, runDir) {
     }
     await page.waitForTimeout(1000)
     await snap('after-autocomplete')
-    if (!picked) emit({ type: 'log', source: label, message: 'No autocomplete match — trying Add Criteria anyway' })
+    // Success signal (per live DOM): the combobox now holds the full address.
+    const boxVal = await siteBox().inputValue().catch(() => '')
+    if (!picked && !boxVal) emit({ type: 'log', source: label, message: 'No autocomplete match — trying Add Criteria anyway' })
+    else emit({ type: 'log', source: label, message: `Address selected: ${boxVal || '(picked suggestion)'}` })
 
     // Click the green "Add Criteria" button to run the search.
     await clickFirst(page, [
@@ -211,34 +224,47 @@ async function propertyOpen(page) {
   return /\btaxpayer\b/i.test(txt) && /(assessor parcel number|\btransactions\b|value,?\s*equity)/i.test(txt)
 }
 async function openFirstResult(page, streetNum, signal) {
-  // Make sure we're on a results LIST (not just the map) so rows exist to click.
-  await clickFirst(page, [
-    () => page.getByRole('button', { name: /list/i }),
-    () => page.getByText(/^list$/i),
-    () => page.locator('[title*="list" i], [aria-label*="list" i]'),
-  ]).catch(() => {})
-
+  // Per live DOM: after "Add Criteria" a results TABLE appears immediately (no
+  // list-view switch needed). The row must be DOUBLE-CLICKED (single click only
+  // selects it). Target the Address cell specifically, then gate on the /detail/
+  // URL (or profile content).
   for (let i = 0; i < 12; i++) { // up to ~24s for the grid to appear
     if (signal?.aborted || (await propertyOpen(page))) break
-    const row = await firstVisible(page, [
-      () => page.getByRole('row').filter({ hasText: new RegExp(streetNum) }),
+    if (await sessionKicked(page)) return false
+    const cell = await firstVisible(page, [
       () => page.getByRole('gridcell').filter({ hasText: new RegExp(streetNum) }),
+      () => page.getByRole('cell').filter({ hasText: new RegExp(streetNum) }),
+      () => page.getByRole('row').filter({ hasText: new RegExp(streetNum) }),
       () => page.locator('[role="row"], tr, [class*="row" i], [class*="grid" i] [class*="cell" i]').filter({ hasText: new RegExp(streetNum) }),
       () => page.getByText(new RegExp(streetNum + '\\s+[A-Za-z]', 'i')),
-      () => page.locator('a, button, div, span').filter({ hasText: new RegExp('\\b' + streetNum + '\\b') }),
     ])
-    if (row) {
-      await row.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {})
-      await row.dblclick({ timeout: 3500 }).catch(async () => { await row.click({ timeout: 2500 }).catch(() => {}) })
-      await page.waitForTimeout(1500)
-      if (!(await propertyOpen(page))) await page.keyboard.press('Enter').catch(() => {})
-      await page.waitForTimeout(2500)
+    if (cell) {
+      await cell.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {})
+      await cell.dblclick({ timeout: 3500 }).catch(() => {})
+      await page.waitForTimeout(1800)
+      if (!(await propertyOpen(page))) {
+        // Fallbacks: single-click to select, then Enter.
+        await cell.click({ timeout: 2000 }).catch(() => {})
+        await page.keyboard.press('Enter').catch(() => {})
+        await page.waitForTimeout(1800)
+      }
       await settle(page)
       if (await propertyOpen(page)) return true
     }
     await page.waitForTimeout(2000)
   }
   return await propertyOpen(page)
+}
+
+// PropertyRadar allows one session per account; a second login evicts this one
+// with an "Another user has logged in" / "Invalid Session" modal.
+async function sessionKicked(page) {
+  try {
+    const t = ((await page.innerText('body').catch(() => '')) || '').toLowerCase()
+    return /another user has logged in|invalid session|your session (has )?expired|been logged out/i.test(t)
+  } catch {
+    return false
+  }
 }
 
 // Fallback search when there's no "Full Address" button: type the address into
