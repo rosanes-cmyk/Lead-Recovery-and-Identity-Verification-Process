@@ -135,47 +135,47 @@ async function autoSearch(page, address, cfg, emit, signal, res, runDir) {
   try {
     if (/\/detail\//i.test(page.url())) return true
 
-    // Click the "Full Address" button in the top toolbar specifically.
+    // Click the "Full Address" toolbar button. The FIRST click can just surface a
+    // hover tooltip, so verify the "Enter Site Address" box appears and re-click
+    // (up to 3 tries) before giving up.
     emit({ type: 'log', source: label, message: 'Opening Full Address search' })
-    if (!(await clickFirst(page, [
-      () => page.getByRole('button', { name: /^Full Address$/i }),
-      () => page.getByRole('link', { name: /^Full Address$/i }),
-      () => page.getByRole('menuitem', { name: /^Full Address$/i }),
-      () => page.locator('button, a, [role="button"], span, div').filter({ hasText: /^\s*Full Address\s*$/i }),
-    ]))) {
+    const siteBox = () => page.getByPlaceholder(/site address/i).first()
+    let boxThere = false
+    for (let i = 0; i < 3 && !boxThere; i++) {
+      await clickFirst(page, [
+        () => page.getByRole('button', { name: /^Full Address$/i }),
+        () => page.getByRole('link', { name: /^Full Address$/i }),
+        () => page.getByRole('menuitem', { name: /^Full Address$/i }),
+        () => page.locator('button, a, [role="button"], span, div').filter({ hasText: /^\s*Full Address\s*$/i }),
+      ])
+      await page.waitForTimeout(1200)
+      boxThere = (await siteBox().count().catch(() => 0)) > 0
+    }
+    await snap('fulladdress-panel')
+    if (!boxThere) {
+      // "Full Address" flow unavailable on this layout — try the main search box.
       return await genericSearch(page, address, streetNum, emit, signal)
     }
-    await page.waitForTimeout(1500)
-    await snap('fulladdress-panel')
 
-    // Type into the address input that appears in the Full Address panel. Avoid
-    // the "City, County or ZIP" box; take the first visible text input that's
-    // NOT that one.
+    // Type the full address into the "Enter Site Address" box.
     emit({ type: 'log', source: label, message: `Typing address: ${address}` })
-    const box = await firstVisible(page, [
-      () => page.getByPlaceholder(/site address/i),
-      () => page.getByPlaceholder(/enter.*address/i),
-      () => page.getByPlaceholder(/full address/i),
-      () => page.getByPlaceholder(/street|address|number/i),
-      () => page.locator('input[type="text"], input:not([type])').filter({ hasNot: page.locator('[placeholder*="ZIP" i], [placeholder*="County" i]') }),
-    ])
-    if (!box) { await snap('no-address-box'); return false }
+    const box = siteBox()
     await box.click({ timeout: 3000 }).catch(() => {})
     await box.fill(address, { timeout: 3000 }).catch(async () => { await box.type(address, { delay: 20 }).catch(() => {}) })
-    await page.waitForTimeout(2000)
+    await page.waitForTimeout(2200)
     await snap('address-typed')
 
-    // Pick the autocomplete suggestion that matches the street number.
+    // Click the first ALL-CAPS autocomplete suggestion matching the street number.
     const picked = await clickFirst(page, [
       () => page.getByRole('option').filter({ hasText: new RegExp(streetNum) }),
-      () => page.locator('[role="option"], li, .pac-item, .autocomplete-item, .dropdown-item, .suggestion').filter({ hasText: new RegExp(streetNum) }),
-      () => page.getByText(new RegExp(streetNum + '\\s+\\w+', 'i')),
+      () => page.locator('[role="option"], li, .pac-item, .autocomplete-item, .dropdown-item, .suggestion, .tt-suggestion').filter({ hasText: new RegExp(streetNum) }),
+      () => page.getByText(new RegExp(streetNum + '\\s+[A-Z]', 'i')),
     ])
     await page.waitForTimeout(1000)
     await snap('after-autocomplete')
     if (!picked) emit({ type: 'log', source: label, message: 'No autocomplete match — trying Add Criteria anyway' })
 
-    // Apply the criterion (green "Add Criteria" button in the panel).
+    // Click the green "Add Criteria" button to run the search.
     await clickFirst(page, [
       () => page.getByRole('button', { name: /^Add Criteria$/i }),
       () => page.locator('button:has-text("Add Criteria")'),
