@@ -193,31 +193,45 @@ async function autoSearch(page, address, cfg, emit, signal, res, runDir) {
   }
 }
 
-// After a search runs, wait for the results grid to render then OPEN the matching
-// property (reach a /detail/ page). PropertyRadar's grid can spin like the main
-// app, so poll, and try several ways to open the row: double-click, click, Enter.
+// After a search runs, wait for the results grid then OPEN the matching property.
+// "Opened" is detected by the /detail/ URL OR by the profile's own content
+// (Taxpayer + Assessor Parcel Number / Transactions), because PropertyRadar may
+// open the record without a clean URL change. Tries list view, then double-click
+// / click / Enter on the result row.
+async function propertyOpen(page) {
+  if (/\/detail\//i.test(page.url())) return true
+  const txt = await page.innerText('body').catch(() => '')
+  return /\btaxpayer\b/i.test(txt) && /(assessor parcel number|\btransactions\b|value,?\s*equity)/i.test(txt)
+}
 async function openFirstResult(page, streetNum, signal) {
-  const onDetail = () => /\/detail\//i.test(page.url())
+  // Make sure we're on a results LIST (not just the map) so rows exist to click.
+  await clickFirst(page, [
+    () => page.getByRole('button', { name: /list/i }),
+    () => page.getByText(/^list$/i),
+    () => page.locator('[title*="list" i], [aria-label*="list" i]'),
+  ]).catch(() => {})
+
   for (let i = 0; i < 12; i++) { // up to ~24s for the grid to appear
-    if (signal?.aborted || onDetail()) break
+    if (signal?.aborted || (await propertyOpen(page))) break
     const row = await firstVisible(page, [
       () => page.getByRole('row').filter({ hasText: new RegExp(streetNum) }),
+      () => page.getByRole('gridcell').filter({ hasText: new RegExp(streetNum) }),
       () => page.locator('[role="row"], tr, [class*="row" i], [class*="grid" i] [class*="cell" i]').filter({ hasText: new RegExp(streetNum) }),
-      () => page.getByText(new RegExp(streetNum + '\\s+\\w+', 'i')),
+      () => page.getByText(new RegExp(streetNum + '\\s+[A-Za-z]', 'i')),
       () => page.locator('a, button, div, span').filter({ hasText: new RegExp('\\b' + streetNum + '\\b') }),
     ])
     if (row) {
       await row.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {})
       await row.dblclick({ timeout: 3500 }).catch(async () => { await row.click({ timeout: 2500 }).catch(() => {}) })
       await page.waitForTimeout(1500)
-      if (!onDetail()) await page.keyboard.press('Enter').catch(() => {})
+      if (!(await propertyOpen(page))) await page.keyboard.press('Enter').catch(() => {})
       await page.waitForTimeout(2500)
       await settle(page)
-      if (onDetail()) return true
+      if (await propertyOpen(page)) return true
     }
     await page.waitForTimeout(2000)
   }
-  return onDetail() || /property profile/i.test(await page.title().catch(() => ''))
+  return await propertyOpen(page)
 }
 
 // Fallback search when there's no "Full Address" button: type the address into
