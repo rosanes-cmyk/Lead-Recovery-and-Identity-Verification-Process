@@ -157,20 +157,27 @@ async function autoSearch(page, address, cfg, emit, signal, res, runDir) {
       return await genericSearch(page, address, streetNum, emit, signal)
     }
 
-    // Type the full address into the "Enter Site Address" box.
+    // Type the full address into the "Enter Site Address" box with REAL keystrokes
+    // (pressSequentially), not fill() — the autocomplete only fires on keydown, so
+    // a direct value-set produces no suggestions.
     emit({ type: 'log', source: label, message: `Typing address: ${address}` })
     const box = siteBox()
     await box.click({ timeout: 3000 }).catch(() => {})
-    await box.fill(address, { timeout: 3000 }).catch(async () => { await box.type(address, { delay: 20 }).catch(() => {}) })
-    await page.waitForTimeout(2200)
+    await box.fill('').catch(() => {})
+    await box.pressSequentially(address, { delay: 60 }).catch(async () => { await box.type(address, { delay: 60 }).catch(() => {}) })
     await snap('address-typed')
 
-    // Click the first ALL-CAPS autocomplete suggestion matching the street number.
-    const picked = await clickFirst(page, [
-      () => page.getByRole('option').filter({ hasText: new RegExp(streetNum) }),
-      () => page.locator('[role="option"], li, .pac-item, .autocomplete-item, .dropdown-item, .suggestion, .tt-suggestion').filter({ hasText: new RegExp(streetNum) }),
-      () => page.getByText(new RegExp(streetNum + '\\s+[A-Z]', 'i')),
-    ])
+    // Wait for the autocomplete dropdown, then click the first suggestion that
+    // matches the street number.
+    let picked = false
+    for (let i = 0; i < 6 && !picked; i++) {
+      await page.waitForTimeout(1200)
+      picked = await clickFirst(page, [
+        () => page.getByRole('option').filter({ hasText: new RegExp(streetNum) }),
+        () => page.locator('[role="option"], li, .pac-item, .autocomplete-item, .dropdown-item, .suggestion, .tt-suggestion, [class*="suggest" i] *').filter({ hasText: new RegExp(streetNum) }),
+        () => page.getByText(new RegExp(streetNum + '\\s+[A-Z]', 'i')),
+      ])
+    }
     await page.waitForTimeout(1000)
     await snap('after-autocomplete')
     if (!picked) emit({ type: 'log', source: label, message: 'No autocomplete match — trying Add Criteria anyway' })
