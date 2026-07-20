@@ -444,10 +444,26 @@ export function cleanAddress(a) {
   return out.join(', ')
 }
 
+// Repair a mangled REI BlackBook link so a doubled/paste-glitched URL can't
+// crash the run with ERR_NAME_NOT_RESOLVED. Handles cases like
+// "https://my.reiblackbook.comhttps//my.reiblackbook.com/contacts/20513496contacts/20513496".
+export function sanitizeReiLink(u) {
+  let s = String(u || '').trim()
+  if (!s) return ''
+  // If the URL was accidentally doubled, keep from the LAST "http".
+  const lastHttp = s.toLowerCase().lastIndexOf('http')
+  if (lastHttp > 0) s = s.slice(lastHttp)
+  // Repair a missing colon ("https//" -> "https://").
+  s = s.replace(/^(https?)\/\/+/i, '$1://')
+  // Collapse a duplicated "contacts/<id>contacts/<id>" tail to one.
+  s = s.replace(/(contacts\/\d+)(?:contacts\/\d+)+/i, '$1')
+  return s
+}
+
 function normalizeInput(raw = {}) {
   const address = cleanAddress((raw.address || '').trim())
   return {
-    reiLink: (raw.reiLink || '').trim(),
+    reiLink: sanitizeReiLink(raw.reiLink),
     address,
     name: (raw.name || '').trim(),
     phone: (raw.phone || '').trim(),
