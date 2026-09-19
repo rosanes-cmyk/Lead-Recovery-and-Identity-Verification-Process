@@ -101,13 +101,18 @@ const SITES = [
   ['propertyradar', /(^|\.)propertyradar\.com$/i],
   ['county', /\.(gov|us)$/i],
 ]
-const COUNTY_HINT = /assessor|recorder|county|parcel|\bgis\b|treasurer|taxcollector/i
+// Data brokers that look like "county" or "property records" sites but are not
+// official sources — never filed under County Records.
+const AGGREGATOR = /countyoffice\.org|propertyshark|publicrecords|propertyrecord|neighborwho|ownerly|homemetry|rehold|blockshopper|spokeo|whitepages|fastpeoplesearch|truepeoplesearch|realtytrac|loopnet/i
+const COUNTY_HINT = /assessor|recorder|parcel|\bgis\b|treasurer|tax-?collector|propertytax/i
 
 export function classifyLink(url) {
   try {
-    const h = new URL(url).hostname
+    const u = new URL(url)
+    const h = u.hostname
+    if (AGGREGATOR.test(h)) return 'other'
     for (const [k, re] of SITES) if (re.test(h)) return k
-    if (COUNTY_HINT.test(url)) return 'county'
+    if (COUNTY_HINT.test(h + u.pathname)) return 'county'
     return 'other'
   } catch {
     return 'other'
@@ -121,12 +126,17 @@ const MONTH = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.
 const DATE_RE = new RegExp(`(${MONTH}\\s+\\d{1,2},?\\s+\\d{4}|\\d{1,2}\\/\\d{1,2}\\/\\d{2,4}|${MONTH}\\s+\\d{4})`, 'i')
 export function extractSoldFacts(text) {
   const t = String(text || '')
-  const priceM = t.match(/\bsold\b.{0,40}?\$\s?(\d{1,3}(?:,\d{3}){1,3}|\d{5,})/i) || t.match(/\$\s?(\d{1,3}(?:,\d{3}){1,3}|\d{5,}).{0,30}?\bsold\b/i)
-  const dateM = t.match(new RegExp(`\\bsold\\b.{0,60}?${DATE_RE.source}`, 'i'))
-  return {
-    soldPrice: priceM ? '$' + priceM[1] : '',
-    soldDate: dateM ? dateM[1] : '',
+  const num = (v) => parseInt(String(v).replace(/,/g, ''), 10)
+  const prices = []
+  for (const re of [/\bsold\b.{0,40}?\$\s?(\d{1,3}(?:,\d{3}){1,3}|\d{5,})/gi, /\$\s?(\d{1,3}(?:,\d{3}){1,3}|\d{5,}).{0,30}?\bsold\b/gi]) {
+    let m
+    while ((m = re.exec(t))) prices.push(m[1])
   }
+  // A snippet can mention several figures ("$35,000 over asking … sold for
+  // $6,375,000"); the sale price is the largest one near "sold".
+  const best = prices.sort((a, b) => num(b) - num(a))[0] || ''
+  const dateM = t.match(new RegExp(`\\bsold\\b.{0,60}?${DATE_RE.source}`, 'i'))
+  return { soldPrice: best ? '$' + best : '', soldDate: dateM ? dateM[1] : '' }
 }
 
 // ---- providers -----------------------------------------------------------------
@@ -186,13 +196,18 @@ export async function searchAddress(address, { page = null, signal = null, runDi
     const k = classifyLink(r.url)
     if (k !== 'other' && !res.links[k]) res.links[k] = r.url
   }
+  // Across all results, take the largest sale price seen near "sold" and the
+  // date that came with it (falling back to any sold date found).
   const ranked = [...res.results].sort((a, b) => (RANK[classifyLink(a.url)] ?? 9) - (RANK[classifyLink(b.url)] ?? 9))
+  let best = 0
+  let anyDate = ''
   for (const r of ranked) {
     const f = extractSoldFacts(`${r.title} ${r.snippet}`)
-    res.soldPrice = res.soldPrice || f.soldPrice
-    res.soldDate = res.soldDate || f.soldDate
-    if (res.soldPrice && res.soldDate) break
+    const n = f.soldPrice ? parseInt(f.soldPrice.replace(/[^0-9]/g, ''), 10) : 0
+    if (n > best) { best = n; res.soldPrice = f.soldPrice; res.soldDate = f.soldDate }
+    if (!anyDate && f.soldDate) anyDate = f.soldDate
   }
+  res.soldDate = res.soldDate || anyDate
   res.ok = res.results.length > 0
   if (!res.ok && !res.notes.length) res.notes.push('No web results.')
   return res

@@ -66,6 +66,8 @@ check('classification', classifyLink(p.results[0].url) === 'redfin' && classifyL
 const facts = extractSoldFacts(p.results[0].snippet)
 check('sold price + date from snippet', facts.soldPrice === '$1,150,000' && facts.soldDate === 'Mar 15, 2024', JSON.stringify(facts))
 check('bot challenge detected', parseDdgHtml('<form class="challenge-form" action="//duckduckgo.com/anomaly.js">').challenged === true)
+check('data broker is not "county"', classifyLink('https://www.countyoffice.org/property-record-547-missouri-st-san-francisco-ca-94107/') === 'other')
+check('largest price near "sold" wins', extractSoldFacts('Sold $35,000 over asking. Sold: $6,375,000 on Oct 13, 2023').soldPrice === '$6,375,000')
 
 // ---- engine (demo mode) -----------------------------------------------------------
 console.log('\n[Enrich] Engine: run, checkpoint, output CSV')
@@ -119,6 +121,31 @@ try {
   check('no duplicate checkpoint lines', fs.readFileSync(e3.dir + '/results.jsonl', 'utf-8').trim().split('\n').length === 6)
   check('partial download mid-way is a valid sheet', csvToRecords(Enrichment.load(e2.id).outputCsv()).records.length === 6)
   check('jobs listed', Enrichment.list().filter((s) => [e.id, e2.id].includes(s.id)).length === 2)
+
+  console.log('\n[Enrich] Engine: pauses after repeated PropertyRadar misses (mocked lookups)')
+  const { config } = await import('../server/config.js')
+  const e5 = Enrichment.create({ csvText: csv, filename: 'streak.csv' })
+  made.push(e5)
+  e5.setOptions({ delayMs: 5, webSearch: false, screenshots: false })
+  config.demoMode = false
+  try {
+    const fakePage = { url: () => 'about:blank', innerText: async () => '' }
+    e5._openBrowser = async () => fakePage
+    e5._openPropertyRadar = async () => 'ready'
+    e5._lookupPropertyRadar = async () => ({ status: 'not found', notes: ['mock miss'] })
+    e5._attachNetworkCapture = () => null
+    let pauses = 0
+    let pausedAt = -1
+    e5.on('event', (ev) => {
+      if (ev.sub === 'login-required' && ev.reason === 'pr-failures') { pauses++; pausedAt = e5.results.size; setTimeout(() => e5.resume(), 30) }
+    })
+    const st5 = await e5.start()
+    check('paused once, after the 3rd miss', pauses === 1 && pausedAt === 3, `pauses=${pauses} at row ${pausedAt}`)
+    check('continued to the end after Resume', st5.state === 'done' && e5.results.size === 6, `${st5.state} ${e5.results.size}`)
+    check('misses still say FIELD NOT FOUND', e5.results.get(0).fields['PR Owner of Record'] === 'FIELD NOT FOUND')
+  } finally {
+    config.demoMode = true
+  }
 
   const e4 = Enrichment.create({ csvText: e.outputCsv(), filename: 'again.csv' })
   made.push(e4)

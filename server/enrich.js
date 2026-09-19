@@ -13,7 +13,7 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 import { config } from './config.js'
-import { getPage, closeBrowser, looksLikeLogin } from './browser.js'
+import { getPage, closeBrowser, looksLikeLogin, capture } from './browser.js'
 import { goto, emptyResult } from './sources/base.js'
 import { selectors } from './sources/selectors.js'
 import { FIELD_NOT_FOUND } from './sources/extract.js'
@@ -51,6 +51,7 @@ export const ENRICH_COLUMNS = [
 // holds nothing we write out and costs a click + wait per row.
 const BATCH_TABS = ['Contacts', 'Property', 'Transactions']
 const NETWORK_SAMPLE_ROWS = 3 // rows whose PropertyRadar JSON responses are logged for calibration
+const PR_FAIL_PAUSE_AFTER = 3 // consecutive PropertyRadar misses before pausing to ask the operator
 const LOG_KEEP = 300 // events replayed to a reconnecting UI
 const ACTIVE = ['running', 'paused', 'login']
 
@@ -86,6 +87,8 @@ export class Enrichment extends EventEmitter {
     this._resume = null
     this._netRows = 0
     this._restoreHeadless = null
+    this._prFailStreak = 0
+    this._manualOpen = false // operator opened a property by hand during a failure pause
     this.dir = jobDir(this.id)
     // Output column names, suffixed if the input sheet already has them (re-run
     // of an enriched file) so nothing in the original is overwritten.
@@ -423,6 +426,19 @@ export class Enrichment extends EventEmitter {
 
       this._record(i, fields, Date.now() - t0)
 
+      // Several PropertyRadar misses in a row means something is off (layout
+      // change, stale search criteria, not really signed in). Pause and show the
+      // operator rather than spending 45s a row on nothing.
+      if (!config.demoMode && page) {
+        if (fields['PR Status'] === 'found') this._prFailStreak = 0
+        else if (fields['PR Status'] === 'not found') this._prFailStreak++
+        if (this._prFailStreak >= PR_FAIL_PAUSE_AFTER && k < pending.length - 1 && this.state !== 'stopped') {
+          await this._pauseForFailures(page, fields['Enriched Address'], this.addressFor(pending[k + 1]))
+          this._prFailStreak = 0
+          if (this.state === 'stopped') break
+        }
+      }
+
       if (k < pending.length - 1 && this.state !== 'stopped') {
         const base = this.options.delayMs || 0
         await this._sleep(base + Math.round(Math.random() * base * 0.4))
@@ -535,27 +551,95 @@ export class Enrichment extends EventEmitter {
     return missing.length ? `${missing.join(' + ')} blank in the sheet; searched as "${this.addressFor(i)}".` : ''
   }
 
+  // After several PropertyRadar misses in a row, pause and ask the operator to
+  // look at the browser. Auto-resumes the moment a property profile is open on
+  // screen (they opened the next one by hand): that row is then read straight
+  // from the screen, which also gives us a calibration sample. Resume continues
+  // as-is; Stop stops.
+  async _pauseForFailures(page, lastAddress, nextAddress) {
+    if (this.state === 'stopped') return
+    this._pauseGate = new Promise((res) => (this._resume = res))
+    this.state = 'login'
+    this._saveJob()
+    const message =
+      `PropertyRadar has not returned a property for ${PR_FAIL_PAUSE_AFTER} rows in a row (last: "${lastAddress}"). ` +
+      'Look at the PropertyRadar browser window: are you signed in, and did the search actually run? ' +
+      (nextAddress ? `To help me calibrate, open the property for the NEXT address (${nextAddress}) by hand — I will read it and continue automatically. ` : '') +
+      'Or click Resume to keep going as-is, or Stop.'
+    this._emit('login-required', { message, reason: 'pr-failures' })
+    this._log(message, 'warn')
+    const gate = this._pauseGate
+    const started = Date.now()
+    ;(async () => {
+      while (this.state === 'login' && this._pauseGate === gate && !this._abort.signal.aborted) {
+        await new Promise((r) => setTimeout(r, 2500))
+        if (this.state !== 'login' || this._pauseGate !== gate) break
+        if (await this._profileOpen(page)) {
+          this._manualOpen = true
+          this._log('A property profile is open — reading it and continuing.', 'state')
+          this.resume()
+          break
+        }
+        if (Date.now() - started > 10 * 60 * 1000) break
+      }
+    })()
+    await gate
+  }
+
+  // A PropertyRadar property profile is on screen: the /detail/ URL, or the
+  // profile's own labels in the rendered text.
+  async _profileOpen(page) {
+    try {
+      if (/\/detail\//i.test(page.url())) return true
+      const txt = await page.innerText('body')
+      return /\btaxpayer\b/i.test(txt) && /(assessor parcel number|\btransactions\b|value,?\s*equity)/i.test(txt)
+    } catch {
+      return false
+    }
+  }
+
+  // Where the browser ended up, in one line, for the notes of a failed row.
+  async _pageGlimpse(page) {
+    try {
+      const url = page.url()
+      const text = ((await page.innerText('body').catch(() => '')) || '').replace(/\s+/g, ' ').trim().slice(0, 220)
+      return `Screen: ${url}${text ? ` — "${text}"` : ''}`
+    } catch {
+      return ''
+    }
+  }
+
   async _lookupPropertyRadar(page, address, i) {
     const cfg = selectors.propertyradar
     const signal = this._abort.signal
     const emit = this._prEmit()
-    const state = await this._openPropertyRadar(page)
-    if (state !== 'ready') return { status: state === 'not ready' ? 'not found' : state, notes: state === 'not ready' ? ['PropertyRadar did not finish loading.'] : [] }
+    // The operator just opened a property by hand (after a failure pause): read
+    // what is on screen instead of navigating away from it.
+    const manual = this._manualOpen && (await this._profileOpen(page))
+    this._manualOpen = false
+    if (!manual) {
+      const state = await this._openPropertyRadar(page)
+      if (state !== 'ready') return { status: state === 'not ready' ? 'not found' : state, notes: state === 'not ready' ? ['PropertyRadar did not finish loading.'] : [] }
+    }
 
     const detach = this._attachNetworkCapture(page, i)
     try {
       const res = emptyResult('PropertyRadar')
       res.audit = []
       // Quiet search: no per-step screenshots (pass null instead of the result).
-      const opened = await pr.autoSearch(page, address, cfg, emit, signal, null, this.dir)
+      const opened = manual ? true : await pr.autoSearch(page, address, cfg, emit, signal, null, this.dir)
       if (!opened) {
         if (await pr.sessionKicked(page)) return { status: 'session kicked' }
         if (await looksLikeLogin(page)) return { status: 'login required' }
+        // Always keep a picture of the screen we got stuck on, whatever the
+        // screenshots option says — it is the evidence needed to fix the search.
+        res.evidence.push(await capture(page, this.dir, `row${i + 1}-stuck`))
+        res.notes.push('PropertyRadar search did not open a property for this address. ' + (await this._pageGlimpse(page)))
       }
       const tabsText = opened ? await pr.readProfileTabs(page, emit, signal, BATCH_TABS) : ''
-      const out = await pr.extractAndBuild(page, cfg, res, this.dir, { address }, tabsText, { screenshot: Boolean(this.options.screenshots) })
+      const out = await pr.extractAndBuild(page, cfg, res, this.dir, { address }, tabsText, { screenshot: Boolean(this.options.screenshots) || manual })
       if (!out.ok && (await pr.sessionKicked(page))) return { status: 'session kicked', evidence: res.evidence }
-      if (!out.ok && !opened) res.notes.push('PropertyRadar search did not open a property for this address.')
+      if (manual) res.notes.push('Read from the property the operator opened by hand — check PR Address Match.')
       return { status: out.ok ? 'found' : 'not found', data: res.data, notes: res.notes, evidence: res.evidence }
     } finally {
       detach?.()

@@ -190,6 +190,11 @@ saved under `runs/enrich_<id>/` as it completes, so **Pause / Stop / Resume**
 never redo work, and "Resume" on a previous job picks up exactly where it
 stopped. A row with no owner reads `FIELD NOT FOUND` — nothing is guessed.
 
+If PropertyRadar returns nothing for three rows in a row, the job **pauses and
+asks you to look** at the browser (each stuck screen is kept as a screenshot
+under `runs/enrich_<id>/evidence/`). Open the next property by hand and it reads
+it and continues — or click Resume to carry on as-is.
+
 Log into PropertyRadar once in the visible browser when prompted. After that the
 saved session lets a job run with the browser hidden (**Hide the browser
 window**). PropertyRadar allows one active login: the job pauses and tells you
