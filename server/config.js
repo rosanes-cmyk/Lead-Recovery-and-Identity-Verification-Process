@@ -47,6 +47,11 @@ export const config = {
   standardLimitMin: num(process.env.STANDARD_TIME_LIMIT_MIN, 30),
   enhancedLimitMin: num(process.env.ENHANCED_TIME_LIMIT_MIN, 60),
 
+  // Property Enrichment tab (batch: CSV of addresses -> PropertyRadar + web).
+  enrichDelayMs: num(process.env.ENRICH_DELAY_MS, 2500), // pause between rows (+ jitter)
+  enrichWebSearch: bool(process.env.ENRICH_WEB_SEARCH, true), // also search the web per row
+  enrichScreenshots: bool(process.env.ENRICH_SCREENSHOTS, true), // one result screenshot per row
+
   // Server
   port: num(process.env.PORT, 4319),
 

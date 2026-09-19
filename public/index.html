@@ -19,10 +19,15 @@
           <div class="brand-sub">Automation — research &amp; prepare, human approves</div>
         </div>
       </div>
+      <nav class="tabs" role="tablist" aria-label="Tools">
+        <button class="tab active" data-tab="investigate" role="tab">Investigation</button>
+        <button class="tab" data-tab="enrich" role="tab">Property Enrichment<span class="tab-dot" id="tab-dot-enrich" hidden></span></button>
+      </nav>
       <div id="safety" class="safety">checking mode…</div>
     </header>
 
-    <main class="layout">
+    <main>
+      <div id="tab-investigate" class="layout tabpanel">
       <!-- LEFT: input + past runs -->
       <aside class="side">
         <section class="card" id="input-card">
@@ -120,6 +125,102 @@
           </div>
         </div>
       </section>
+      </div>
+
+      <!-- ===================== Property Enrichment tab ===================== -->
+      <div id="tab-enrich" class="layout tabpanel" hidden>
+        <aside class="side">
+          <section class="card" id="en-upload-card">
+            <h2>Property enrichment</h2>
+            <p class="muted">Upload a CSV of property addresses (Google Sheets → File → Download → CSV). Each row is looked up in PropertyRadar and on the web, and the findings are added as new columns you can import straight back into the sheet.</p>
+            <label class="f"><span>CSV file</span><input type="file" id="en-file" accept=".csv,text/csv" /></label>
+            <div id="en-upload-error" class="error" hidden></div>
+          </section>
+
+          <section class="card" id="en-setup-card" hidden>
+            <h2 id="en-setup-title">Ready to enrich</h2>
+            <p class="muted" id="en-setup-sub"></p>
+            <label class="f"><span>Address columns</span>
+              <select id="en-mode">
+                <option value="parts">Street + City + State + ZIP columns</option>
+                <option value="full">One column holds the full address</option>
+              </select>
+            </label>
+            <div id="en-parts">
+              <div class="f-row">
+                <label class="f"><span>Street</span><select id="en-col-street"></select></label>
+                <label class="f"><span>City</span><select id="en-col-city"></select></label>
+              </div>
+              <div class="f-row">
+                <label class="f"><span>State</span><select id="en-col-state"></select></label>
+                <label class="f"><span>ZIP</span><select id="en-col-zip"></select></label>
+              </div>
+            </div>
+            <div id="en-full" hidden>
+              <label class="f"><span>Full address column</span><select id="en-col-full"></select></label>
+            </div>
+            <div class="autofill-hint" id="en-sample"></div>
+            <label class="toggle"><input type="checkbox" id="en-web" checked /> Also search the web (Zillow / Redfin / county links)</label>
+            <label class="toggle"><input type="checkbox" id="en-shots" checked /> Keep one PropertyRadar screenshot per row</label>
+            <label class="toggle"><input type="checkbox" id="en-headless" /> Hide the browser window (log in once with it visible first)</label>
+            <label class="f"><span>Pause between rows (seconds)</span><input type="number" id="en-delay" min="0" max="120" step="0.5" value="2.5" /></label>
+            <button class="btn btn-primary" id="en-start">Start enrichment</button>
+            <div id="en-start-error" class="error" hidden></div>
+          </section>
+
+          <section class="card">
+            <details class="recent-details" open>
+              <summary><h2>Previous jobs</h2><span class="chevron">▾</span></summary>
+              <div id="en-jobs" class="runs"><p class="muted">No jobs yet.</p></div>
+            </details>
+          </section>
+        </aside>
+
+        <section class="main">
+          <div id="en-empty" class="empty">
+            <div class="empty-mark">🗂️</div>
+            <h2>Ready to enrich</h2>
+            <p class="muted">Upload a CSV on the left. Each address is looked up one at a time; every finished row is saved, so you can pause, stop, and resume without losing work. Download the enriched CSV at any point.</p>
+          </div>
+
+          <div id="en-workspace" hidden>
+            <div class="statusbar">
+              <div class="status-left">
+                <span id="en-spinner" class="spinner" hidden></span>
+                <span id="en-chip" class="chip">ready</span>
+                <span id="en-count" class="timer">0 / 0</span>
+                <span id="en-eta" class="muted"></span>
+                <span id="en-current" class="muted"></span>
+              </div>
+              <div class="controls">
+                <button class="btn" id="en-pause" hidden>Pause</button>
+                <button class="btn" id="en-resume" hidden>Resume</button>
+                <button class="btn btn-danger" id="en-stop" hidden>Stop</button>
+                <button class="btn btn-secondary" id="en-download">Download CSV</button>
+              </div>
+            </div>
+            <div class="progress"><div id="en-bar" class="progress-bar"></div></div>
+
+            <div id="en-login-banner" class="banner banner-warn" hidden></div>
+            <div id="en-done-banner" class="banner banner-ok" hidden></div>
+
+            <div class="card">
+              <h2>Results <span class="muted" id="en-found"></span></h2>
+              <div class="table-wrap">
+                <table class="table" id="en-table">
+                  <thead><tr><th>#</th><th>Address</th><th>Owner of record</th><th>APN</th><th>Owner mailing</th><th>Match</th><th>Web</th><th>Status</th></tr></thead>
+                  <tbody id="en-rows"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card">
+              <h2>Log</h2>
+              <div class="log" id="en-log"></div>
+            </div>
+          </div>
+        </section>
+      </div>
     </main>
 
     <footer class="footer">
@@ -127,5 +228,6 @@
     </footer>
 
     <script src="app.js"></script>
+    <script src="enrich.js"></script>
   </body>
 </html>

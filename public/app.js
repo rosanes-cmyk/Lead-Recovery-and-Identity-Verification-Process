@@ -27,6 +27,7 @@ async function init() {
   }
   connectStream()
   loadRuns()
+  initTabs()
 
   $('btn-start').onclick = startInvestigation
   // Enter in any input box starts the investigation.
@@ -163,6 +164,8 @@ function connectStream() {
 
 const seenEvidence = new Set()
 function handleEvent(ev) {
+  // Property Enrichment events are handled by enrich.js; nothing here should render them.
+  if (ev.type === 'enrich') { window.enrichHandle?.(ev); return }
   if (ev.runId && ev.runId !== currentRunId && ev.type === 'hello') {
     // Adopt an in-progress (or just-finished) run if the page was reloaded.
     currentRunId = ev.runId
@@ -440,4 +443,21 @@ async function openRun(runId) {
   onReport(report, report.state)
   stopTimer()
   $('timer').textContent = `${report.meta.minutesUsed} / ${report.meta.limitMin} min`
+}
+
+// ---- tabs -------------------------------------------------------------------
+// Two tools share one page: Investigation (single lead) and Property Enrichment
+// (batch). Only the visible panel changes; both keep their state.
+function initTabs() {
+  const btns = document.querySelectorAll('.tabs .tab')
+  const show = (name) => {
+    btns.forEach((b) => b.classList.toggle('active', b.dataset.tab === name))
+    document.querySelectorAll('.tabpanel').forEach((p) => { p.hidden = p.id !== 'tab-' + name })
+    try { localStorage.setItem('lr.tab', name) } catch { /* private mode */ }
+  }
+  btns.forEach((b) => (b.onclick = () => show(b.dataset.tab)))
+  let saved = 'investigate'
+  try { saved = localStorage.getItem('lr.tab') || saved } catch { /* ignore */ }
+  show(document.getElementById('tab-' + saved) ? saved : 'investigate')
+  window.showTab = show
 }

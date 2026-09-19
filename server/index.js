@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { config, safetySummary, canWrite, ROOT } from './config.js'
 import { Investigation } from './orchestrator.js'
 import { loadReport, listRuns, runDir, saveReport } from './store.js'
+import { Enrichment } from './enrich.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -57,6 +58,9 @@ app.post('/api/investigate', async (req, res) => {
     if (current && ['running', 'paused', 'login'].includes(current.state)) {
       return res.status(409).json({ error: 'An investigation is already running. Stop it first.' })
     }
+    if (activeEnrich()) {
+      return res.status(409).json({ error: 'A Property Enrichment job is running and uses the same browser. Stop it first (Property Enrichment tab).' })
+    }
     const input = req.body || {}
     if (!input.address && !input.reiLink && !input.name && !input.phone && !input.email) {
       return res.status(400).json({ error: 'Provide at least an address, REI BlackBook link, name, phone, or email.' })
@@ -91,6 +95,12 @@ app.get('/api/stream', (req, res) => {
     sseWrite(res, { runId: current.runId, type: 'hello', state: current.state })
     for (const ev of current.log) sseWrite(res, { runId: current.runId, ...ev })
     if (current.report) sseWrite(res, { runId: current.runId, type: 'report', state: current.state, report: current.report })
+  }
+  // Same for a running enrichment job, so the Property Enrichment tab re-attaches.
+  const ae = activeEnrich()
+  if (ae) {
+    sseWrite(res, { type: 'enrich', enrichId: ae.id, sub: 'hello', status: ae.status() })
+    for (const ev of ae.log) sseWrite(res, ev)
   }
   req.on('close', () => sseClients.delete(res))
 })
@@ -198,6 +208,101 @@ app.get('/api/report/:runId/export', (req, res) => {
   }
   res.set('Content-Disposition', `attachment; filename="${report.runId}-report.json"`)
   res.json(report)
+})
+
+// --- property enrichment (batch: CSV of addresses -> PropertyRadar + web) -----
+// Jobs persist under runs/enrich_*. Loaded instances are cached so each one's
+// events attach to the SSE bus exactly once. The browser is shared with the
+// investigation flow, so only one of the two may run at a time.
+const enrichJobs = new Map()
+function loadEnrich(id) {
+  if (enrichJobs.has(id)) return enrichJobs.get(id)
+  const e = Enrichment.load(id)
+  if (e) {
+    e.on('event', (ev) => broadcast(ev))
+    enrichJobs.set(id, e)
+  }
+  return e
+}
+function activeEnrich() {
+  for (const e of enrichJobs.values()) if (e.isActive()) return e
+  return null
+}
+const investigationActive = () => Boolean(current && ['running', 'paused', 'login'].includes(current.state))
+
+// Upload a CSV (raw text body). Returns the job status incl. detected columns.
+app.post('/api/enrich/upload', express.text({ type: () => true, limit: '25mb' }), (req, res) => {
+  try {
+    let filename = 'addresses.csv'
+    try { filename = decodeURIComponent(req.get('x-filename') || '') || filename } catch { /* keep default */ }
+    const e = Enrichment.create({ csvText: req.body, filename })
+    e.on('event', (ev) => broadcast(ev))
+    enrichJobs.set(e.id, e)
+    res.json(e.status())
+  } catch (err) {
+    res.status(400).json({ error: String(err?.message || err) })
+  }
+})
+
+app.get('/api/enrich', (req, res) => {
+  res.json(Enrichment.list().map((s) => (enrichJobs.has(s.id) ? enrichJobs.get(s.id).status() : s)))
+})
+
+app.get('/api/enrich/:id', (req, res) => {
+  const e = loadEnrich(req.params.id)
+  if (!e) return res.status(404).json({ error: 'Job not found.' })
+  res.json({ ...e.status(), rows: e.rowsView(), log: e.log })
+})
+
+// Change column mapping / options before (re)starting; returns the refreshed preview.
+app.post('/api/enrich/:id/options', (req, res) => {
+  const e = loadEnrich(req.params.id)
+  if (!e) return res.status(404).json({ error: 'Job not found.' })
+  try {
+    e.setOptions(req.body || {})
+    res.json({ ok: true, status: e.status() })
+  } catch (err) {
+    res.status(400).json({ error: String(err?.message || err) })
+  }
+})
+
+// Start (or resume — finished rows are skipped). Responds immediately; progress
+// streams over SSE as 'enrich' events.
+app.post('/api/enrich/:id/start', (req, res) => {
+  const e = loadEnrich(req.params.id)
+  if (!e) return res.status(404).json({ error: 'Job not found.' })
+  if (investigationActive()) return res.status(409).json({ error: 'An investigation is running and uses the same browser. Stop it first (Investigation tab).' })
+  const other = activeEnrich()
+  if (other && other.id !== e.id) return res.status(409).json({ error: `Another enrichment job (${other.filename}) is running. Stop it first.` })
+  if (e.isActive()) return res.status(409).json({ error: 'This job is already running.' })
+  try {
+    if (req.body && Object.keys(req.body).length) e.setOptions(req.body)
+  } catch (err) {
+    return res.status(400).json({ error: String(err?.message || err) })
+  }
+  if (e.addressMap?.mode === 'none') return res.status(400).json({ error: 'Pick which columns hold the address first.' })
+  res.json({ ok: true, status: e.status() })
+  e.start().catch((err) => broadcast({ type: 'enrich', enrichId: e.id, sub: 'log', level: 'error', message: String(err?.message || err), t: new Date().toISOString() }))
+})
+
+app.post('/api/enrich/:id/control/:action', (req, res) => {
+  const e = loadEnrich(req.params.id)
+  if (!e) return res.status(404).json({ error: 'Job not found.' })
+  const { action } = req.params
+  if (action === 'pause') e.pause()
+  else if (action === 'resume') e.resume()
+  else if (action === 'stop') e.stop()
+  else return res.status(400).json({ error: `Unknown action: ${action}` })
+  res.json({ state: e.state })
+})
+
+// The original sheet plus the enrichment columns (partial mid-run is fine).
+app.get('/api/enrich/:id/download', (req, res) => {
+  const e = loadEnrich(req.params.id)
+  if (!e) return res.status(404).json({ error: 'Job not found.' })
+  res.set('Content-Type', 'text/csv; charset=utf-8')
+  res.set('Content-Disposition', `attachment; filename="${e.outputFilename().replace(/"/g, '')}"`)
+  res.send(e.outputCsv())
 })
 
 // --- evidence screenshots ----------------------------------------------------

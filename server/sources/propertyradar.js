@@ -115,7 +115,7 @@ export async function run(ctx) {
 // PropertyRadar can spin 5–30s (sometimes more); wait patiently and reload once
 // if it's still blank, per the verified flow.
 const READY_RE = /add criteria|discover|i'?m radar|full address|property profile/i
-async function waitForAppReady(page, emit, signal) {
+export async function waitForAppReady(page, emit, signal) {
   emit({ type: 'log', source: label, message: 'Waiting for PropertyRadar to finish loading…' })
   for (let pass = 0; pass < 2; pass++) {
     // Up to ~40s per pass.
@@ -139,9 +139,9 @@ async function waitForAppReady(page, emit, signal) {
 // screenshot at each step (into Evidence) so the exact PropertyRadar screens are
 // visible — PropertyRadar is behind the operator's login, so this is how we see
 // and refine the flow.
-async function autoSearch(page, address, cfg, emit, signal, res, runDir) {
+export async function autoSearch(page, address, cfg, emit, signal, res, runDir) {
   const streetNum = (address.match(/^\s*(\d+)/) || [])[1] || address.split(',')[0]
-  const snap = async (name) => { try { res?.evidence.push(await capture(page, runDir, 'propertyradar-' + name)) } catch { /* ignore */ } }
+  const snap = async (name) => { if (!res) return; try { res.evidence.push(await capture(page, runDir, 'propertyradar-' + name)) } catch { /* ignore */ } }
   try {
     if (/\/detail\//i.test(page.url())) return true
 
@@ -258,7 +258,7 @@ async function openFirstResult(page, streetNum, signal) {
 
 // PropertyRadar allows one session per account; a second login evicts this one
 // with an "Another user has logged in" / "Invalid Session" modal.
-async function sessionKicked(page) {
+export async function sessionKicked(page) {
   try {
     const t = ((await page.innerText('body').catch(() => '')) || '').toLowerCase()
     return /another user has logged in|invalid session|your session (has )?expired|been logged out/i.test(t)
@@ -317,9 +317,9 @@ async function genericSearch(page, address, streetNum, emit, signal) {
 // combined text of every tab. PropertyRadar is an SPA that swaps tab content, so
 // we capture each tab's text as we visit it — the Transactions tab in particular
 // holds the deed history we use to recover the individual homeowner on REO deals.
-async function readProfileTabs(page, emit, signal) {
+export async function readProfileTabs(page, emit, signal, tabs = PROFILE_TABS) {
   let text = ''
-  for (const tab of PROFILE_TABS) {
+  for (const tab of tabs) {
     if (signal?.aborted) return text
     try {
       const t = page.getByText(new RegExp(`^${tab.replace(/&/g, '&')}$`, 'i')).first()
@@ -411,8 +411,8 @@ export function personFromDeeds(text, crmName) {
   return ''
 }
 
-export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsText = '') {
-  res.evidence.push(await capture(page, runDir, 'propertyradar-result'))
+export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsText = '', opts = {}) {
+  if (opts.screenshot !== false) res.evidence.push(await capture(page, runDir, 'propertyradar-result'))
   const { values, audit } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
   res.audit.push(...audit.map((a) => ({ page: 'Property', ...a })))
 

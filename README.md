@@ -171,6 +171,39 @@ fixtures, not real accounts) runs with:
 npm run test:fixture
 ```
 
+## Property Enrichment tab (batch)
+
+The second tab takes a **CSV of property addresses** (Google Sheets → File →
+Download → CSV; Excel works too) and looks every row up, one at a time:
+
+- **PropertyRadar** — owner of record, entity/REO flag and title holder,
+  ownership type, vesting, owner mailing address, occupancy, APN, trust/entity,
+  and the address PropertyRadar actually matched, flagged `match` / `mismatch`
+  so a wrong match is visible instead of silent.
+- **The web** — DuckDuckGo (no login; a direct lookup, falling back to the
+  browser if challenged) for the Zillow / Redfin / Realtor.com / county-records
+  links, plus any sold price / date shown in the result snippets. Clues only.
+
+The findings are appended as new columns; **Download CSV** gives you the
+original sheet plus those columns, ready to import back. Every finished row is
+saved under `runs/enrich_<id>/` as it completes, so **Pause / Stop / Resume**
+never redo work, and "Resume" on a previous job picks up exactly where it
+stopped. A row with no owner reads `FIELD NOT FOUND` — nothing is guessed.
+
+Log into PropertyRadar once in the visible browser when prompted. After that the
+saved session lets a job run with the browser hidden (**Hide the browser
+window**). PropertyRadar allows one active login: the job pauses and tells you
+if another session kicks it, then continues once you are back in.
+
+`.env` settings: `ENRICH_DELAY_MS` (pause between rows — slower is gentler on
+PropertyRadar), `ENRICH_WEB_SEARCH`, `ENRICH_SCREENSHOTS` (one result screenshot
+per row as evidence). `DEMO_MODE=true` runs the tab on synthetic data.
+
+For calibration, the first rows of each job also log the JSON that
+PropertyRadar's own page fetches to `runs/enrich_<id>/network-sample.jsonl` —
+the data needed to later read the app's responses directly instead of the
+rendered page.
+
 ## People search — disabled by default
 
 `PEOPLE_SEARCH_ENABLED=false`. Do **not** use TruePeopleSearch, Spokeo,
@@ -193,9 +226,12 @@ server/
   note.js          REI BlackBook note + next-task builder
   demo.js          synthetic run for DEMO_MODE
   store.js         saves each run (report.json + evidence screenshots) under runs/
+  enrich.js        Property Enrichment engine: CSV queue, checkpoint/resume, output
+  csv.js           CSV parse/write, address-column detection, address matching
   sources/         one module per source (reiblackbook, propertyradar,
-                   dealmachine, county, google, peoplesearch) + selectors.js
-public/            the operator UI (input → progress → evidence → approval)
+                   dealmachine, county, google, peoplesearch, websearch) + selectors.js
+public/            the operator UI: Investigation tab (input → progress → evidence →
+                   approval) and Property Enrichment tab (enrich.js)
 docs/              the underlying SOP, note template, quick reference, QC checklist
 ```
 
