@@ -536,7 +536,10 @@ async function clickFirst(page, factories, { force = false } = {}) {
     try {
       const loc = make().first()
       if ((await loc.count()) === 0) continue
-      await loc.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {})
+      // scrollIntoViewIfNeeded has its own stability wait, which ExtJS's
+      // never-stable controls time out (1.5s wasted per click). A forced click
+      // scrolls on its own, so only pre-scroll for normal clicks.
+      if (!force) await loc.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {})
       await loc.click({ timeout: 2500, force })
       return true
     } catch {
