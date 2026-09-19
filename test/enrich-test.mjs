@@ -78,6 +78,8 @@ check('county from breadcrumb', zp.county === 'San Francisco', zp.county)
 check('property type badge', zp.propertyType === 'MobileManufactured', zp.propertyType)
 check('listing status', zp.listingStatus === 'Off Market', zp.listingStatus)
 check('bot check detected', parseZillowText('Press & Hold to confirm you are a human').blocked === true)
+check('own badge beats later noise', parseZillowText('For sale\n$1,200,000\n3 bd 2 ba\nSingle family residence\n... similar condos off market nearby ...').listingStatus === 'For Sale')
+check('type: own badge beats later noise', parseZillowText('Condo\nBuilt in 1999\n... nearby single family homes ...').propertyType === 'Condo')
 check('search url slug', zillowSearchUrl('324 5th St, San Francisco, CA 94107') === 'https://www.zillow.com/homes/324-5th-St-San-Francisco-CA-94107/')
 
 // ---- engine (demo mode) -----------------------------------------------------------

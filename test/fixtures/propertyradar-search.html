@@ -1,19 +1,21 @@
 <!doctype html>
 <!-- STRUCTURAL FIXTURE of PropertyRadar's ExtJS search flow — NOT real PropertyRadar markup.
-     Reproduces the two traps seen live: a loading mask that intercepts pointer events
-     (normal clicks time out; force clicks work) and TWO "Add Criteria" texts where
-     the first (toolbar) is a silent no-op and only the last (panel button) runs the search. -->
+     Reproduces the two traps seen live: toolbar controls that never satisfy Playwright's
+     actionability checks (ExtJS's layered, animated buttons — here a perpetual 1px
+     animation, so a normal click times out while a forced click lands) and TWO
+     "Add Criteria" texts where the first (toolbar) is a silent no-op and only the last
+     (panel button) runs the search. -->
 <html lang="en">
   <head><meta charset="utf-8" /><title>PropertyRadar — Discover</title>
   <style>
-    #mask { position: fixed; inset: 0; z-index: 999; background: transparent; }
-    .toolbar span { margin-right: 18px; cursor: pointer; }
+    @keyframes jiggle { from { transform: translateX(0); } to { transform: translateX(1px); } }
+    .toolbar, .leaflet-marker-icon { animation: jiggle 0.25s linear infinite alternate; }
+    .toolbar span { margin-right: 18px; cursor: pointer; display: inline-block; }
     #map { height: 240px; background: #dfe; position: relative; }
     .leaflet-marker-icon { position: absolute; left: 100px; top: 80px; width: 24px; height: 24px; background: red; }
     [hidden] { display: none !important; }
   </style></head>
   <body>
-    <div id="mask"></div>
     <div class="toolbar">
       <input placeholder="Enter City, County or ZIP Code" />
       <span id="tb-add" class="x-btn-inner">Add Criteria</span>

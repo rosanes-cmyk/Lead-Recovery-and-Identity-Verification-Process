@@ -37,15 +37,31 @@ export function parseZillowText(text) {
   // Breadcrumb: "California • Alameda County • Hayward • 94541"
   const cm = t.match(/\b([A-Z][a-z]+(?: [A-Z][a-z]+){0,2}) County\b/)
   if (cm) out.county = cm[1]
+  // The property's own badges come before "nearby homes for sale" and similar
+  // noise, so among the phrases present the EARLIEST one on the page wins.
   const head = t.slice(0, 4000)
-  for (const [re, name] of PROP_TYPES) if (re.test(head)) { out.propertyType = name; break }
-  const status = head.slice(0, 3000).toLowerCase()
-  if (/coming soon/.test(status)) out.listingStatus = 'Coming Soon'
-  else if (/\bpending\b/.test(status)) out.listingStatus = 'Pending'
-  else if (/\bfor sale\b/.test(status)) out.listingStatus = 'For Sale'
-  else if (/\boff market\b/.test(status)) out.listingStatus = 'Off Market'
-  else if (/\bsold\b/.test(status)) out.listingStatus = 'Sold'
+  out.propertyType = earliest(head, PROP_TYPES)
+  out.listingStatus = earliest(head.slice(0, 3000), STATUSES)
   return out
+}
+
+const STATUSES = [
+  [/coming soon/i, 'Coming Soon'],
+  [/\bpending\b/i, 'Pending'],
+  [/\bfor sale\b/i, 'For Sale'],
+  [/\boff[- ]market\b/i, 'Off Market'],
+  [/\bsold\b/i, 'Sold'],
+]
+
+// Label of the pattern whose first match appears earliest in the text.
+function earliest(text, pairs) {
+  let best = ''
+  let at = Infinity
+  for (const [re, name] of pairs) {
+    const m = re.exec(text)
+    if (m && m.index < at) { at = m.index; best = name }
+  }
+  return best
 }
 
 // Load the Zillow page for an address in the given page/tab and read it.
