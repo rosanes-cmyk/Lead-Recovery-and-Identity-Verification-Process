@@ -77,6 +77,7 @@
     renderSample(s)
     $('en-web').checked = s.options?.webSearch !== false
     $('en-shots').checked = s.options?.screenshots !== false
+    $('en-zillow').checked = s.options?.zillowCheck !== false
     $('en-headless').checked = s.options?.headless === true
     if (s.options?.delayMs != null) $('en-delay').value = (s.options.delayMs / 1000).toString()
     hide('en-start-error')
@@ -123,6 +124,7 @@
       addressMap: currentMapping(),
       webSearch: $('en-web').checked,
       screenshots: $('en-shots').checked,
+      zillowCheck: $('en-zillow').checked,
       headless: $('en-headless').checked,
       delayMs: Math.round(parseFloat($('en-delay').value || '0') * 1000),
     }
@@ -269,6 +271,7 @@
     const add = (label, url) => { if (!url) return; const a = el('a', null, label); a.href = url; a.target = '_blank'; a.rel = 'noopener'; links.append(a) }
     add('Zillow', f['Web Zillow']); add('Redfin', f['Web Redfin']); add('Realtor', f['Web Realtor.com']); add('County', f['Web County Records'])
     if (f['Web Sold Price'] || f['Web Sold Date']) links.append(el('span', 'muted', [f['Web Sold Price'], f['Web Sold Date']].filter(Boolean).join(' · ')))
+    if (f['Web Property Type'] || f['Web Listing Status']) links.append(el('span', 'muted', [f['Web Property Type'], f['Web Listing Status']].filter(Boolean).join(' · ')))
     if (r.evidence && r.evidence[0]?.file && job) { const a = el('a', null, '📷'); a.href = `/evidence/${job.id}/${r.evidence[0].file.split(/[\\/]/).pop()}`; a.target = '_blank'; a.title = 'PropertyRadar screenshot'; links.append(a) }
     webTd.append(links)
     const st = f['PR Status'] || ''

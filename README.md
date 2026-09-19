@@ -198,6 +198,10 @@ Download → CSV; Excel works too) and looks every row up, one at a time:
 - **The web** — DuckDuckGo (no login; a direct lookup, falling back to the
   browser if challenged) for the Zillow / Redfin / Realtor.com / county-records
   links, plus any sold price / date shown in the result snippets. Clues only.
+- **Zillow** — the property page itself, for property type (mobile /
+  manufactured, lot / land, condo…), listing status (for sale / pending / off
+  market / sold) and county. Best-effort: a Zillow bot check is reported, not
+  worked around.
 
 The findings are appended as new columns; **Download CSV** gives you the
 original sheet plus those columns, ready to import back. Every finished row is
@@ -216,8 +220,18 @@ window**). PropertyRadar allows one active login: the job pauses and tells you
 if another session kicks it, then continues once you are back in.
 
 `.env` settings: `ENRICH_DELAY_MS` (pause between rows — slower is gentler on
-PropertyRadar), `ENRICH_WEB_SEARCH`, `ENRICH_SCREENSHOTS` (one result screenshot
-per row as evidence). `DEMO_MODE=true` runs the tab on synthetic data.
+PropertyRadar), `ENRICH_WEB_SEARCH`, `ENRICH_ZILLOW`, `ENRICH_SCREENSHOTS` (one
+result screenshot per row as evidence). `DEMO_MODE=true` runs the tab on
+synthetic data.
+
+PropertyRadar is an ExtJS app with quirks the search flow is built around
+(verified live): its loading masks swallow normal clicks (every click is
+forced), the address box is `Enter Site Address`, suggestions are normalised
+`.x-boundlist-item`s (the first is taken, never text-matched), there are two
+"Add Criteria" texts and only the LAST runs the search, and the result is
+opened from the list row or the map marker → "Property Info" modal → detail
+link. `test/fixtures/propertyradar-search.html` reproduces the traps so the flow
+is regression-tested offline (`npm run test:propertyradar-search`).
 
 For calibration, the first rows of each job also log the JSON that
 PropertyRadar's own page fetches to `runs/enrich_<id>/network-sample.jsonl` —

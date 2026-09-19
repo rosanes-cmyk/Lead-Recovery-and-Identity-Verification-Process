@@ -1,0 +1,71 @@
+<!doctype html>
+<!-- STRUCTURAL FIXTURE of PropertyRadar's ExtJS search flow — NOT real PropertyRadar markup.
+     Reproduces the two traps seen live: a loading mask that intercepts pointer events
+     (normal clicks time out; force clicks work) and TWO "Add Criteria" texts where
+     the first (toolbar) is a silent no-op and only the last (panel button) runs the search. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>PropertyRadar — Discover</title>
+  <style>
+    #mask { position: fixed; inset: 0; z-index: 999; background: transparent; }
+    .toolbar span { margin-right: 18px; cursor: pointer; }
+    #map { height: 240px; background: #dfe; position: relative; }
+    .leaflet-marker-icon { position: absolute; left: 100px; top: 80px; width: 24px; height: 24px; background: red; }
+    [hidden] { display: none !important; }
+  </style></head>
+  <body>
+    <div id="mask"></div>
+    <div class="toolbar">
+      <input placeholder="Enter City, County or ZIP Code" />
+      <span id="tb-add" class="x-btn-inner">Add Criteria</span>
+      <span class="x-btn-inner">Owner Name</span>
+      <span id="tb-full" class="x-btn-inner">Full Address</span>
+      <span class="x-btn-inner">Full Mailing Address</span>
+    </div>
+    <div id="panel" hidden>
+      <h3>Add Criteria ‹ Location › Full Address</h3>
+      <input id="site" placeholder="Enter Site Address" />
+      <ul id="list" class="x-boundlist" hidden>
+        <li class="x-boundlist-item">3240 5TH AVE, SAN DIEGO, CA 92103</li>
+        <li class="x-boundlist-item">324 5TH ST, SAN FRANCISCO, CA 94107</li>
+      </ul>
+      <input placeholder="Find Criteria" />
+      <button id="panel-add" class="x-btn">Add Criteria</button>
+    </div>
+    <div id="map">Discover — I'm Radar</div>
+    <div id="modal" class="fr-modal-dialog-base" hidden>
+      <h2>Property Info</h2>
+      <a id="addr-link" href="#/detail/98765">324 5TH ST, SAN FRANCISCO, CA 94107</a>
+      <div id="modal-body" hidden><div>Property Type</div><div>Res. Single Family</div><div>Beds / Baths</div><div>3 / 2</div></div>
+    </div>
+    <div id="detail" hidden>
+      <div class="tabs"><span>Contacts</span> <span>Property</span> <span>Transactions</span> <span>Value &amp; Equity</span></div>
+      <table>
+        <tr><th>Address</th><td>324 5TH ST, SAN FRANCISCO, CA 94107</td></tr>
+        <tr><th>Taxpayer</th><td>JANE Q DOE, 324 5TH ST, SAN FRANCISCO, CA 94107</td></tr>
+        <tr><th>Assessor Parcel Number</th><td>3775-021</td></tr>
+        <tr><th>Mailing Address</th><td>324 5TH ST, SAN FRANCISCO, CA 94107</td></tr>
+        <tr><th>Primary Residence</th><td>Yes</td></tr>
+        <tr><th>Vesting</th><td>Single Woman</td></tr>
+      </table>
+    </div>
+    <script>
+      const $ = (id) => document.getElementById(id)
+      $('tb-full').addEventListener('click', () => { $('panel').hidden = false })
+      $('tb-add').addEventListener('click', () => { /* toolbar "Add Criteria": silent no-op, exactly like the real one */ })
+      $('site').addEventListener('input', () => {
+        const v = $('site').value
+        $('list').hidden = true
+        if (/^324\b/.test(v)) setTimeout(() => { $('list').hidden = false }, 300)
+      })
+      document.querySelectorAll('.x-boundlist-item').forEach((li) => li.addEventListener('click', () => { $('site').value = li.textContent; $('list').hidden = true; li.dataset.picked = '1' }))
+      $('panel-add').addEventListener('click', () => {
+        if (!document.querySelector('.x-boundlist-item[data-picked]')) return
+        setTimeout(() => { const m = document.createElement('div'); m.className = 'leaflet-marker-icon'; m.addEventListener('click', () => {
+          $('modal').hidden = false
+          setTimeout(() => { $('modal-body').hidden = false }, 800) // data loads after the title
+        }); $('map').append(m) }, 1500)
+      })
+      $('addr-link').addEventListener('click', (e) => { e.preventDefault(); location.hash = '#/detail/98765'; $('modal').hidden = true; $('detail').hidden = false })
+    </script>
+  </body>
+</html>

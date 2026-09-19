@@ -13,12 +13,13 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 import { config } from './config.js'
-import { getPage, closeBrowser, looksLikeLogin, capture } from './browser.js'
+import { getPage, getContext, closeBrowser, looksLikeLogin, capture } from './browser.js'
 import { goto, emptyResult } from './sources/base.js'
 import { selectors } from './sources/selectors.js'
 import { FIELD_NOT_FOUND } from './sources/extract.js'
 import * as pr from './sources/propertyradar.js'
 import { searchAddress } from './sources/websearch.js'
+import { checkZillow } from './sources/zillow.js'
 import { csvToRecords, toCsv, detectAddressColumns, buildAddress, addressMatch } from './csv.js'
 
 // Columns appended to the input sheet, in this order.
@@ -42,6 +43,9 @@ export const ENRICH_COLUMNS = [
   'Web County Records',
   'Web Sold Price',
   'Web Sold Date',
+  'Web Property Type',
+  'Web Listing Status',
+  'Web County',
   'Web Status',
   'Enrichment Notes',
   'Enriched At',
@@ -70,6 +74,7 @@ export class Enrichment extends EventEmitter {
     this.options = {
       webSearch: config.enrichWebSearch,
       screenshots: config.enrichScreenshots,
+      zillowCheck: config.enrichZillow,
       delayMs: config.enrichDelayMs,
       headless: null, // null = leave the browser mode as configured
       ...(job.options || {}),
@@ -89,6 +94,8 @@ export class Enrichment extends EventEmitter {
     this._restoreHeadless = null
     this._prFailStreak = 0
     this._manualOpen = false // operator opened a property by hand during a failure pause
+    this._page = null // the PropertyRadar tab (may be replaced by a fresh one mid-run)
+    this._zpage = null // a second tab for Zillow, so it never disturbs PropertyRadar's
     this.dir = jobDir(this.id)
     // Output column names, suffixed if the input sheet already has them (re-run
     // of an enriched file) so nothing in the original is overwritten.
@@ -237,6 +244,7 @@ export class Enrichment extends EventEmitter {
     if (opts.addressMap) this.setAddressMap(opts.addressMap)
     if (typeof opts.webSearch === 'boolean') this.options.webSearch = opts.webSearch
     if (typeof opts.screenshots === 'boolean') this.options.screenshots = opts.screenshots
+    if (typeof opts.zillowCheck === 'boolean') this.options.zillowCheck = opts.zillowCheck
     if (typeof opts.headless === 'boolean') this.options.headless = opts.headless
     if (opts.delayMs != null) {
       const n = parseInt(opts.delayMs, 10)
@@ -338,7 +346,8 @@ export class Enrichment extends EventEmitter {
         await new Promise((r) => setTimeout(r, 2500))
         if (this.state !== 'login' || this._pauseGate !== gate) break
         let clear = false
-        try { clear = !(await looksLikeLogin(page)) && !(await pr.sessionKicked(page)) } catch { clear = false }
+        const cur = this._page || page
+        try { clear = !(await looksLikeLogin(cur)) && !(await pr.sessionKicked(cur)) } catch { clear = false }
         if (clear) { this._log('Login detected — continuing.', 'state'); this.resume(); break }
         if (Date.now() - started > 10 * 60 * 1000) break
       }
@@ -374,6 +383,7 @@ export class Enrichment extends EventEmitter {
     if (!config.demoMode) {
       try {
         page = await this._openBrowser()
+        this._page = page
       } catch (err) {
         return this._fail(`Could not start the browser: ${String(err?.message || err)}`)
       }
@@ -401,14 +411,16 @@ export class Enrichment extends EventEmitter {
       const t0 = Date.now()
       let fields
       try {
-        fields = await this._processRow(i, page)
+        fields = await this._processRow(i)
       } catch (err) {
         // A closed automation window is recoverable: relaunch and retry once.
         if (page && /closed|crashed|Target page|browser has been/i.test(String(err))) {
           this._log('Browser window closed — reopening it and retrying this row.', 'warn')
           try {
             page = await this._openBrowser()
-            fields = await this._processRow(i, page)
+            this._page = page
+            this._zpage = null
+            fields = await this._processRow(i)
           } catch (err2) {
             fields = this._errorFields(i, err2)
           }
@@ -419,9 +431,9 @@ export class Enrichment extends EventEmitter {
       const st = fields['PR Status']
       if ((st === 'login required' || st === 'session kicked') && this.state !== 'stopped') {
         if (this._headlessNow()) return this._fail(`PropertyRadar reported "${st}" but the browser is hidden (headless). Run with the browser visible to sign in.`)
-        await this._requireLogin(page, st)
+        await this._requireLogin(this._page, st)
         if (this.state === 'stopped') break
-        try { fields = await this._processRow(i, page) } catch (err) { fields = this._errorFields(i, err) }
+        try { fields = await this._processRow(i) } catch (err) { fields = this._errorFields(i, err) }
       }
 
       this._record(i, fields, Date.now() - t0)
@@ -433,7 +445,7 @@ export class Enrichment extends EventEmitter {
         if (fields['PR Status'] === 'found') this._prFailStreak = 0
         else if (fields['PR Status'] === 'not found') this._prFailStreak++
         if (this._prFailStreak >= PR_FAIL_PAUSE_AFTER && k < pending.length - 1 && this.state !== 'stopped') {
-          await this._pauseForFailures(page, fields['Enriched Address'], this.addressFor(pending[k + 1]))
+          await this._pauseForFailures(this._page, fields['Enriched Address'], this.addressFor(pending[k + 1]))
           this._prFailStreak = 0
           if (this.state === 'stopped') break
         }
@@ -486,7 +498,7 @@ export class Enrichment extends EventEmitter {
   // forward only messages that describe a problem.
   _prEmit() {
     return (ev) => {
-      if (ev?.type === 'log' && /kicked|did not finish|Auto-search issue|No autocomplete|Still loading|asking operator/i.test(ev.message || '')) {
+      if (ev?.type === 'log' && /kicked|did not finish|Auto-search issue|No autocomplete|Still loading|asking operator|Could not click|detail link was not found|no record/i.test(ev.message || '')) {
         this._log(`PropertyRadar: ${ev.message}`, 'warn')
       }
     }
@@ -494,7 +506,7 @@ export class Enrichment extends EventEmitter {
 
   // ---- one row ------------------------------------------------------------------
 
-  async _processRow(i, page) {
+  async _processRow(i) {
     const address = this.addressFor(i)
     const fields = blankFields()
     fields['Enriched Address'] = address
@@ -520,19 +532,34 @@ export class Enrichment extends EventEmitter {
     const webPromise = this.options.webSearch
       ? searchAddress(address, { signal, runDir: this.dir }).catch((e) => ({ ok: false, links: {}, notes: [String(e?.message || e)] }))
       : Promise.resolve(null)
+    // Zillow runs in its own tab alongside PropertyRadar, so it costs no wall-clock time.
+    const zillowPromise = this.options.zillowCheck ? this._zillow(address) : Promise.resolve(null)
 
-    const prRes = await this._lookupPropertyRadar(page, address, i)
+    let prRes = await this._lookupPropertyRadar(address, i)
+    // A miss that never opened a property gets ONE retry in a fresh tab: a wedged
+    // ExtJS state or criteria left over from the previous search start clean.
+    if (prRes.status === 'not found' && !prRes.opened && !signal.aborted && this._page) {
+      this._log(`Row ${i + 1}: PropertyRadar did not open a property — retrying once in a fresh tab.`, 'warn')
+      await this._freshPage()
+      const again = await this._lookupPropertyRadar(address, i)
+      if (again.status !== 'not found' || again.opened) prRes = again
+      else prRes = { ...prRes, notes: [...(prRes.notes || []), ...(again.notes || []).map((n) => 'Retry: ' + n)], evidence: [...(prRes.evidence || []), ...(again.evidence || [])] }
+    }
     this._applyPr(fields, prRes, address)
     notes.push(...(prRes.notes || []))
 
     let web = await webPromise
     // Challenged or failed on the direct path -> retry through the browser (after
     // PropertyRadar, since the two share the page).
-    if (this.options.webSearch && web && !web.ok && !signal.aborted && page) {
-      web = await searchAddress(address, { page, signal, runDir: this.dir, direct: false }).catch(() => web)
+    if (this.options.webSearch && web && !web.ok && !signal.aborted && this._page) {
+      web = await searchAddress(address, { page: this._page, signal, runDir: this.dir, direct: false }).catch(() => web)
     }
     this._applyWeb(fields, web)
     if (web?.notes?.length && !web.ok) notes.push(...web.notes)
+
+    const z = await zillowPromise
+    this._applyZillow(fields, z)
+    if (z && !z.ok && z.error) notes.push(`Zillow: ${z.error}`)
 
     fields['Enrichment Notes'] = notes.filter(Boolean).join(' | ').slice(0, 600)
     fields._evidence = (prRes.evidence || []).filter((e) => e.file).map((e) => ({ file: e.file, label: e.label }))
@@ -574,7 +601,7 @@ export class Enrichment extends EventEmitter {
       while (this.state === 'login' && this._pauseGate === gate && !this._abort.signal.aborted) {
         await new Promise((r) => setTimeout(r, 2500))
         if (this.state !== 'login' || this._pauseGate !== gate) break
-        if (await this._profileOpen(page)) {
+        if (await this._profileOpen(this._page || page)) {
           this._manualOpen = true
           this._log('A property profile is open — reading it and continuing.', 'state')
           this.resume()
@@ -609,7 +636,8 @@ export class Enrichment extends EventEmitter {
     }
   }
 
-  async _lookupPropertyRadar(page, address, i) {
+  async _lookupPropertyRadar(address, i) {
+    const page = this._page
     const cfg = selectors.propertyradar
     const signal = this._abort.signal
     const emit = this._prEmit()
@@ -640,10 +668,47 @@ export class Enrichment extends EventEmitter {
       const out = await pr.extractAndBuild(page, cfg, res, this.dir, { address }, tabsText, { screenshot: Boolean(this.options.screenshots) || manual })
       if (!out.ok && (await pr.sessionKicked(page))) return { status: 'session kicked', evidence: res.evidence }
       if (manual) res.notes.push('Read from the property the operator opened by hand — check PR Address Match.')
-      return { status: out.ok ? 'found' : 'not found', data: res.data, notes: res.notes, evidence: res.evidence }
+      return { status: out.ok ? 'found' : 'not found', opened: Boolean(opened), data: res.data, notes: res.notes, evidence: res.evidence }
     } finally {
       detach?.()
     }
+  }
+
+  // Replace the PropertyRadar tab with a fresh one in the same (logged-in) browser.
+  async _freshPage() {
+    const old = this._page
+    try {
+      const ctx = old && !old.isClosed?.() ? old.context() : await getContext()
+      this._page = await ctx.newPage()
+      if (old && old !== this._page) await old.close().catch(() => {})
+    } catch (err) {
+      this._log(`Could not open a fresh tab: ${String(err?.message || err)}`, 'warn')
+    }
+    return this._page
+  }
+
+  // Zillow gets its own tab so it never navigates PropertyRadar's away.
+  async _zillow(address) {
+    try {
+      if (!this._zpage || this._zpage.isClosed?.()) {
+        const ctx = this._page && !this._page.isClosed?.() ? this._page.context() : await getContext()
+        this._zpage = await ctx.newPage()
+      }
+      return await checkZillow(this._zpage, address, { signal: this._abort.signal })
+    } catch (err) {
+      return { ok: false, url: '', county: '', propertyType: '', listingStatus: '', blocked: false, error: String(err?.message || err).slice(0, 160) }
+    }
+  }
+
+  _applyZillow(fields, z) {
+    if (!this.options.zillowCheck || !z) return
+    if (z.propertyType) fields['Web Property Type'] = z.propertyType
+    if (z.listingStatus) fields['Web Listing Status'] = z.listingStatus
+    if (z.county) fields['Web County'] = z.county
+    // The property page URL (with zpid) beats a search-result link.
+    if (z.ok && /_zpid|homedetails/i.test(z.url || '')) fields['Web Zillow'] = z.url
+    else if (!fields['Web Zillow'] && z.url) fields['Web Zillow'] = z.url
+    if (z.blocked) fields['Web Listing Status'] = fields['Web Listing Status'] || 'blocked by Zillow'
   }
 
   // For the first few rows, log the JSON responses PropertyRadar's page fetches.
@@ -752,6 +817,11 @@ export class Enrichment extends EventEmitter {
       fields['Web Sold Date'] = 'Mar 15, 2024'
       fields['Web Status'] = 'found (demo)'
     } else fields['Web Status'] = 'skipped'
+    if (this.options.zillowCheck) {
+      fields['Web Property Type'] = Number(n) % 5 === 0 ? 'Condo' : 'Single Family'
+      fields['Web Listing Status'] = 'Off Market'
+      fields['Web County'] = 'San Francisco'
+    }
     return fields
   }
 
@@ -772,6 +842,7 @@ export class Enrichment extends EventEmitter {
   _finalize(state) {
     this.current = -1
     this.finishedAt = new Date().toISOString()
+    this._closeZillowTab()
     if (this._restoreHeadless !== null) {
       config.headless = this._restoreHeadless
       this._restoreHeadless = null
@@ -791,6 +862,7 @@ export class Enrichment extends EventEmitter {
     this._log(message, 'error')
     this.current = -1
     this.finishedAt = new Date().toISOString()
+    this._closeZillowTab()
     if (this._restoreHeadless !== null) {
       config.headless = this._restoreHeadless
       this._restoreHeadless = null
@@ -798,6 +870,12 @@ export class Enrichment extends EventEmitter {
     this._setState('error', message)
     this._emit('done', { state: 'error', ...this.counts(), message })
     return this.status()
+  }
+
+  _closeZillowTab() {
+    const z = this._zpage
+    this._zpage = null
+    if (z) z.close().catch(() => {})
   }
 
   // The original sheet plus the enrichment columns. Rows not yet processed have

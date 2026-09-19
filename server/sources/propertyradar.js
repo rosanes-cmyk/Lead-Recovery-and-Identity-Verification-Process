@@ -7,7 +7,8 @@
 //   3. type the address into "Enter Site Address"
 //   4. pick the ALL-CAPS autocomplete match
 //   5. click the green "Add Criteria" button
-//   6. double-click the result row to open the property profile
+//   6. open the property: the result row (list view) or the map marker →
+//      "Property Info" modal → its address link (map view)
 //   7. read the Contacts / Property / Value / Transactions tabs
 // Read-only: it never adds to lists, exports, or skip-traces. If it can't drive
 // the search (not logged in, layout changed), it falls back to asking the
@@ -135,31 +136,40 @@ export async function waitForAppReady(page, emit, signal) {
   return false
 }
 
-// Drive the "Full Address" toolbar search to the property profile. Captures a
-// screenshot at each step (into Evidence) so the exact PropertyRadar screens are
-// visible — PropertyRadar is behind the operator's login, so this is how we see
-// and refine the flow.
+// Drive the "Full Address" search to the property profile.
+//
+// PropertyRadar is an ExtJS app. Verified live (in the dispute app, then here):
+//  - its loading masks intercept pointer events, so a NORMAL click never becomes
+//    "actionable" and times out — every click here uses force
+//  - the address box is input[placeholder="Enter Site Address"]; fill() is
+//    enough to trigger the autocomplete (real keystrokes as a fallback)
+//  - suggestions are .x-boundlist-item and are normalised (ALL CAPS, unit added),
+//    so they are never matched against the typed text — take the first
+//  - there are TWO "Add Criteria" texts: a toolbar link (first in the DOM, a
+//    silent no-op) and the green panel button (last) — click the LAST
+//  - the result is a list-view grid row (double-click the address cell) or a
+//    Leaflet map marker (.leaflet-marker-icon, 5–60s to render) whose
+//    "Property Info" modal links to the detail page
+// Captures a screenshot at each step when a result object is given.
 export async function autoSearch(page, address, cfg, emit, signal, res, runDir) {
   const streetNum = (address.match(/^\s*(\d+)/) || [])[1] || address.split(',')[0]
   const snap = async (name) => { if (!res) return; try { res.evidence.push(await capture(page, runDir, 'propertyradar-' + name)) } catch { /* ignore */ } }
   try {
     if (/\/detail\//i.test(page.url())) return true
 
-    // Click the "Full Address" toolbar button. The FIRST click can just surface a
-    // hover tooltip, so verify the "Enter Site Address" box appears and re-click
-    // (up to 3 tries) before giving up.
+    // 1. Open the Full Address criterion.
     emit({ type: 'log', source: label, message: 'Opening Full Address search' })
-    const siteBox = () => page.getByPlaceholder(/^(?!.*mailing)(?=.*(site|full|street|property|enter)).*address/i).first()
+    const siteBox = () => page.locator('input[placeholder="Enter Site Address"], input[placeholder*="Site Address" i]').first()
     let boxThere = false
     for (let i = 0; i < 3 && !boxThere; i++) {
+      if (signal?.aborted) return false
       await clickFirst(page, [
+        () => page.locator('text="Full Address"'),
         () => page.getByRole('button', { name: /^Full Address$/i }),
         () => page.getByRole('link', { name: /^Full Address$/i }),
-        () => page.getByRole('menuitem', { name: /^Full Address$/i }),
         () => page.locator('button, a, [role="button"], span, div').filter({ hasText: /^\s*Full Address\s*$/i }),
-      ])
-      await page.waitForTimeout(1200)
-      boxThere = (await siteBox().count().catch(() => 0)) > 0
+      ], { force: true })
+      boxThere = await siteBox().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
     }
     await snap('fulladdress-panel')
     if (!boxThere) {
@@ -167,44 +177,68 @@ export async function autoSearch(page, address, cfg, emit, signal, res, runDir) 
       return await genericSearch(page, address, streetNum, emit, signal)
     }
 
-    // Type the full address into the "Enter Site Address" box with REAL keystrokes
-    // (pressSequentially), not fill() — the autocomplete only fires on keydown, so
-    // a direct value-set produces no suggestions.
+    // 2. Type the address; wait for the suggestion list.
     emit({ type: 'log', source: label, message: `Typing address: ${address}` })
     const box = siteBox()
-    await box.click({ timeout: 3000 }).catch(() => {})
+    await box.click({ timeout: 3000, force: true }).catch(() => {})
     await box.fill('').catch(() => {})
-    await box.pressSequentially(address, { delay: 60 }).catch(async () => { await box.type(address, { delay: 60 }).catch(() => {}) })
+    await box.fill(address).catch(() => {})
+    const items = () => page.locator('.x-boundlist-item')
+    let suggestions = await items().first().waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    if (!suggestions) {
+      await box.fill('').catch(() => {})
+      await box.pressSequentially(address, { delay: 60 }).catch(() => {})
+      suggestions = await items().first().waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)
+    }
     await snap('address-typed')
 
-    // Wait for the autocomplete dropdown, then click the first suggestion that
-    // matches the street number.
+    // 3. Pick the suggestion — prefer one starting with our street number.
+    let matched = ''
     let picked = false
-    for (let i = 0; i < 6 && !picked; i++) {
-      await page.waitForTimeout(1200)
+    if (suggestions) {
+      const n = await items().count().catch(() => 0)
+      let target = items().first()
+      const numRe = new RegExp('^' + escapeRe(String(streetNum)) + '\\b')
+      for (let k = 0; k < Math.min(n, 8); k++) {
+        const t = (await items().nth(k).innerText().catch(() => '')).trim()
+        if (numRe.test(t)) { target = items().nth(k); break }
+      }
+      matched = (await target.innerText().catch(() => '')).trim()
+      picked = await target.click({ timeout: 3000, force: true }).then(() => true).catch(() => false)
+    } else {
+      // Other layouts: generic option lists.
       picked = await clickFirst(page, [
-        () => page.getByRole('option').filter({ hasText: new RegExp(streetNum) }),
-        () => page.locator('[role="option"], li, .pac-item, .autocomplete-item, .dropdown-item, .suggestion, .tt-suggestion, [class*="suggest" i] *').filter({ hasText: new RegExp(streetNum) }),
-        () => page.getByText(new RegExp(streetNum + '\\s+[A-Z]', 'i')),
-      ])
+        () => page.getByRole('option').filter({ hasText: new RegExp(escapeRe(String(streetNum))) }),
+        () => page.locator('[role="option"], li, .pac-item, .autocomplete-item, .dropdown-item, .suggestion').filter({ hasText: new RegExp(escapeRe(String(streetNum))) }),
+      ], { force: true })
     }
-    await page.waitForTimeout(1000)
+    if (!picked) {
+      emit({ type: 'log', source: label, message: 'No autocomplete match — PropertyRadar has no record for this address as typed.' })
+      await snap('no-autocomplete')
+      return false
+    }
+    emit({ type: 'log', source: label, message: `Address selected: ${matched || '(first suggestion)'}` })
+    await page.waitForTimeout(600)
     await snap('after-autocomplete')
-    // Success signal (per live DOM): the combobox now holds the full address.
-    const boxVal = await siteBox().inputValue().catch(() => '')
-    if (!picked && !boxVal) emit({ type: 'log', source: label, message: 'No autocomplete match — trying Add Criteria anyway' })
-    else emit({ type: 'log', source: label, message: `Address selected: ${boxVal || '(picked suggestion)'}` })
 
-    // Click the green "Add Criteria" button to run the search.
-    await clickFirst(page, [
-      () => page.getByRole('button', { name: /^Add Criteria$/i }),
-      () => page.locator('button:has-text("Add Criteria")'),
-    ])
-    await page.waitForTimeout(3000)
+    // 4. Run the search with the LAST "Add Criteria" (the panel button).
+    const addBtns = page.locator('text="Add Criteria"')
+    const cnt = await addBtns.count().catch(() => 0)
+    let ran = false
+    if (cnt) ran = await addBtns.nth(cnt - 1).click({ timeout: 4000, force: true }).then(() => true).catch(() => false)
+    if (!ran) {
+      ran = await clickFirst(page, [
+        () => page.getByRole('button', { name: /^Add Criteria$/i }),
+        () => page.locator('button:has-text("Add Criteria")'),
+      ], { force: true })
+    }
+    if (!ran) emit({ type: 'log', source: label, message: 'Could not click Add Criteria' })
+    await page.waitForTimeout(2500) // map zoom + marker render begins
     await snap('after-add-criteria')
 
-    emit({ type: 'log', source: label, message: 'Waiting for results, then opening the property' })
-    const opened = await openFirstResult(page, streetNum, signal)
+    // 5. Open the property.
+    emit({ type: 'log', source: label, message: 'Waiting for the result, then opening the property' })
+    const opened = await openProperty(page, streetNum, matched, signal, emit)
     await snap(opened ? 'opened-detail' : 'results-not-opened')
     return opened
   } catch (err) {
@@ -213,45 +247,66 @@ export async function autoSearch(page, address, cfg, emit, signal, res, runDir) 
   }
 }
 
-// After a search runs, wait for the results grid then OPEN the matching property.
-// "Opened" is detected by the /detail/ URL OR by the profile's own content
-// (Taxpayer + Assessor Parcel Number / Transactions), because PropertyRadar may
-// open the record without a clean URL change. Tries list view, then double-click
-// / click / Enter on the result row.
+// "Opened" = the /detail/ URL, or the profile's own labels in the rendered text
+// (PropertyRadar may open the record without a clean URL change).
 async function propertyOpen(page) {
   if (/\/detail\//i.test(page.url())) return true
   const txt = await page.innerText('body').catch(() => '')
   return /\btaxpayer\b/i.test(txt) && /(assessor parcel number|\btransactions\b|value,?\s*equity)/i.test(txt)
 }
-async function openFirstResult(page, streetNum, signal) {
-  // Per live DOM: after "Add Criteria" a results TABLE appears immediately (no
-  // list-view switch needed). The row must be DOUBLE-CLICKED (single click only
-  // selects it). Target the Address cell specifically, then gate on the /detail/
-  // URL (or profile content).
-  for (let i = 0; i < 12; i++) { // up to ~24s for the grid to appear
-    if (signal?.aborted || (await propertyOpen(page))) break
+
+// After the search: open the matching property. Tries the list-view grid row
+// (double-click the address cell) and the map marker → "Property Info" modal →
+// address link → detail page, polling up to ~90s because the marker can take
+// that long to render behind PropertyRadar's radar animation.
+async function openProperty(page, streetNum, matched, signal, emit) {
+  const numRe = new RegExp('\\b' + escapeRe(String(streetNum)) + '\\b')
+  const deadline = Date.now() + 90000
+  let modalTried = false
+  while (Date.now() < deadline) {
+    if (signal?.aborted) return false
+    if (await propertyOpen(page)) return true
     if (await sessionKicked(page)) return false
+
+    // a) list view: a grid row/cell carrying our street number
     const cell = await firstVisible(page, [
-      () => page.getByRole('gridcell').filter({ hasText: new RegExp(streetNum) }),
-      () => page.getByRole('cell').filter({ hasText: new RegExp(streetNum) }),
-      () => page.getByRole('row').filter({ hasText: new RegExp(streetNum) }),
-      () => page.locator('[role="row"], tr, [class*="row" i], [class*="grid" i] [class*="cell" i]').filter({ hasText: new RegExp(streetNum) }),
-      () => page.getByText(new RegExp(streetNum + '\\s+[A-Za-z]', 'i')),
+      () => page.getByRole('gridcell').filter({ hasText: numRe }),
+      () => page.getByRole('cell').filter({ hasText: numRe }),
+      () => page.getByRole('row').filter({ hasText: numRe }),
     ])
     if (cell) {
       await cell.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {})
-      await cell.dblclick({ timeout: 3500 }).catch(() => {})
+      await cell.dblclick({ timeout: 3500, force: true }).catch(() => {})
       await page.waitForTimeout(1800)
-      if (!(await propertyOpen(page))) {
-        // Fallbacks: single-click to select, then Enter.
-        await cell.click({ timeout: 2000 }).catch(() => {})
-        await page.keyboard.press('Enter').catch(() => {})
-        await page.waitForTimeout(1800)
-      }
-      await settle(page)
       if (await propertyOpen(page)) return true
     }
-    await page.waitForTimeout(2000)
+
+    // b) map view: marker → Property Info modal → detail link
+    const marker = page.locator('.leaflet-marker-icon').first()
+    if (!modalTried && (await marker.count().catch(() => 0)) && (await marker.isVisible().catch(() => false))) {
+      await marker.click({ timeout: 8000, force: true }).catch(() => {})
+      // The modal's title renders first and its data loads after — wait for content.
+      const loaded = await page.locator('.fr-modal-dialog-base:has-text("Property Type")').first().waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false)
+      if (loaded) {
+        modalTried = true
+        const modal = page.locator('.fr-modal-dialog-base:has-text("Property Info")').first()
+        const street = String(matched || '').split(',')[0].split('#')[0].trim()
+        const candidates = [
+          () => (street ? modal.locator(`text=/${escapeRe(street.slice(0, 25))}/i`) : modal.locator('a').filter({ hasText: numRe })),
+          () => modal.locator('a').filter({ hasText: numRe }),
+          () => modal.getByRole('link'),
+        ]
+        for (const make of candidates) {
+          const link = make().first()
+          if (!(await link.count().catch(() => 0))) continue
+          await link.click({ timeout: 4000, force: true }).catch(() => {})
+          await settle(page)
+          if (await propertyOpen(page)) return true
+        }
+        emit({ type: 'log', source: label, message: 'Property Info opened but its detail link was not found' })
+      }
+    }
+    await page.waitForTimeout(2500)
   }
   return await propertyOpen(page)
 }
@@ -325,7 +380,7 @@ export async function readProfileTabs(page, emit, signal, tabs = PROFILE_TABS) {
     try {
       const t = page.getByText(new RegExp(`^${tab.replace(/&/g, '&')}$`, 'i')).first()
       if ((await t.count()) > 0) {
-        await t.click({ timeout: 2000 })
+        await t.click({ timeout: 2000, force: true })
         await page.waitForTimeout(800)
         text += '\n\n' + (await page.innerText('body').catch(() => ''))
       }
@@ -336,7 +391,7 @@ export async function readProfileTabs(page, emit, signal, tabs = PROFILE_TABS) {
   // Return to Contacts so owner/contact fields are on screen for extraction.
   try {
     const c = page.getByText(/^Contacts$/i).first()
-    if ((await c.count()) > 0) { await c.click({ timeout: 2000 }); await settle(page); text += '\n\n' + (await page.innerText('body').catch(() => '')) }
+    if ((await c.count()) > 0) { await c.click({ timeout: 2000, force: true }); await settle(page); text += '\n\n' + (await page.innerText('body').catch(() => '')) }
   } catch { /* ignore */ }
   return text
 }
@@ -476,13 +531,13 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
 
 /* ---------- click helpers ---------- */
 // Try each locator factory; click the first that resolves to a visible element.
-async function clickFirst(page, factories) {
+async function clickFirst(page, factories, { force = false } = {}) {
   for (const make of factories) {
     try {
       const loc = make().first()
       if ((await loc.count()) === 0) continue
       await loc.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {})
-      await loc.click({ timeout: 2500 })
+      await loc.click({ timeout: 2500, force })
       return true
     } catch {
       /* try next */

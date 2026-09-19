@@ -7,6 +7,7 @@ import fs from 'node:fs'
 const { parseCsv, csvToRecords, toCsv, detectAddressColumns, buildAddress, tidyZip, addressMatch } = await import('../server/csv.js')
 const { parseDdgHtml, classifyLink, extractSoldFacts } = await import('../server/sources/websearch.js')
 const { Enrichment, ENRICH_COLUMNS } = await import('../server/enrich.js')
+const { parseZillowText, zillowSearchUrl } = await import('../server/sources/zillow.js')
 
 let pass = 0, fail = 0
 const check = (name, cond, detail) => {
@@ -69,6 +70,16 @@ check('bot challenge detected', parseDdgHtml('<form class="challenge-form" actio
 check('data broker is not "county"', classifyLink('https://www.countyoffice.org/property-record-547-missouri-st-san-francisco-ca-94107/') === 'other')
 check('largest price near "sold" wins', extractSoldFacts('Sold $35,000 over asking. Sold: $6,375,000 on Oct 13, 2023').soldPrice === '$6,375,000')
 
+// ---- Zillow page text -------------------------------------------------------------
+console.log('\n[Enrich] Zillow page parsing')
+const zt = 'Buy Rent Sell\n324 5th St, San Francisco, CA 94107\nCalifornia • San Francisco County • San Francisco • 94107\nOff market\nZestimate: $1,925,000\nMobileManufactured  Built in 2017  4.38 Acres Lot\n... nearby homes for sale ...'
+const zp = parseZillowText(zt)
+check('county from breadcrumb', zp.county === 'San Francisco', zp.county)
+check('property type badge', zp.propertyType === 'MobileManufactured', zp.propertyType)
+check('listing status', zp.listingStatus === 'Off Market', zp.listingStatus)
+check('bot check detected', parseZillowText('Press & Hold to confirm you are a human').blocked === true)
+check('search url slug', zillowSearchUrl('324 5th St, San Francisco, CA 94107') === 'https://www.zillow.com/homes/324-5th-St-San-Francisco-CA-94107/')
+
 // ---- engine (demo mode) -----------------------------------------------------------
 console.log('\n[Enrich] Engine: run, checkpoint, output CSV')
 const csv = [
@@ -126,13 +137,14 @@ try {
   const { config } = await import('../server/config.js')
   const e5 = Enrichment.create({ csvText: csv, filename: 'streak.csv' })
   made.push(e5)
-  e5.setOptions({ delayMs: 5, webSearch: false, screenshots: false })
+  e5.setOptions({ delayMs: 5, webSearch: false, screenshots: false, zillowCheck: false })
   config.demoMode = false
   try {
     const fakePage = { url: () => 'about:blank', innerText: async () => '' }
     e5._openBrowser = async () => fakePage
     e5._openPropertyRadar = async () => 'ready'
-    e5._lookupPropertyRadar = async () => ({ status: 'not found', notes: ['mock miss'] })
+    e5._lookupPropertyRadar = async () => ({ status: 'not found', opened: false, notes: ['mock miss'] })
+    e5._freshPage = async () => fakePage
     e5._attachNetworkCapture = () => null
     let pauses = 0
     let pausedAt = -1
