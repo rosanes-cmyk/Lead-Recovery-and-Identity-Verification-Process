@@ -119,6 +119,7 @@ export function buildAddress(rec, map) {
   if (!map || map.mode === 'none') return ''
   if (map.mode === 'full') return tidyAddress(v(map.full))
   const street = v(map.street)
+  if (!street) return '' // a city/ZIP with no street is not a property to look up
   const city = v(map.city)
   const state = v(map.state).toUpperCase()
   const zip = tidyZip(v(map.zip))

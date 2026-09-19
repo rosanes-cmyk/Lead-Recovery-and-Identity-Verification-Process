@@ -489,10 +489,15 @@ export class Enrichment extends EventEmitter {
       fields['Enrichment Notes'] = 'No address in this row.'
       return fields
     }
-    const notes = []
+    const partial = this._partialAddressNote(i)
+    const notes = partial ? [partial] : []
     const signal = this._abort.signal
 
-    if (config.demoMode) return this._demoRow(fields, address)
+    if (config.demoMode) {
+      const out = await this._demoRow(fields, address)
+      if (partial) out['Enrichment Notes'] = [partial, out['Enrichment Notes']].filter(Boolean).join(' | ')
+      return out
+    }
 
     // Web search runs in the background (plain fetch, no browser) while the
     // browser works PropertyRadar, so it costs no wall-clock time on the fast path.
@@ -516,6 +521,18 @@ export class Enrichment extends EventEmitter {
     fields['Enrichment Notes'] = notes.filter(Boolean).join(' | ').slice(0, 600)
     fields._evidence = (prRes.evidence || []).filter((e) => e.file).map((e) => ({ file: e.file, label: e.label }))
     return fields
+  }
+
+  // Say so when a row's address was only partly filled in (city / state / ZIP
+  // blank in the sheet). The ZIP usually pins the property down anyway, but the
+  // operator should see exactly what was searched.
+  _partialAddressNote(i) {
+    const m = this.addressMap
+    if (!m || m.mode !== 'parts') return ''
+    const rec = this.records[i] || {}
+    const blank = (k) => Boolean(k) && !String(rec[k] ?? '').trim()
+    const missing = [blank(m.city) && 'city', blank(m.state) && 'state', blank(m.zip) && 'ZIP'].filter(Boolean)
+    return missing.length ? `${missing.join(' + ')} blank in the sheet; searched as "${this.addressFor(i)}".` : ''
   }
 
   async _lookupPropertyRadar(page, address, i) {

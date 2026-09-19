@@ -34,6 +34,8 @@ const SF = ['Street Address', 'Postal City', 'State', 'Zip Code', 'Price', 'DOM'
 const m = detectAddressColumns(SF)
 check('SF export -> parts', m.mode === 'parts' && m.street === 'Street Address' && m.city === 'Postal City' && m.state === 'State' && m.zip === 'Zip Code', JSON.stringify(m))
 check('buildAddress + zip fix', buildAddress({ 'Street Address': '135 Prague St', 'Postal City': 'San Francisco', State: 'ca', 'Zip Code': '94112.0' }, m) === '135 Prague St, San Francisco, CA 94112')
+check('blank city still builds street + ZIP', buildAddress({ 'Street Address': '324 5th Street', 'Postal City': '', State: 'CA', 'Zip Code': '94107' }, m) === '324 5th Street, CA 94107')
+check('blank street -> no address (row is skipped)', buildAddress({ 'Street Address': '', 'Postal City': 'San Francisco', State: 'CA', 'Zip Code': '94107' }, m) === '')
 check('single Address column -> full', detectAddressColumns(['Name', 'Address']).mode === 'full')
 check('Address + City -> parts', detectAddressColumns(['Address', 'City', 'State', 'Zip']).mode === 'parts')
 check('nothing recognised -> none', detectAddressColumns(['Name', 'Phone']).mode === 'none')
@@ -74,7 +76,7 @@ const csv = [
   '121 Pine St,San Francisco,CA,94108,3000000,Jack Burrows', // demo: 121 % 11 == 0 -> not found
   ',,,,,Blank Row Agent', // no address -> skipped, row kept in place
   '2200 Pacific Ave #4,San Francisco,CA,94115,4000000,Ron Sebahar',
-  '9 Hill Ct,San Francisco,CA,94110,5000000,Robin Hubinsky',
+  '9 Hill Ct,,CA,94110,5000000,Robin Hubinsky', // city blank -> searched by street + ZIP, noted
 ].join('\r\n') + '\r\n'
 const made = []
 try {
@@ -92,6 +94,7 @@ try {
   check('not found -> FIELD NOT FOUND, never a guess', f(2)['PR Status'] === 'not found' && f(2)['PR Owner of Record'] === 'FIELD NOT FOUND')
   check('blank address -> skipped', f(3)['PR Status'] === 'skipped' && f(3)['Web Status'] === 'skipped')
   check('web links filled', /zillow\.com/.test(f(0)['Web Zillow']) && f(0)['Web Status'] === 'found (demo)')
+  check('partial address is noted', /^city blank in the sheet; searched as "9 Hill Ct, CA 94110"/.test(f(5)['Enrichment Notes']), f(5)['Enrichment Notes'])
   check('checkpoint has one line per row', fs.readFileSync(e.dir + '/results.jsonl', 'utf-8').trim().split('\n').length === 6)
   const out = csvToRecords(e.outputCsv())
   check('output = original + enrichment columns', out.headers.length === 6 + ENRICH_COLUMNS.length)
