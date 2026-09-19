@@ -34,12 +34,22 @@ const STEPS = [
   ['second-search', 'Now start a NEW search for a different address exactly the way you normally would — including removing or clearing the previous address criteria. When the EMPTY address box is ready again, press ENTER.'],
 ]
 
-// One readline for the whole session (a new one per question breaks when stdin
-// is piped, and there is no reason for it on a keyboard either).
+// One readline for the whole session, with incoming lines queued and handed out
+// one per prompt — so it behaves the same on a keyboard (a line per ENTER) and
+// with piped input (all lines arrive at once). Resolves null once input ends.
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+const lines = []
+const waiters = []
 let stdinClosed = false
-rl.on('close', () => { stdinClosed = true })
-const ask = (q) => new Promise((res) => { if (stdinClosed) return res(''); rl.question(q, res) })
+rl.on('line', (l) => { const w = waiters.shift(); if (w) w(l); else lines.push(l) })
+rl.on('close', () => { stdinClosed = true; while (waiters.length) waiters.shift()(null) })
+const ask = (q) =>
+  new Promise((res) => {
+    process.stdout.write(q)
+    if (lines.length) return res(lines.shift())
+    if (stdinClosed) return res(null)
+    waiters.push(res)
+  })
 
 // Everything visible that a person could click or type into, with the details a
 // selector can be written from. Runs inside the page; must stay self-contained.
@@ -135,9 +145,9 @@ console.log('\nYou drive PropertyRadar by hand in the browser window; I only wat
 for (let i = 0; i < STEPS.length; i++) {
   const [name, prompt] = STEPS[i]
   stepName = name
-  await ask(`\n[${i + 1}/${STEPS.length}] ${prompt}\n> `)
-  if (stdinClosed && i < STEPS.length - 1) { console.log('\nInput closed — saving what we have.'); await snapshot(page, i + 1, name); break }
+  const answer = await ask(`\n[${i + 1}/${STEPS.length}] ${prompt}\n> `)
   await snapshot(page, i + 1, name)
+  if (answer === null && i < STEPS.length - 1) { console.log('\nInput closed — saved what we have.'); break }
 }
 
 writeNetwork()
