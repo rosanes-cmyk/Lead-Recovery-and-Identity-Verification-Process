@@ -149,7 +149,7 @@ export async function autoSearch(page, address, cfg, emit, signal, res, runDir) 
     // hover tooltip, so verify the "Enter Site Address" box appears and re-click
     // (up to 3 tries) before giving up.
     emit({ type: 'log', source: label, message: 'Opening Full Address search' })
-    const siteBox = () => page.getByPlaceholder(/site address/i).first()
+    const siteBox = () => page.getByPlaceholder(/^(?!.*mailing)(?=.*(site|full|street|property|enter)).*address/i).first()
     let boxThere = false
     for (let i = 0; i < 3 && !boxThere; i++) {
       await clickFirst(page, [
@@ -272,16 +272,17 @@ export async function sessionKicked(page) {
 // autocomplete match (or press Enter), then open the first result row.
 async function genericSearch(page, address, streetNum, emit, signal) {
   try {
+    // Never the criteria FILTER ("Find Criteria") or the mailing-address box:
+    // typing an address into the filter opens whatever criterion it matches.
     const box = await firstVisible(page, [
       () => page.getByPlaceholder(/enter\s*(site\s*)?address/i),
       () => page.getByPlaceholder(/what are you searching for/i),
-      () => page.getByPlaceholder(/find criteria/i),
-      () => page.getByPlaceholder(/address/i),
-      () => page.getByPlaceholder(/city.*zip|zip.*code/i),
-      () => page.locator('input[type="search"]'),
-      () => page.locator('textarea'),
+      () => page.getByPlaceholder(/^(?!.*(mailing|criteria)).*address/i),
     ])
-    if (!box) return false
+    if (!box) {
+      emit({ type: 'log', source: label, message: 'No address search box found on this PropertyRadar layout — run `npm run calibrate -- propertyradar` to capture it.' })
+      return false
+    }
     emit({ type: 'log', source: label, message: 'Searching PropertyRadar by address (main search box)' })
     await box.click({ timeout: 3000 })
     await box.fill(address, { timeout: 3000 })

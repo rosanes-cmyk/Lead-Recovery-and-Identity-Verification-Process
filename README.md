@@ -155,6 +155,21 @@ selectors matched, and saves to `runs/_calibration/<source>/`:
 Add the stable strategies you find (data attributes first) to the front of each
 field's list in `selectors.js`. Nothing on the website is ever changed.
 
+### Guided PropertyRadar calibration (search flow)
+
+When PropertyRadar's address search stops opening properties, run
+
+```bash
+npm run calibrate:propertyradar -- "547 Missouri Street, San Francisco, CA 94107"
+```
+
+You do the search by hand in the browser while it watches; after each of six
+prompted steps (toolbar → address box → suggestions → results → profile →
+starting a second search) you press ENTER and it saves the page HTML, a
+screenshot, every visible clickable element, and all JSON PropertyRadar's page
+fetched, under `runs/_calibration/propertyradar-flow/`. Zip that folder and
+share it to get exact selectors written. Nothing on the site is changed.
+
 ### The one-lead live test
 
 Run a full investigation against one real lead in dry-run mode from the UI, then

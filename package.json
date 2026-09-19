@@ -8,6 +8,7 @@
     "start": "node server/index.js",
     "setup": "node scripts/setup.js",
     "calibrate": "node scripts/calibrate.js",
+    "calibrate:propertyradar": "node scripts/calibrate-propertyradar.js",
     "test:fixture": "node test/fixture-live-test.mjs",
     "test:peoplesearch": "node test/peoplesearch-test.mjs",
     "test:propertyradar": "node test/propertyradar-test.mjs",
