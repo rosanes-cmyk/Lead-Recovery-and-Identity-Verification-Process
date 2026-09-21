@@ -20,7 +20,7 @@ currently gathers by hand across five browser tabs.
 | Owner of record (plus taxpayer, entity/trust, vesting, mailing address, occupancy) | done |
 | Last sale price and date | done |
 | Assessed value | done |
-| Listing agent and selling agent | **done** — read from Redfin, with brokerage, DRE licence, phone and email |
+| Listing agent and selling agent | **done** — read from Redfin, with brokerage, DRE licence, phone and email. Caveat: these are the agents of the property's most recent listing, so on a property that sold again they are not the agents of an older sale. The `Redfin Agents For` column names the sale they belong to |
 | Permit history | **not built** |
 | Liens and encumbrances | **done** — the recorded chain of title by parcel: open loans, unreleased judgments and tax/mechanics liens, notices of default. No amounts; the index carries none |
 

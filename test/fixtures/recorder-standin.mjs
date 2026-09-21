@@ -24,12 +24,20 @@ const PAGE = `<!doctype html><html><head><title>Public Index Search</title></hea
   <a href="#" onclick="clearAll();return false">Clear All</a>
   <label>Block</label><input ng-model="SearchRequestModel.Block" name="last-name">
   <label>Lot</label><input ng-model="SearchRequestModel.LowLot" name="last-name">
-  <button onclick="doSearch(0)">Search</button>
-  <div id="pager" style="display:none"><a href="#" ng-click="selectPage()" onclick="nextPage();return false">&#8250;</a></div>
+  <button class="grey_button" id="btnSearch" style="display:none">Search</button>
+  <button class="blue_button" id="btnSearch" ng-click="Search();" onclick="doSearch(0)">Search</button>
+  <div id="perpage"><div id="ddlDocsPerPage" onclick="openMenu()">10 / Page</div>
+    <ul id="ppmenu" style="display:none"><li value="50" onclick="setPer(50)">50 / Page</li><li value="100" onclick="setPer(100)">100 / Page</li></ul></div>
+  <div id="pager" style="display:none"><ul class="pagination">
+    <li class="page-item"><a class="page-link" href="javascript:void(0);" aria-label="Next" ng-click="PaginationClicked(2)" onclick="nextPage();return false">&#8250;</a></li>
+  </ul></div>
   <div id="count"></div><table id="out"></table>
 </div>
 <script>
   let start = 0
+  let per = 10
+  function openMenu() { document.getElementById('ppmenu').style.display = 'block' }
+  function setPer(n) { per = n; document.getElementById('ppmenu').style.display = 'none'; doSearch(0) }
   document.getElementById('agree').onclick = () => {
     document.getElementById('agree').style.display = 'none'
     document.getElementById('form').style.display = 'block'
@@ -39,14 +47,14 @@ const PAGE = `<!doctype html><html><head><title>Public Index Search</title></hea
   async function doSearch(s) {
     start = s
     const u = '/SearchService/api/Search/GetSearchResults?DocumentClass=OfficialRecords&Block=' +
-      encodeURIComponent(val('Block')) + '&LowLot=' + encodeURIComponent(val('LowLot')) + '&Rows=10&StartRow=' + s
+      encodeURIComponent(val('Block')) + '&LowLot=' + encodeURIComponent(val('LowLot')) + '&Rows=' + per + '&StartRow=' + s
     const r = await fetch(u)
     const d = await r.json()
     document.getElementById('count').textContent = d.ResultCount + ' Documents'
     document.getElementById('out').innerHTML = d.SearchResults.map(x => '<tr><td>' + x.PrimaryDocNumber + '</td></tr>').join('')
-    document.getElementById('pager').style.display = (s + 10 < d.ResultCount) ? 'block' : 'none'
+    document.getElementById('pager').style.display = (s + per < d.ResultCount) ? 'block' : 'none'
   }
-  function nextPage() { doSearch(start + 10) }
+  function nextPage() { doSearch(start + per) }
 </script></body></html>`
 
 export function startStandIn(port = 0) {
@@ -55,9 +63,10 @@ export function startStandIn(port = 0) {
       const u = new URL(req.url, 'http://x')
       const block = u.searchParams.get('Block') || ''
       const startRow = Number(u.searchParams.get('StartRow') || 0)
+      const rows = Number(u.searchParams.get('Rows') || 10)
       const all = block === '4101' ? DOCS : []
       res.setHeader('content-type', 'application/json')
-      return res.end(JSON.stringify({ ResultCount: all.length, SearchResults: all.slice(startRow, startRow + 10) }))
+      return res.end(JSON.stringify({ ResultCount: all.length, SearchResults: all.slice(startRow, startRow + rows) }))
     }
     res.setHeader('content-type', 'text/html')
     res.end(PAGE)

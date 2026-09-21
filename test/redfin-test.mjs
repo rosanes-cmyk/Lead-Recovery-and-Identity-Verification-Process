@@ -3,7 +3,7 @@
 // and the two-agent "Bought with" case are the real thing.
 import fs from 'node:fs'
 import {
-  parseRedfinHtml, parseAgents, parseRemarks, parseMls, dealSignals,
+  parseRedfinHtml, parseAgents, parseRemarks, parseMls, dealSignals, parseLatestSale,
   sliceEscapedJson, parseEscapedJson, looksBlocked, lookupRedfin, fetchRedfin,
 } from '../server/sources/redfin.js'
 
@@ -31,6 +31,9 @@ check('buyer brokerage', r.buyerAgent?.brokerage === 'Compass')
 check('buyer broker phone used when no direct line', r.buyerAgent?.brokerPhone === '415-874-5000' && r.buyerAgent?.phone === '')
 check('second buyer agent kept, not lost', r.otherAgents.some((a) => a.name === 'Eva Stoyanov'))
 check('MLS named', /San Francisco/i.test(r.mlsSource), r.mlsSource)
+check('MLS number comes from this property, not a neighbour', r.mlsNumber === '423907901', r.mlsNumber)
+check('the sale the agents belong to is stated', /Oct 23, 2023/.test(r.agentsFor) && /4,850,000/.test(r.agentsFor), r.agentsFor)
+check('a page with no history claims no sale', parseRedfinHtml('<html></html>').ok === false)
 check('remarks captured whole', r.remarks.length > 900 && /Jonathan Pearlman/.test(r.remarks))
 check('a designer home is not flagged a fixer', r.signals.length === 0, r.signals.join(','))
 
@@ -59,6 +62,7 @@ check('garbage html yields nothing, throws nothing', parseRedfinHtml('<html><bod
 check('no agents in garbage', parseAgents('<html></html>', 'listingAgents').length === 0)
 check('no remarks in garbage', parseRemarks('<html></html>') === '')
 check('no mls in garbage', parseMls('<html></html>').mlsNumber === '')
+check('no sale history in garbage', parseLatestSale('<html></html>') === null)
 
 // ---- the escaped-JSON reader -----------------------------------------------------
 console.log('\n[Redfin] Escaped JSON slicing')

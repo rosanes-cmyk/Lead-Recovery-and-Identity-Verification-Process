@@ -262,9 +262,23 @@ No browser is involved. It is a plain fetch of the Redfin URL the web-search
 step already found, so it adds about a second per row rather than a tab. Turn
 it off with `ENRICH_REDFIN=false` or the checkbox in the tab.
 
-The agent email comes only from inside Redfin's own listing-agent block. A
-bare `agentEmail` elsewhere on the page belongs to a Redfin house agent
-advertising on the listing, and is deliberately ignored.
+**Which sale the agents belong to.** Redfin names the agents of the property's
+MOST RECENT listing. On a property that has sold again since the sale in your
+sheet, those are not the agents of your sale. The `Redfin Agents For` column
+states the sale they do belong to, with its date and price, so the mismatch is
+visible rather than silent. Measured on a 19-row run: of seven rows with agent
+data, four matched the sheet's buyer agent exactly, and the three that did not
+had all been listed again afterwards.
+
+Two fields that are easy to get wrong, and are handled:
+
+- **The agent email** comes only from inside Redfin's own listing-agent block.
+  A bare `agentEmail` elsewhere on the page belongs to a Redfin house agent
+  advertising on the listing, and is deliberately ignored.
+- **The MLS number** comes from the property's own sale history, not from the
+  first `mlsId` on the page. A Redfin page carries dozens of them belonging to
+  nearby and similar homes; taking the first returned a neighbour's listing
+  number, and gave two different properties the same one.
 
 If Redfin serves a bot check the row reads `blocked by Redfin` and the other
 columns are untouched. Nothing is guessed.

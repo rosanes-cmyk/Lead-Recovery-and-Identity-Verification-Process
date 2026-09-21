@@ -75,6 +75,7 @@ export const ENRICH_COLUMNS = [
   'Redfin Buyer Brokerage',
   'Redfin Buyer Agent Phone',
   'Redfin MLS #',
+  'Redfin Agents For',
   'Redfin Deal Signals',
   'Redfin Remarks',
   'Redfin Status',
@@ -834,7 +835,19 @@ export class Enrichment extends EventEmitter {
     if (!this.options.redfin) return null
     if (!url) return { ok: false, error: 'no Redfin page found for this address' }
     try {
-      return await lookupRedfin(url, { signal })
+      return await lookupRedfin(url, {
+        signal,
+        onMiss: async (html) => {
+          // Keep the head of any page that loaded but yielded nothing, so a
+          // miss can be diagnosed instead of guessed at.
+          try {
+            const dir = path.join(this.dir, 'redfin-misses')
+            fs.mkdirSync(dir, { recursive: true })
+            const name = `row-${String(this.current + 1).padStart(4, '0')}.html`
+            fs.writeFileSync(path.join(dir, name), String(html).slice(0, 40000))
+          } catch { /* evidence is best effort */ }
+        },
+      })
     } catch (err) {
       return { ok: false, error: String(err?.message || err).slice(0, 160) }
     }
@@ -888,6 +901,10 @@ export class Enrichment extends EventEmitter {
     fields['Redfin Buyer Brokerage'] = ba.brokerage || ''
     fields['Redfin Buyer Agent Phone'] = ba.phone || ba.brokerPhone || ''
     fields['Redfin MLS #'] = rf.mlsNumber || ''
+    // Which sale the agents above belong to. Redfin names the most recent
+    // listing's agents, so on a property that sold again this will not be the
+    // sale in the operator's sheet.
+    fields['Redfin Agents For'] = rf.agentsFor || ''
     fields['Redfin Deal Signals'] = (rf.signals || []).join(', ')
     // Remarks are what make the fixer / as-is filter possible, but a full MLS
     // write-up bloats the sheet, so keep the front of it.
@@ -1056,6 +1073,7 @@ export class Enrichment extends EventEmitter {
       fields['Redfin Buyer Brokerage'] = 'Demo Realty'
       fields['Redfin Buyer Agent Phone'] = '415-555-0199'
       fields['Redfin MLS #'] = `42${String(n).padStart(7, '0')}`
+      fields['Redfin Agents For'] = 'Sold (MLS) Oct 23, 2023 for $1,850,000'
       fields['Redfin Remarks'] = remarks
       fields['Redfin Deal Signals'] = dealSignals(remarks).join(', ')
       fields['Redfin Status'] = 'found'

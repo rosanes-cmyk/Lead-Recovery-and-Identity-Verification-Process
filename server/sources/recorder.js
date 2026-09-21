@@ -218,23 +218,36 @@ const FIELD = {
   block: ['input[ng-model="SearchRequestModel.Block"]', 'input[ng-model$=".Block"]'],
   lot: ['input[ng-model="SearchRequestModel.LowLot"]', 'input[ng-model$=".LowLot"]'],
 }
-const SEARCH_BUTTON = ['button:has-text("Search")', 'input[type="button"][value="Search"]', '#btnSearch']
+// Two elements share id="btnSearch" and the first is a hidden modal button, so
+// the click has to find the visible one rather than simply the first.
+const SEARCH_BUTTON = ['button#btnSearch[ng-click^="Search"]', 'button#btnSearch', 'button:has-text("Search")', 'input[type="button"][value="Search"]']
+const NEXT_PAGE = ['a.page-link[aria-label="Next"]', 'a[ng-click*="CurrentPage + 1"]', 'a.page-link[title="Next"]']
+const PER_PAGE_MENU = ['#ddlDocsPerPage']
+const PER_PAGE_MAX = ['#ddlDocsPerPage li[value="100"]', 'li[value="100"]', 'li[value="50"]']
 const CLEAR_BUTTON = ['a:has-text("Clear All")', 'button:has-text("Clear All")']
 const AGREE_BUTTON = [
   'button:has-text("I Agree")', 'button:has-text("Agree")', 'button:has-text("Accept")',
   'input[type="button"][value*="Agree" i]', 'button:has-text("Continue")',
 ]
 
+// Clicks the first VISIBLE match, not simply the first match. This page reuses
+// ids across hidden modal copies, so `.first()` lands on something invisible and
+// the click times out even though the real control is right there.
 async function clickAny(page, selectors, { timeout = 4000, required = false } = {}) {
   for (const sel of selectors) {
     try {
-      const el = page.locator(sel).first()
-      await el.waitFor({ state: 'visible', timeout })
-      await el.click({ timeout })
-      return true
+      const loc = page.locator(sel)
+      await loc.first().waitFor({ state: 'attached', timeout })
+      const n = Math.min(await loc.count(), 10)
+      for (let i = 0; i < n; i++) {
+        const el = loc.nth(i)
+        if (!(await el.isVisible().catch(() => false))) continue
+        await el.click({ timeout })
+        return true
+      }
     } catch { /* try the next one */ }
   }
-  if (required) throw new Error(`Could not find: ${selectors[0]}`)
+  if (required) throw new Error(`Could not find a visible: ${selectors[0]}`)
   return false
 }
 
@@ -258,7 +271,7 @@ async function fillAny(page, selectors, value) {
  * said the total was — so a short read announces itself rather than looking
  * like a clean answer.
  */
-export async function readParcel(page, { block, lot, signal, timeoutMs = 45000, maxPages = 12, url = SEARCH_URL } = {}) {
+export async function readParcel(page, { block, lot, signal, timeoutMs = 45000, maxPages = 30, url = SEARCH_URL } = {}) {
   if (!block || !lot) return { ok: false, total: 0, rows: [], partial: false, error: 'No parcel number for this property.' }
 
   const seen = new Map()
@@ -307,13 +320,22 @@ export async function readParcel(page, { block, lot, signal, timeoutMs = 45000, 
     await first
     await settle()
 
+    // 100 rows a page turns a six-page parcel into one. Best effort: if the
+    // control has moved, the pager below still gets everything.
+    if (seen.size < reported) {
+      if (await clickAny(page, PER_PAGE_MENU, { timeout: 2500 })) {
+        const bigger = page.waitForResponse((r) => r.url().includes('GetSearchResults'), { timeout: 15000 }).catch(() => null)
+        if (await clickAny(page, PER_PAGE_MAX, { timeout: 2500 })) { await bigger; await settle() }
+      }
+    }
+
     // Page until we have everything the service said exists. The pager is the
     // only way through, since asking for more rows directly needs their key.
     for (let i = 0; i < maxPages && seen.size < reported; i++) {
       if (signal?.aborted) break
       const before = seen.size
       const next = page.waitForResponse((r) => r.url().includes('GetSearchResults'), { timeout: 15000 }).catch(() => null)
-      const moved = await clickAny(page, ['a[ng-click*="selectPage"]:has-text("›")', 'li:not(.disabled) > a:has-text("›")', 'a[title="Next"]', 'li.pagination-next:not(.disabled) a'], { timeout: 3000 })
+      const moved = await clickAny(page, NEXT_PAGE, { timeout: 3000 })
       if (!moved) break
       await next
       await settle()

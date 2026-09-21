@@ -39,7 +39,9 @@ export function looksBlocked(html = '') {
   const s = String(html)
   if (!s.trim()) return true
   if (s.length < 5000 && BLOCKED_RE.test(s)) return true
-  return BLOCKED_RE.test(s.slice(0, 4000))
+  // A challenge marker can sit well past the opening tags, so scan a real slice
+  // of the head rather than the first few thousand characters.
+  return BLOCKED_RE.test(s.slice(0, 40000))
 }
 
 // Redfin embeds its data as JSON inside a JS string literal, so every quote
@@ -147,13 +149,36 @@ export function dealSignals(remarks = '') {
   return SIGNALS.filter(([, re]) => re.test(text)).map(([label]) => label)
 }
 
+// The newest event in the property's own history. This is where the MLS number
+// has to come from: a Redfin page carries dozens of mlsId values belonging to
+// nearby and similar homes, and taking the first one returns a neighbour's
+// listing number. Two different properties came back with the same number that
+// way.
+export function parseLatestSale(html = '') {
+  const hist = parseEscapedJson(sliceEscapedJson(html, 'propertyHistoryInfo'))
+  const events = Array.isArray(hist?.events) ? hist.events : []
+  if (!events.length) return null
+  const sold = events.find((e) => /sold/i.test(String(e?.eventDescription || '')) && e?.sourceId) || events[0]
+  if (!sold) return null
+  let date = ''
+  if (Number.isFinite(sold.eventDate)) {
+    const d = new Date(sold.eventDate)
+    if (!Number.isNaN(d.getTime())) date = d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  }
+  return {
+    description: String(sold.eventDescription || '').trim(),
+    date,
+    price: Number.isFinite(sold.price) ? sold.price : null,
+    mlsNumber: /^[\w-]{4,20}$/.test(String(sold.sourceId || '')) ? String(sold.sourceId) : '',
+  }
+}
+
 export function parseMls(html = '') {
   const s = String(html)
   const src = s.match(/\\"dataSourceDescription\\":\\"([^\\"]{3,80})\\"/)
-  const num = s.match(/\\"mlsId\\":\{\\"label\\":\\"[^\\"]*\\",\\"value\\":\\"([\w-]{4,20})\\"/)
   return {
     mlsSource: src ? src[1].trim() : '',
-    mlsNumber: num ? num[1].trim() : '',
+    mlsNumber: parseLatestSale(html)?.mlsNumber || '',
   }
 }
 
@@ -164,6 +189,7 @@ export function parseRedfinHtml(html = '') {
   const remarks = parseRemarks(html)
   const { mlsSource, mlsNumber } = parseMls(html)
   const found = Boolean(listing.length || buying.length || remarks)
+  const latest = parseLatestSale(html)
   return {
     ok: found,
     blocked: false,
@@ -174,6 +200,12 @@ export function parseRedfinHtml(html = '') {
     signals: dealSignals(remarks),
     mlsSource,
     mlsNumber,
+    latestSale: latest,
+    // Which sale these agents belong to. Redfin names the agents of the MOST
+    // RECENT listing, so on a property that has sold again since, they are not
+    // the agents of the older sale in the operator's spreadsheet. Saying which
+    // sale it is lets a person see that at a glance instead of being misled.
+    agentsFor: latest ? [latest.description, latest.date, latest.price ? `for $${latest.price.toLocaleString('en-US')}` : ''].filter(Boolean).join(' ') : '',
   }
 }
 
@@ -207,14 +239,38 @@ export async function fetchRedfin(url, { signal, timeoutMs = 20000, fetchImpl = 
 // a Redfin link for the address.
 export async function lookupRedfin(url, opts = {}) {
   if (!url || !/redfin\.com/i.test(url)) return { ok: false, error: 'No Redfin page for this address.' }
-  let got
-  try {
-    got = await fetchRedfin(url, opts)
-  } catch (err) {
-    const msg = String(err?.message || err)
-    return { ok: false, error: /abort/i.test(msg) ? 'Redfin lookup timed out.' : `Redfin: ${msg}` }
+  const { retries = 1, retryDelayMs = 2500, onMiss } = opts
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    let got
+    try {
+      got = await fetchRedfin(url, opts)
+    } catch (err) {
+      const msg = String(err?.message || err)
+      if (attempt < retries && !/abort/i.test(msg)) { await sleep(retryDelayMs, opts.signal); continue }
+      return { ok: false, url, error: /abort/i.test(msg) ? 'Redfin lookup timed out.' : `Redfin: ${msg}` }
+    }
+    if (got.error) {
+      if (attempt < retries) { await sleep(retryDelayMs, opts.signal); continue }
+      return { ok: false, url, error: got.error, status: got.status }
+    }
+    const parsed = parseRedfinHtml(got.html)
+    if (parsed.ok) return { ...parsed, url, error: '' }
+    // A page that loads but carries no agent is the failure worth explaining:
+    // it could be a challenge we do not recognise, or a layout change. Hand the
+    // body to the caller so the run leaves evidence instead of a shrug.
+    if (attempt >= retries) {
+      try { await onMiss?.(got.html, parsed) } catch { /* evidence is best effort */ }
+      return { ...parsed, url, error: parsed.error || 'Redfin page had no agent or remarks.' }
+    }
+    await sleep(retryDelayMs, opts.signal)
   }
-  if (got.error) return { ok: false, error: got.error, status: got.status }
-  const parsed = parseRedfinHtml(got.html)
-  return { ...parsed, url, error: parsed.ok ? '' : parsed.error || 'Redfin page had no agent or remarks.' }
+  return { ok: false, url, error: 'Redfin lookup failed.' }
+}
+
+function sleep(ms, signal) {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms)
+    signal?.addEventListener?.('abort', () => { clearTimeout(t); resolve() }, { once: true })
+  })
 }
