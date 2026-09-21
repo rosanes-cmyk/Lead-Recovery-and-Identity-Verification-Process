@@ -210,9 +210,17 @@ never redo work, and "Resume" on a previous job picks up exactly where it
 stopped. A row with no owner reads `FIELD NOT FOUND` — nothing is guessed.
 
 If PropertyRadar returns nothing for three rows in a row, the job **pauses and
-asks you to look** at the browser (each stuck screen is kept as a screenshot
-under `runs/enrich_<id>/evidence/`). Open the next property by hand and it reads
-it and continues — or click Resume to carry on as-is.
+hands over**: every property you then open by hand in the PropertyRadar window
+is read and saved into the row whose address it matches, the moment it is on
+screen — open as many as you like, then click Resume to let it try
+automatically again. Each stuck screen is kept as a screenshot under
+`runs/enrich_<id>/evidence/`, and a failed row's notes list the search steps
+that were attempted.
+
+Per property, PropertyRadar contributes: owner(s) of record, entity/trust flag,
+ownership (person / trust / company), mailing address, owner-occupied or not,
+APN, property type, est. value, equity, assessed value, purchase price, owned
+since, year built and distress score.
 
 Log into PropertyRadar once in the visible browser when prompted. After that the
 saved session lets a job run with the browser hidden (**Hide the browser

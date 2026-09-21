@@ -80,6 +80,7 @@ check('listing status', zp.listingStatus === 'Off Market', zp.listingStatus)
 check('bot check detected', parseZillowText('Press & Hold to confirm you are a human').blocked === true)
 check('own badge beats later noise', parseZillowText('For sale\n$1,200,000\n3 bd 2 ba\nSingle family residence\n... similar condos off market nearby ...').listingStatus === 'For Sale')
 check('type: own badge beats later noise', parseZillowText('Condo\nBuilt in 1999\n... nearby single family homes ...').propertyType === 'Condo')
+check('tax table "Land" column is not Lot/Land', parseZillowText('Single family residence\nBuilt in 1900\nTax history\nYear Property taxes Land Improvement\n2025 $22,000 $600,000 $300,000').propertyType === 'Single Family')
 check('search url slug', zillowSearchUrl('324 5th St, San Francisco, CA 94107') === 'https://www.zillow.com/homes/324-5th-St-San-Francisco-CA-94107/')
 
 // ---- engine (demo mode) -----------------------------------------------------------
@@ -157,6 +158,38 @@ try {
     check('paused once, after the 3rd miss', pauses === 1 && pausedAt === 3, `pauses=${pauses} at row ${pausedAt}`)
     check('continued to the end after Resume', st5.state === 'done' && e5.results.size === 6, `${st5.state} ${e5.results.size}`)
     check('misses still say FIELD NOT FOUND', e5.results.get(0).fields['PR Owner of Record'] === 'FIELD NOT FOUND')
+
+    console.log('\n[Enrich] Engine: hand-feed — a property opened by hand is saved into the row it matches')
+    const e6 = Enrichment.create({ csvText: csv, filename: 'handfeed.csv' })
+    made.push(e6)
+    e6.setOptions({ delayMs: 5, webSearch: false, screenshots: false, zillowCheck: false })
+    let detailOpen = false
+    const fakePage2 = { url: () => (detailOpen ? 'https://app.propertyradar.com/detail/777' : 'https://app.propertyradar.com/'), innerText: async () => '' }
+    e6._openBrowser = async () => fakePage2
+    e6._openPropertyRadar = async () => 'ready'
+    e6._lookupPropertyRadar = async () => ({ status: 'not found', opened: false, notes: ['mock miss'] })
+    e6._freshPage = async () => fakePage2
+    e6._attachNetworkCapture = () => null
+    // The "open profile" reads as 2200 Pacific Ave (row index 4), owner found.
+    e6._recordOpenProfile = async function () {
+      const row = 4
+      const fields = Object.fromEntries(ENRICH_COLUMNS.map((c) => [c, '']))
+      fields['Enriched Address'] = this.addressFor(row)
+      fields['PR Status'] = 'found'
+      fields['PR Owner of Record'] = 'HAND OPENED OWNER'
+      fields['Web Status'] = 'skipped'
+      this._record(row, fields, 0)
+      return { row, address: this.addressFor(row), ok: true }
+    }
+    let saved = 0
+    e6.on('event', (ev) => {
+      if (ev.sub === 'login-required' && ev.reason === 'pr-failures') { setTimeout(() => { detailOpen = true }, 50); setTimeout(() => { detailOpen = false; e6.resume() }, 2600) }
+      if (ev.sub === 'log' && /Saved row 5/.test(ev.message)) saved++
+    })
+    const st6 = await e6.start()
+    check('hand-opened property saved into row 5 while paused', saved === 1 && e6.results.get(4)?.fields['PR Owner of Record'] === 'HAND OPENED OWNER', `saved=${saved} owner=${e6.results.get(4)?.fields['PR Owner of Record']}`)
+    check('row 5 was not searched again after Resume', e6.results.get(4)?.fields['PR Status'] === 'found' && st6.state === 'done' && e6.results.size === 6)
+    check('found count reflects the hand-saved row', e6.counts().found === 1, `found=${e6.counts().found}`)
   } finally {
     config.demoMode = true
   }

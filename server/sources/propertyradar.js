@@ -18,6 +18,7 @@ import { looksLikeLogin, capture } from '../browser.js'
 import { emptyResult, goto, settle } from './base.js'
 import { selectors, fillUrl } from './selectors.js'
 import { extractFields, FIELD_NOT_FOUND } from './extract.js'
+import { addressMatch } from '../csv.js'
 
 export const id = 'propertyradar'
 export const label = 'PropertyRadar'
@@ -160,10 +161,13 @@ export async function autoSearch(page, address, cfg, emit, signal, res, runDir) 
     // 1. Open the Full Address criterion.
     emit({ type: 'log', source: label, message: 'Opening Full Address search' })
     const siteBox = () => page.locator('input[placeholder="Enter Site Address"], input[placeholder*="Site Address" i]').first()
+    // The toolbar renders after the app's spinner — give it time to exist.
+    await page.locator('text="Full Address"').first().waitFor({ state: 'attached', timeout: 15000 }).catch(() => {})
     let boxThere = false
     for (let i = 0; i < 3 && !boxThere; i++) {
       if (signal?.aborted) return false
       await clickFirst(page, [
+        () => page.locator('text="Full Address" >> visible=true'),
         () => page.locator('text="Full Address"'),
         () => page.getByRole('button', { name: /^Full Address$/i }),
         () => page.getByRole('link', { name: /^Full Address$/i }),
@@ -173,6 +177,8 @@ export async function autoSearch(page, address, cfg, emit, signal, res, runDir) 
     }
     await snap('fulladdress-panel')
     if (!boxThere) {
+      const atRoot = (await page.getByPlaceholder(/find criteria/i).count().catch(() => 0)) > 0
+      emit({ type: 'log', source: label, message: `Full Address click did not open the address box${atRoot ? ' (criteria panel is at its root list)' : ''} — toolbar matches: ${await page.locator('text="Full Address"').count().catch(() => 0)}` })
       // "Full Address" flow unavailable on this layout — try the main search box.
       return await genericSearch(page, address, streetNum, emit, signal)
     }
@@ -398,13 +404,15 @@ export async function readProfileTabs(page, emit, signal, tabs = PROFILE_TABS) {
 
 // PropertyRadar profile tab/section labels that must never be taken as an owner
 // name (the label-based match can grab these by mistake).
-const NOT_A_NAME = /^(value,?\s*equity\s*&?\s*tax|value\s*&?\s*equity|equity|transactions|neighborhood|listings|my info|contacts?|property|overview|summary|tax|owner phone number|owner email( address)?|phone number|email address|contact information|owner (info|information)|activities)$/i
+const NOT_A_NAME = /^(value,?\s*equity\s*&?\s*tax|value\s*&?\s*equity|equity|transactions|neighborhood|listings|my info|contacts?|property|overview|summary|tax|owner phone number|owner email( address)?|phone number|email address|contact information|owner (info|information)|activities|owner|person|trust|company|primary contact|no notes|add note|edit)$/i
 // A real owner name never contains these label words.
-const LABEL_WORDS = /\b(phone number|email address|equity|activities)\b/i
+const LABEL_WORDS = /\b(phone number|email address|equity|activities|primary contact|person type|ownership role|skip trace|mailing address|primary residence|other properties|gender|notes)\b/i
 
 function looksLikeName(v) {
   const s = String(v || '').trim()
   if (!s || s === FIELD_NOT_FOUND) return false
+  // Letters, spaces and name punctuation only — never digits, checkboxes (☑) or other symbols.
+  if (/[^\p{L} .,'&\-]/u.test(s)) return false
   if (NOT_A_NAME.test(s) || LABEL_WORDS.test(s)) return false
   return true
 }
@@ -428,6 +436,8 @@ export function textLabelValue(text, label) {
   if (!text) return ''
   const lines = text.split('\n').map((s) => s.replace(/\s+/g, ' ').trim())
   const L = label.toLowerCase()
+  // An address wraps after its comma ("212 TEXAS ST," / "SAN FRANCISCO, CA 94107").
+  const joinWrapped = (j) => (lines[j].endsWith(',') && lines[j + 1] ? `${lines[j]} ${lines[j + 1]}` : lines[j])
   for (let i = 0; i < lines.length; i++) {
     // "Label: value" / "Label - value" on one line.
     const inline = lines[i].match(new RegExp('^' + escapeRe(label) + '\\s*[:\\-]\\s*(.+)$', 'i'))
@@ -435,11 +445,63 @@ export function textLabelValue(text, label) {
     // "Label" on its own line, value on one of the next few non-empty lines.
     if (lines[i].toLowerCase().replace(/:$/, '') === L) {
       for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
-        if (lines[j]) return lines[j]
+        if (lines[j]) return joinWrapped(j)
       }
+      continue
     }
+    // "Label value" on one line — table cells joined by whitespace. Skip the
+    // page's own "Phone edit" / "Add Phone" style controls.
+    const same = lines[i].match(new RegExp('^' + escapeRe(label) + '\\s+(.{2,})$', 'i'))
+    if (same && !/^(edit|add)\b/i.test(same[1])) return same[1].trim()
   }
   return ''
+}
+
+// Header facts on the property profile ("Beds / Baths", "Est. Value", …). The
+// header is a grid whose rendered text may come out either as label / value
+// pairs or as a ROW of labels followed by a row of values, so consecutive known
+// labels are mapped positionally onto the lines that follow them.
+const HEADER_LABELS = [
+  'Address', 'Property Type', 'Beds / Baths', 'Year Built', 'Square Feet', 'Est. Value', 'Estimated Value',
+  'Equity', 'Lot Size', 'Assessed Value', 'Total Loan Bal', 'Purchase Price', 'Owned Since', 'Distress Score',
+]
+export function headerFields(text) {
+  const out = {}
+  if (!text) return out
+  const lines = text.split('\n').map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean)
+  const isLabel = (l) => HEADER_LABELS.find((h) => h.toLowerCase() === l.toLowerCase().replace(/:$/, ''))
+  for (let i = 0; i < lines.length; ) {
+    if (!isLabel(lines[i])) { i++; continue }
+    let n = 0
+    while (i + n < lines.length && isLabel(lines[i + n])) n++
+    for (let k = 0; k < n; k++) {
+      const label = isLabel(lines[i + k])
+      const value = lines[i + n + k]
+      if (value && !isLabel(value) && !(label in out)) out[label] = value
+    }
+    i += n + Math.max(n, 1)
+  }
+  return out
+}
+
+// Owners on the profile layout that has no "Taxpayer" line: each owner is an
+// ALL-CAPS line in the header, optionally with an age ("JAMES W PACE, 60"), and
+// repeated as the Contacts heading ("JAMES W PACE edit"). Entities read the same
+// way ("CHAN FAMILY LIVING TRUST"). Page chrome in caps is excluded.
+const UI_CAPS = /^(PROPERTY ?RADAR|MY LISTS|ADD CRITERIA|FULL ADDRESS|FULL MAILING ADDRESS|OWNER NAME|OWNER PHONE NUMBER|OWNER EMAIL ADDRESS|LEARN MORE|ADD NOTE|NO NOTES|ADD PHONE|ADD EMAIL|MY INFO|VALUE & EQUITY|SAN FRANCISCO|LOS ANGELES|NEW YORK|UNITED STATES)$/
+export function ownersFromProfileText(text) {
+  const seen = new Set()
+  const out = []
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.replace(/\s+/g, ' ').trim().replace(/\s+edit$/i, '')
+    const m = line.match(/^([A-Z][A-Z\s.'&-]{4,})(?:,\s*(\d{1,3}))?$/)
+    if (!m) continue
+    const name = m[1].trim().replace(/\s+/g, ' ')
+    if (/\d/.test(name) || name.split(' ').length < 2 || UI_CAPS.test(name) || seen.has(name)) continue
+    seen.add(name)
+    out.push(name)
+  }
+  return out
 }
 
 // Recover the INDIVIDUAL homeowner (the lead) from the deed-history text when the
@@ -472,16 +534,53 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
   const { values, audit } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
   res.audit.push(...audit.map((a) => ({ page: 'Property', ...a })))
 
-  // Robust fallback: read key fields straight from the rendered tab TEXT when the
-  // positional selector engine couldn't (PropertyRadar's React DOM). Only fills
-  // fields the engine left empty.
-  const T = (lbl) => textLabelValue(tabsText, lbl)
+  // Robust fallback: read key fields straight from the rendered TEXT (the tabs
+  // we visited, then the whole page) when the positional selector engine
+  // couldn't — PropertyRadar's DOM rarely puts a value beside its label. Only
+  // fills fields the engine left empty or filled with something implausible.
+  const bodyText = await page.innerText('body').catch(() => '')
+  const allText = [tabsText, bodyText].filter(Boolean).join('\n')
+  const T = (lbl) => textLabelValue(tabsText, lbl) || textLabelValue(bodyText, lbl)
   const missing = (v) => !v || v === FIELD_NOT_FOUND
-  if (missing(values.recordedOwner)) values.recordedOwner = T('Taxpayer') || T('Owner Name') || values.recordedOwner
+  // A plausible owner has at least two words and is not a role/type word. A
+  // Taxpayer-style value carries the mailing address after the name ("NAME, 97
+  // MAIN ST…"), so judge the name part only.
+  const nameOnly = (v) => String(v || '').split(/,\s*(?=\d)/)[0].trim()
+  const plausibleOwner = (v) => !missing(v) && looksLikeName(nameOnly(v)) && /\s/.test(nameOnly(v))
+  if (!plausibleOwner(values.recordedOwner)) values.recordedOwner = T('Taxpayer') || T('Owner Name') || FIELD_NOT_FOUND
+  if (!plausibleOwner(values.recordedOwner)) {
+    const owners = ownersFromProfileText(allText)
+    if (owners.length) values.recordedOwner = owners.join(' and ')
+  }
   if (missing(values.apn)) values.apn = T('Assessor Parcel Number') || T('APN') || values.apn
   if (missing(values.ownerMailingAddress)) values.ownerMailingAddress = T('Mailing Address') || values.ownerMailingAddress
   if (missing(values.propertyAddress)) values.propertyAddress = T('Address') || values.propertyAddress
+  if (missing(values.ownershipType)) values.ownershipType = T('Person Type') || values.ownershipType
   if (missing(values.occupancy)) values.occupancy = T('Primary Residence') || T('Occupancy') || values.occupancy
+  // Addresses read from the DOM can lose the space after a wrapped comma.
+  const tidyAddr = (v) => (missing(v) ? v : String(v).replace(/\s*,\s*/g, ', ').replace(/\s+/g, ' ').trim())
+  values.propertyAddress = tidyAddr(values.propertyAddress)
+  values.ownerMailingAddress = tidyAddr(values.ownerMailingAddress)
+  // On this layout "Primary Residence" is the owner's home ADDRESS, not a yes/no:
+  // owner-occupied when it is the property itself.
+  if (!missing(values.occupancy) && /\d/.test(values.occupancy) && !missing(values.propertyAddress)) {
+    values.occupancy = addressMatch(values.propertyAddress, values.occupancy) === 'match' ? 'Owner Occupied' : 'Non-Owner Occupied'
+  }
+  // Header facts (values, dates, scores) — validated so a neighbouring label
+  // can never be mistaken for a value.
+  const hdr = headerFields(allText)
+  const money = (v) => (/^\$[\d,]+$/.test(v || '') ? v : '')
+  const facts = {
+    propertyType: T('Property Type') || '',
+    estValue: money(hdr['Est. Value']) || money(hdr['Estimated Value']),
+    equity: money(hdr['Equity']),
+    assessedValue: money(hdr['Assessed Value']),
+    loanBalance: money(hdr['Total Loan Bal']),
+    purchasePrice: money(hdr['Purchase Price']),
+    ownedSince: /^[A-Z][a-z]{2,8}\.? \d{4}$|^\d{4}$|^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(hdr['Owned Since'] || '') ? hdr['Owned Since'] : '',
+    yearBuilt: /^\d{4}$/.test(hdr['Year Built'] || '') ? hdr['Year Built'] : '',
+    distressScore: /^\d{1,3}$/.test(hdr['Distress Score'] || '') ? hdr['Distress Score'] : '',
+  }
 
   // The "Taxpayer" value is "NAME, <mailing address>" — keep just the name.
   let owner = values.recordedOwner
@@ -523,6 +622,7 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
     phones: values.phones,
     emails: values.emails,
     trustEntity: isEntity ? titleHolder : values.trustEntity,
+    ...facts,
   }
   // Green when we have EITHER a usable owner identity or a clear owner of record.
   res.ok = Boolean((verifiedOwner && verifiedOwner !== FIELD_NOT_FOUND) || ownerOfRecord)

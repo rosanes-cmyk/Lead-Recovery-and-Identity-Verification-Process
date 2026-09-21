@@ -18,7 +18,8 @@ export function zillowSearchUrl(address) {
 // Badge text → label, most specific first.
 const PROP_TYPES = [
   [/mobile\s*\/?\s*manufactured|manufactured home|mobile home/i, 'MobileManufactured'],
-  [/vacant land|\blot\s*\/\s*land\b|\bland\b(?!\s*(lord|scape))/i, 'Lot/Land'],
+  // never the bare word "land" — Zillow's tax table has a "Land" column on every home
+  [/vacant land|vacant lot|\blot\s*\/\s*land\b|\bland for sale\b|\blots? for sale\b/i, 'Lot/Land'],
   [/\bcommercial\b/i, 'Commercial'],
   [/multi-?\s?family/i, 'Multi-Family'],
   [/\bcondo(minium)?\b/i, 'Condo'],
@@ -39,7 +40,9 @@ export function parseZillowText(text) {
   if (cm) out.county = cm[1]
   // The property's own badges come before "nearby homes for sale" and similar
   // noise, so among the phrases present the EARLIEST one on the page wins.
-  const head = t.slice(0, 4000)
+  // Badges sit right under the address; keep the type scan tight so a
+  // "nearby homes" section never supplies it.
+  const head = t.slice(0, 2500)
   out.propertyType = earliest(head, PROP_TYPES)
   out.listingStatus = earliest(head.slice(0, 3000), STATUSES)
   return out

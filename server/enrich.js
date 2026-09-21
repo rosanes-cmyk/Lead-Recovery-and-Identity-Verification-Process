@@ -34,6 +34,14 @@ export const ENRICH_COLUMNS = [
   'PR Occupancy',
   'PR APN',
   'PR Trust / Entity',
+  'PR Property Type',
+  'PR Est. Value',
+  'PR Equity',
+  'PR Assessed Value',
+  'PR Purchase Price',
+  'PR Owned Since',
+  'PR Year Built',
+  'PR Distress Score',
   'PR Property Address',
   'PR Address Match',
   'PR Status',
@@ -93,7 +101,6 @@ export class Enrichment extends EventEmitter {
     this._netRows = 0
     this._restoreHeadless = null
     this._prFailStreak = 0
-    this._manualOpen = false // operator opened a property by hand during a failure pause
     this._page = null // the PropertyRadar tab (may be replaced by a fresh one mid-run)
     this._zpage = null // a second tab for Zillow, so it never disturbs PropertyRadar's
     this.dir = jobDir(this.id)
@@ -405,6 +412,12 @@ export class Enrichment extends EventEmitter {
       if (this.state === 'stopped') break
       await this._waitIfPaused()
       if (this.state === 'stopped') break
+      // Recorded by hand during a pause (and found): nothing left to do for it —
+      // except the web columns, if it never had a normal pass.
+      if (this.results.get(i)?.ok) {
+        if (this.results.get(i).fields['Web Status'] === 'pending' && !config.demoMode) await this._fillWebOnly(i)
+        continue
+      }
 
       this.current = i
       this._progress()
@@ -494,11 +507,14 @@ export class Enrichment extends EventEmitter {
     return 'not ready'
   }
 
-  // The PropertyRadar module narrates every step; in a batch that is noise, so
-  // forward only messages that describe a problem.
-  _prEmit() {
+  // The PropertyRadar module narrates every step. In a batch the UI log gets
+  // only the problems; the full step trail goes into the row's notes (when a
+  // `trail` array is given) so a failed row explains itself in the sheet.
+  _prEmit(trail = null) {
     return (ev) => {
-      if (ev?.type === 'log' && /kicked|did not finish|Auto-search issue|No autocomplete|Still loading|asking operator|Could not click|detail link was not found|no record/i.test(ev.message || '')) {
+      if (ev?.type !== 'log' || !ev.message) return
+      if (trail) trail.push(String(ev.message).slice(0, 140))
+      if (/kicked|did not finish|Auto-search issue|No autocomplete|Still loading|asking operator|Could not click|detail link was not found|no record|did not open the address box|No address search box/i.test(ev.message)) {
         this._log(`PropertyRadar: ${ev.message}`, 'warn')
       }
     }
@@ -578,11 +594,11 @@ export class Enrichment extends EventEmitter {
     return missing.length ? `${missing.join(' + ')} blank in the sheet; searched as "${this.addressFor(i)}".` : ''
   }
 
-  // After several PropertyRadar misses in a row, pause and ask the operator to
-  // look at the browser. Auto-resumes the moment a property profile is open on
-  // screen (they opened the next one by hand): that row is then read straight
-  // from the screen, which also gives us a calibration sample. Resume continues
-  // as-is; Stop stops.
+  // After several PropertyRadar misses in a row, pause and hand over: while
+  // paused, every property profile the operator opens by hand is read and
+  // recorded into the row whose address it matches (open as many as you like —
+  // each is saved the moment it is on screen). Resume continues automatically
+  // with whatever is still missing; Stop stops.
   async _pauseForFailures(page, lastAddress, nextAddress) {
     if (this.state === 'stopped') return
     this._pauseGate = new Promise((res) => (this._resume = res))
@@ -591,26 +607,64 @@ export class Enrichment extends EventEmitter {
     const message =
       `PropertyRadar has not returned a property for ${PR_FAIL_PAUSE_AFTER} rows in a row (last: "${lastAddress}"). ` +
       'Look at the PropertyRadar browser window: are you signed in, and did the search actually run? ' +
-      (nextAddress ? `To help me calibrate, open the property for the NEXT address (${nextAddress}) by hand — I will read it and continue automatically. ` : '') +
-      'Or click Resume to keep going as-is, or Stop.'
+      'While this is paused you can open properties by hand in that window — each one is read and saved into its row the moment it is on screen' +
+      (nextAddress ? ` (next up: ${nextAddress})` : '') +
+      '. Click Resume when you want me to try automatically again, or Stop.'
     this._emit('login-required', { message, reason: 'pr-failures' })
     this._log(message, 'warn')
     const gate = this._pauseGate
-    const started = Date.now()
+    let lastSeen = ''
     ;(async () => {
       while (this.state === 'login' && this._pauseGate === gate && !this._abort.signal.aborted) {
-        await new Promise((r) => setTimeout(r, 2500))
+        await new Promise((r) => setTimeout(r, 2000))
         if (this.state !== 'login' || this._pauseGate !== gate) break
-        if (await this._profileOpen(this._page || page)) {
-          this._manualOpen = true
-          this._log('A property profile is open — reading it and continuing.', 'state')
-          this.resume()
-          break
+        const cur = this._page || page
+        if (!(await this._profileOpen(cur))) continue
+        let key = ''
+        try { key = cur.url() } catch { key = '' }
+        if (!key || key === lastSeen) continue
+        lastSeen = key
+        try {
+          const r = await this._recordOpenProfile()
+          if (r) this._log(`Saved row ${r.row + 1} (${r.address}) from the property you opened${r.ok ? '' : ' — but no owner could be read from it'}. Open the next one, or click Resume.`, 'state')
+        } catch (err) {
+          this._log(`Could not read the open property: ${String(err?.message || err)}`, 'warn')
         }
-        if (Date.now() - started > 10 * 60 * 1000) break
       }
     })()
     await gate
+  }
+
+  // Read the property profile currently on screen and record it into the row
+  // whose address matches. Returns { row, address, ok } or null when it matches
+  // no row. Web/Zillow columns already gathered for that row are kept.
+  async _recordOpenProfile() {
+    const page = this._page
+    const cfg = selectors.propertyradar
+    const signal = this._abort.signal
+    const res = emptyResult('PropertyRadar')
+    res.audit = []
+    const tabsText = await pr.readProfileTabs(page, this._prEmit(), signal, BATCH_TABS)
+    const out = await pr.extractAndBuild(page, cfg, res, this.dir, {}, tabsText, { screenshot: true })
+    const prAddr = res.data?.propertyAddress && res.data.propertyAddress !== FIELD_NOT_FOUND ? res.data.propertyAddress : ''
+    let row = -1
+    if (prAddr) for (let i = 0; i < this.records.length; i++) if (addressMatch(this.addressFor(i), prAddr) === 'match') { row = i; break }
+    if (row < 0) {
+      this._log(`The open property (${prAddr || 'address not readable'}) does not match any row in the sheet — not saved.`, 'warn')
+      return null
+    }
+    const address = this.addressFor(row)
+    const fields = blankFields()
+    fields['Enriched Address'] = address
+    fields['Enriched At'] = new Date().toISOString()
+    this._applyPr(fields, { status: out.ok ? 'found' : 'not found', data: res.data, notes: res.notes, evidence: res.evidence }, address)
+    const prev = this.results.get(row)
+    if (prev) for (const c of ENRICH_COLUMNS) if (c.startsWith('Web ') && !fields[c]) fields[c] = prev.fields[c] || ''
+    if (!prev) { fields['Web Status'] = this.options.webSearch ? 'pending' : 'skipped' }
+    fields['Enrichment Notes'] = ['Read from a property the operator opened by hand — check PR Address Match.', ...res.notes].join(' | ').slice(0, 600)
+    fields._evidence = (res.evidence || []).filter((e) => e.file).map((e) => ({ file: e.file, label: e.label }))
+    this._record(row, fields, 0)
+    return { row, address, ok: out.ok }
   }
 
   // A PropertyRadar property profile is on screen: the /detail/ URL, or the
@@ -640,22 +694,18 @@ export class Enrichment extends EventEmitter {
     const page = this._page
     const cfg = selectors.propertyradar
     const signal = this._abort.signal
-    const emit = this._prEmit()
-    // The operator just opened a property by hand (after a failure pause): read
-    // what is on screen instead of navigating away from it.
-    const manual = this._manualOpen && (await this._profileOpen(page))
-    this._manualOpen = false
-    if (!manual) {
-      const state = await this._openPropertyRadar(page)
-      if (state !== 'ready') return { status: state === 'not ready' ? 'not found' : state, notes: state === 'not ready' ? ['PropertyRadar did not finish loading.'] : [] }
-    }
+    const trail = []
+    const emit = this._prEmit(trail)
+    const manual = false
+    const state = await this._openPropertyRadar(page)
+    if (state !== 'ready') return { status: state === 'not ready' ? 'not found' : state, notes: state === 'not ready' ? ['PropertyRadar did not finish loading.'] : [] }
 
     const detach = this._attachNetworkCapture(page, i)
     try {
       const res = emptyResult('PropertyRadar')
       res.audit = []
       // Quiet search: no per-step screenshots (pass null instead of the result).
-      const opened = manual ? true : await pr.autoSearch(page, address, cfg, emit, signal, null, this.dir)
+      const opened = await pr.autoSearch(page, address, cfg, emit, signal, null, this.dir)
       if (!opened) {
         if (await pr.sessionKicked(page)) return { status: 'session kicked' }
         if (await looksLikeLogin(page)) return { status: 'login required' }
@@ -663,6 +713,7 @@ export class Enrichment extends EventEmitter {
         // screenshots option says — it is the evidence needed to fix the search.
         res.evidence.push(await capture(page, this.dir, `row${i + 1}-stuck`))
         res.notes.push('PropertyRadar search did not open a property for this address. ' + (await this._pageGlimpse(page)))
+        if (trail.length) res.notes.push('Steps: ' + trail.join(' → ').slice(0, 500))
       }
       const tabsText = opened ? await pr.readProfileTabs(page, emit, signal, BATCH_TABS) : ''
       const out = await pr.extractAndBuild(page, cfg, res, this.dir, { address }, tabsText, { screenshot: Boolean(this.options.screenshots) || manual })
@@ -672,6 +723,26 @@ export class Enrichment extends EventEmitter {
     } finally {
       detach?.()
     }
+  }
+
+  // Web + Zillow columns for a row whose PropertyRadar part was recorded by hand.
+  async _fillWebOnly(i) {
+    const row = this.results.get(i)
+    if (!row) return
+    const address = row.address
+    const signal = this._abort.signal
+    const fields = { ...row.fields }
+    try {
+      const [web, z] = await Promise.all([
+        this.options.webSearch ? searchAddress(address, { signal, runDir: this.dir }).catch(() => null) : null,
+        this.options.zillowCheck ? this._zillow(address) : null,
+      ])
+      this._applyWeb(fields, web)
+      this._applyZillow(fields, z)
+    } catch { /* best effort */ }
+    if (fields['Web Status'] === 'pending') fields['Web Status'] = 'none'
+    fields._evidence = row.evidence
+    this._record(i, fields, row.ms || 0)
   }
 
   // Replace the PropertyRadar tab with a fresh one in the same (logged-in) browser.
@@ -752,6 +823,14 @@ export class Enrichment extends EventEmitter {
       fields['PR Occupancy'] = nf(d.occupancy)
       fields['PR APN'] = nf(d.apn)
       fields['PR Trust / Entity'] = nf(d.trustEntity)
+      fields['PR Property Type'] = nf(d.propertyType)
+      fields['PR Est. Value'] = nf(d.estValue)
+      fields['PR Equity'] = nf(d.equity)
+      fields['PR Assessed Value'] = nf(d.assessedValue)
+      fields['PR Purchase Price'] = nf(d.purchasePrice)
+      fields['PR Owned Since'] = nf(d.ownedSince)
+      fields['PR Year Built'] = nf(d.yearBuilt)
+      fields['PR Distress Score'] = nf(d.distressScore)
       fields['PR Property Address'] = nf(d.propertyAddress)
       fields['PR Address Match'] = addressMatch(address, fields['PR Property Address'])
     } else if (prRes.status === 'not found') {
@@ -805,6 +884,11 @@ export class Enrichment extends EventEmitter {
       fields['PR Occupancy'] = entity ? 'Non-Owner Occupied' : 'Owner Occupied'
       fields['PR APN'] = `${String(n).padStart(4, '0')}-${String(Number(n) * 3).padStart(3, '0')}-${String(Number(n) % 100).padStart(3, '0')}`
       fields['PR Trust / Entity'] = entity ? owner : ''
+      fields['PR Property Type'] = 'Single Family'
+      fields['PR Est. Value'] = `$${(Number(n) * 9137 + 900000).toLocaleString('en-US')}`
+      fields['PR Purchase Price'] = `$${(Number(n) * 9137 + 515000).toLocaleString('en-US')}`
+      fields['PR Owned Since'] = 'Oct 2023'
+      fields['PR Year Built'] = String(1900 + (Number(n) % 120))
       fields['PR Property Address'] = address.toUpperCase()
       fields['PR Address Match'] = 'match'
       fields['Enrichment Notes'] = entity ? `Demo: title held by entity "${owner}" — likely post-foreclosure/REO.` : 'Demo data — not a real record.'
