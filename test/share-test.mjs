@@ -147,6 +147,21 @@ try {
   openSrv.close()
 }
 
+// ---- npm run share ---------------------------------------------------------------
+console.log('\n[Share] Tunnel helper')
+const { findTunnelUrl, candidatePaths } = await import('../scripts/share.js')
+check('importing the helper opens no tunnel', typeof findTunnelUrl === 'function')
+check('banner line -> url', findTunnelUrl('|  https://tasty-blue-horse-99.trycloudflare.com   |') === 'https://tasty-blue-horse-99.trycloudflare.com')
+check('url on a log line', findTunnelUrl('INF |  https://ab-cd-12.trycloudflare.com') === 'https://ab-cd-12.trycloudflare.com')
+check('no url in ordinary output', findTunnelUrl('INF Requesting new quick Tunnel...') === '')
+check('look-alike domain ignored', findTunnelUrl('https://trycloudflare.com.evil.example') === '')
+check('empty input safe', findTunnelUrl() === '' && findTunnelUrl(null) === '')
+const win = candidatePaths({ 'ProgramFiles(x86)': 'C:\\PF86', ProgramFiles: 'C:\\PF', LOCALAPPDATA: 'C:\\LA', USERPROFILE: 'C:\\U' }, 'win32')
+check('winget MSI location checked first', win[0] === 'C:\\PF86\\cloudflared\\cloudflared.exe', win[0])
+check('winget Links shim checked', win.some((p) => p.includes('WinGet')), win.join(' | '))
+check('override wins', candidatePaths({ CLOUDFLARED_PATH: 'X:\\cf.exe' }, 'win32')[0] === 'X:\\cf.exe')
+check('posix locations', candidatePaths({}, 'linux').every((p) => p.endsWith('/cloudflared')))
+
 // ---- wiring ----------------------------------------------------------------------
 console.log('\n[Share] Server wiring')
 const src = fs.readFileSync('server/index.js', 'utf8')
@@ -157,6 +172,9 @@ check('guard runs BEFORE express.static', guardAt > 0 && staticAt > 0 && guardAt
 check('server binds the configured host', /app\.listen\(config\.port, config\.host/.test(src))
 const cfg = fs.readFileSync('server/config.js', 'utf8')
 check('loopback-only unless a password is set', /SHARE_PASSWORD[\s\S]*?'0\.0\.0\.0'\s*:\s*'127\.0\.0\.1'/.test(cfg))
+const helper = fs.readFileSync('scripts/share.js', 'utf8')
+check('helper refuses to tunnel an unprotected app', /if \(!config\.sharePassword\)[\s\S]{0,120}die\(/.test(helper))
+check('npm run share is registered', JSON.parse(fs.readFileSync('package.json', 'utf8')).scripts.share === 'node scripts/share.js')
 
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : fail + ' CHECK(S) FAILED'} (${pass} passed, ${fail} failed)`)
 process.exit(fail === 0 ? 0 : 1)

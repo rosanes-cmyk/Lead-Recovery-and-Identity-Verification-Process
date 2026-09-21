@@ -274,19 +274,30 @@ plus the password. Windows will ask once to allow Node through the firewall —
 choose Private networks. The password crosses the LAN unencrypted, so use a
 tunnel instead if the network is not yours.
 
-**Anywhere else, no account needed.** Leave `npm start` running and open a
-second terminal:
+**Anywhere else, no account needed.** Install the tunnel once:
 
 ```
 winget install --id Cloudflare.cloudflared
-cloudflared tunnel --url http://localhost:4319
 ```
 
-It prints a temporary `https://<random>.trycloudflare.com` address that works
-from anywhere and dies when you press Ctrl+C. `ngrok http 4319` does the same
-if you already have ngrok. Both reach the server over loopback, which is why
-there is **no localhost exemption** in the password guard — a tunnel would
-otherwise hand the whole app to the internet.
+Then **close that terminal and open a new one** — a terminal keeps the PATH it
+started with, so the window you installed from will keep saying `'cloudflared'
+is not recognized`. Leave `npm start` running in one window and use a second:
+
+```
+npm run share
+```
+
+That prints a temporary `https://<random>.trycloudflare.com` address that works
+from anywhere and dies when you press Ctrl+C. It finds `cloudflared` even if
+PATH is stale, checks the app is actually up, and refuses to open the link
+unless `SHARE_PASSWORD` is set. If it still cannot find the program, point it
+at the file: `set CLOUDFLARED_PATH=C:\Program Files (x86)\cloudflared\cloudflared.exe`.
+
+`cloudflared tunnel --url http://localhost:4319` by hand and `ngrok http 4319`
+both work too. Every tunnel reaches the server over loopback, which is why
+there is **no localhost exemption** in the password guard — otherwise opening
+one would hand the whole app to the internet.
 
 **When you are done:** stop the tunnel, then blank `SHARE_PASSWORD` in `.env`
 and restart. The server goes back to this machine only.
@@ -332,6 +343,7 @@ server/
                    dealmachine, county, google, peoplesearch, websearch) + selectors.js
 public/            the operator UI: Investigation tab (input → progress → evidence →
                    approval) and Property Enrichment tab (enrich.js)
+scripts/share.js   `npm run share`: temporary public link via a Cloudflare tunnel
 docs/              the underlying SOP, note template, quick reference, QC checklist
 ```
 
