@@ -10,6 +10,7 @@
     "share": "node scripts/share.js",
     "calibrate": "node scripts/calibrate.js",
     "calibrate:propertyradar": "node scripts/calibrate-propertyradar.js",
+    "calibrate:recorder": "node scripts/calibrate-recorder.js",
     "test:fixture": "node test/fixture-live-test.mjs",
     "test:peoplesearch": "node test/peoplesearch-test.mjs",
     "test:propertyradar": "node test/propertyradar-test.mjs",
@@ -18,7 +19,8 @@
     "test:enrich": "node test/enrich-test.mjs",
     "test:share": "node test/share-test.mjs",
     "test:redfin": "node test/redfin-test.mjs",
-    "test": "node test/redfin-test.mjs && node test/share-test.mjs && node test/enrich-test.mjs && node test/fixture-live-test.mjs && node test/peoplesearch-test.mjs && node test/propertyradar-test.mjs && node test/propertyradar-search-test.mjs && node test/propertyradar-profile-test.mjs",
+    "test:calibrate": "node test/calibrate-test.mjs",
+    "test": "node test/calibrate-test.mjs && node test/redfin-test.mjs && node test/share-test.mjs && node test/enrich-test.mjs && node test/fixture-live-test.mjs && node test/peoplesearch-test.mjs && node test/propertyradar-test.mjs && node test/propertyradar-search-test.mjs && node test/propertyradar-profile-test.mjs",
     "install-browser": "npx playwright install chromium"
   },
   "dependencies": {

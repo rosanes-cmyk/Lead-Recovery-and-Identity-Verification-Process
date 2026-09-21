@@ -339,6 +339,34 @@ A few things to know before you share:
 - Nothing here makes the app safe to leave online permanently. It is for a demo
   or a hand-off, not hosting.
 
+## Calibrating the SF recorder search (liens)
+
+`recorder.sfgov.org` holds every document recorded in San Francisco since 1990,
+free, searchable by block and lot — which is the parcel number this tool
+already extracts. That is where liens and notices of default come from.
+
+It is a single-page app, so the page you see is drawn by JavaScript calling a
+REST service behind it. Those calls are not published, so we watch the page
+make them once:
+
+```
+npm run calibrate:recorder
+npm run calibrate:recorder -- 4101 032     # any block and lot
+```
+
+A browser window opens on the recorder site. **You** do the searching by hand;
+the script only watches and writes down what the page asked for and what came
+back. It never clicks, types, buys a copy, or changes anything. Five prompts,
+each ending in ENTER.
+
+Output lands in `runs/_calibration/recorder/`. Open `api-calls.txt` first: it
+is the readable list of every call, what was sent and what came back. Zip the
+folder to share it.
+
+Cookie, authorization and API-key values are replaced with their length before
+anything is written, so no credential reaches the file. That rule has its own
+tests (`npm run test:calibrate`).
+
 ## People search — disabled by default
 
 `PEOPLE_SEARCH_ENABLED=false`. Do **not** use TruePeopleSearch, Spokeo,
@@ -370,6 +398,9 @@ server/
 public/            the operator UI: Investigation tab (input → progress → evidence →
                    approval) and Property Enrichment tab (enrich.js)
 scripts/share.js   `npm run share`: temporary public link via a Cloudflare tunnel
+scripts/calibrate-recorder.js
+                   `npm run calibrate:recorder`: watch the SF recorder search
+                   so its API can be read directly (liens, notices of default)
 docs/              the underlying SOP, note template, quick reference, QC checklist
 ```
 
