@@ -20,7 +20,7 @@ currently gathers by hand across five browser tabs.
 | Owner of record (plus taxpayer, entity/trust, vesting, mailing address, occupancy) | done |
 | Last sale price and date | done |
 | Assessed value | done |
-| Listing agent and selling agent | **not built** — not available in PropertyRadar, needs MLS (see below) |
+| Listing agent and selling agent | **done** — read from Redfin, with brokerage, DRE licence, phone and email |
 | Permit history | **not built** |
 | Liens and encumbrances | **partial** — open loan balance only; no tax, mechanics or involuntary liens, no notice of default |
 
@@ -85,6 +85,18 @@ is the vendor telling us it does not hold listing detail itself.
 - **The MLS export is now the path for goal 2**, not a fallback. Whoever
   produced our 234-row starting file has the access needed.
 
+**Redfin closes the gap (21 Sep 2026).** PropertyRadar's own "Open Redfin"
+button pointed at the answer. The Redfin property page serves, in plain HTML
+with no browser needed, the listing agent and buyer's agent with brokerage,
+DRE licence, phone and email, plus the MLS marketing remarks. Verified against
+547 Missouri St: Alexander Clark, The Front Steps, DRE #01339386, and James
+Shinbori of Compass, all matching what the page shows a human. This is now
+part of every enrichment row.
+
+That also means the fixer / as-is filter is back on: remarks are matched
+against twelve deal signals, so probate, trust sale, court confirmation and
+contractor special come out as a column.
+
 **What this unlocks straight away**, and was not in the original goal: real
 listing history per property. Status, date, days on market, list price, and
 the count of failed attempts before a sale. Three of those rows show a
@@ -139,14 +151,16 @@ included, which would satisfy most of goal 2 with no scraping at all.
 
 ## Order of work
 
-1. **Add the Listings tab to the enrichment run.** Status, date, days on
+1. ~~**Agents from Redfin.**~~ Done. Listing and buyer agent with brokerage,
+   DRE, phone, email, plus MLS remarks and deal signals, on every row.
+2. **Add PropertyRadar's Listings tab to the run.** Status, date, days on
    market, list price, failed-attempt count. Cheap, and the tab is already
    mapped.
-2. **Permits**, from San Francisco's free parcel dataset. No browser needed.
-3. **Single-address box**, so goal 1 matches how it was described.
-4. **Liens.** Needs a source decision: foreclosure and default data sit in
+3. **Permits**, from San Francisco's free parcel dataset. No browser needed.
+4. **Single-address box**, so goal 1 matches how it was described.
+5. **Liens.** Needs a source decision: foreclosure and default data sit in
    PropertyRadar, tax and mechanics liens sit with the county recorder.
-5. **Get the MLS export** of every San Francisco sale for 24 months with
+6. **Get the MLS export** of every San Francisco sale for 24 months with
    listing agent and remarks. This is now a request to a person, not a build.
-6. **Build goal 2** on top of that export: filter, group by listing agent,
+7. **Build goal 2** on top of that export: filter, group by listing agent,
    rank, then enrich the top names with contact detail.

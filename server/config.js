@@ -52,6 +52,7 @@ export const config = {
   enrichWebSearch: bool(process.env.ENRICH_WEB_SEARCH, true), // also search the web per row
   enrichScreenshots: bool(process.env.ENRICH_SCREENSHOTS, true), // one result screenshot per row
   enrichZillow: bool(process.env.ENRICH_ZILLOW, true), // open the Zillow page per row (type / listing status / county)
+  enrichRedfin: bool(process.env.ENRICH_REDFIN, true), // read the Redfin page per row (listing + buyer agent, MLS remarks)
 
   // Server
   port: num(process.env.PORT, 4319),

@@ -244,6 +244,31 @@ opened from the list row or the map marker → "Property Info" modal → detail
 link. `test/fixtures/propertyradar-search.html` reproduces the traps so the flow
 is regression-tested offline (`npm run test:propertyradar-search`).
 
+### Redfin: the agents PropertyRadar does not carry
+
+PropertyRadar's Listings tab holds MLS status, date, days on market and price,
+but no agent and no remarks; under the table it offers "Open Redfin". So the
+enrichment run reads the Redfin page for each address, which serves all of it
+in plain HTML:
+
+- **Listing agent** with brokerage, DRE licence, phone and email.
+- **Buyer's agent** with brokerage, DRE licence and broker phone.
+- **MLS remarks**, and the deal signals matched from them: fixer, as-is,
+  probate, trust sale, estate sale, court confirmation, needs work, contractor
+  special, tear down, deferred maintenance, investor, vacant.
+- **MLS number and originating MLS.**
+
+No browser is involved. It is a plain fetch of the Redfin URL the web-search
+step already found, so it adds about a second per row rather than a tab. Turn
+it off with `ENRICH_REDFIN=false` or the checkbox in the tab.
+
+The agent email comes only from inside Redfin's own listing-agent block. A
+bare `agentEmail` elsewhere on the page belongs to a Redfin house agent
+advertising on the listing, and is deliberately ignored.
+
+If Redfin serves a bot check the row reads `blocked by Redfin` and the other
+columns are untouched. Nothing is guessed.
+
 For calibration, the first rows of each job also log the JSON that
 PropertyRadar's own page fetches to `runs/enrich_<id>/network-sample.jsonl` —
 the data needed to later read the app's responses directly instead of the
@@ -340,7 +365,8 @@ server/
   csv.js           CSV parse/write, address-column detection, address matching
   share.js         one shared password in front of everything, for temporary sharing
   sources/         one module per source (reiblackbook, propertyradar,
-                   dealmachine, county, google, peoplesearch, websearch) + selectors.js
+                   dealmachine, county, google, peoplesearch, websearch,
+                   zillow, redfin) + selectors.js
 public/            the operator UI: Investigation tab (input → progress → evidence →
                    approval) and Property Enrichment tab (enrich.js)
 scripts/share.js   `npm run share`: temporary public link via a Cloudflare tunnel

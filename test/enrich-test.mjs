@@ -117,6 +117,17 @@ try {
   check('rows aligned with originals', out.records[1]["Buyer's Agent Full Name"] === 'Shinbori, James' && out.records[1]['PR Entity Owner'] === 'Yes')
   check('blank row stays in place', out.records[3]["Buyer's Agent Full Name"] === 'Blank Row Agent' && out.records[3]['PR Status'] === 'skipped')
   check('output filename', e.outputFilename() === 'SF test-enriched.csv')
+  check('agent columns present', ENRICH_COLUMNS.includes('Redfin Listing Agent') && ENRICH_COLUMNS.includes('Redfin Buyer Agent'))
+  check('agent contact columns present', ['Redfin Listing Brokerage', 'Redfin Listing Agent DRE', 'Redfin Listing Agent Phone', 'Redfin Listing Agent Email'].every((c) => ENRICH_COLUMNS.includes(c)))
+  check('deal-signal column present', ENRICH_COLUMNS.includes('Redfin Deal Signals'))
+  check('Redfin read per row', /Demo Listing Agent/.test(f(0)['Redfin Listing Agent']) && f(0)['Redfin Status'] === 'found', f(0)['Redfin Status'])
+  check('skipped row has no Redfin agent', f(3)['Redfin Listing Agent'] === '')
+  check('Redfin can be turned off', (() => {
+    const off = Enrichment.create({ csvText: csv, filename: 'off.csv' })
+    made.push(off)
+    off.setOptions({ redfin: false })
+    return off.options.redfin === false
+  })())
 
   console.log('\n[Enrich] Engine: stop, reload from disk, resume')
   const e2 = Enrichment.create({ csvText: csv, filename: 'resume.csv' })

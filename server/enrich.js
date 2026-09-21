@@ -20,6 +20,7 @@ import { FIELD_NOT_FOUND } from './sources/extract.js'
 import * as pr from './sources/propertyradar.js'
 import { searchAddress } from './sources/websearch.js'
 import { checkZillow } from './sources/zillow.js'
+import { lookupRedfin, dealSignals } from './sources/redfin.js'
 import { csvToRecords, toCsv, detectAddressColumns, buildAddress, addressMatch } from './csv.js'
 
 // Columns appended to the input sheet, in this order.
@@ -64,6 +65,18 @@ export const ENRICH_COLUMNS = [
   'Web Listing Status',
   'Web County',
   'Web Status',
+  'Redfin Listing Agent',
+  'Redfin Listing Brokerage',
+  'Redfin Listing Agent DRE',
+  'Redfin Listing Agent Phone',
+  'Redfin Listing Agent Email',
+  'Redfin Buyer Agent',
+  'Redfin Buyer Brokerage',
+  'Redfin Buyer Agent Phone',
+  'Redfin MLS #',
+  'Redfin Deal Signals',
+  'Redfin Remarks',
+  'Redfin Status',
   'Enrichment Notes',
   'Enriched At',
 ]
@@ -93,6 +106,7 @@ export class Enrichment extends EventEmitter {
       webSearch: config.enrichWebSearch,
       screenshots: config.enrichScreenshots,
       zillowCheck: config.enrichZillow,
+      redfin: config.enrichRedfin,
       delayMs: config.enrichDelayMs,
       headless: null, // null = leave the browser mode as configured
       ...(job.options || {}),
@@ -262,6 +276,7 @@ export class Enrichment extends EventEmitter {
     if (typeof opts.webSearch === 'boolean') this.options.webSearch = opts.webSearch
     if (typeof opts.screenshots === 'boolean') this.options.screenshots = opts.screenshots
     if (typeof opts.zillowCheck === 'boolean') this.options.zillowCheck = opts.zillowCheck
+    if (typeof opts.redfin === 'boolean') this.options.redfin = opts.redfin
     if (typeof opts.headless === 'boolean') this.options.headless = opts.headless
     if (opts.delayMs != null) {
       const n = parseInt(opts.delayMs, 10)
@@ -583,6 +598,12 @@ export class Enrichment extends EventEmitter {
     this._applyWeb(fields, web)
     if (web?.notes?.length && !web.ok) notes.push(...web.notes)
 
+    // Redfin names the agents PropertyRadar does not carry. Plain fetch of the
+    // page the web search already found, so it costs a second, not a tab.
+    const rf = await this._redfin(fields['Web Redfin'], signal)
+    this._applyRedfin(fields, rf)
+    if (rf && !rf.ok && rf.error) notes.push(`Redfin: ${rf.error}`)
+
     const z = await zillowPromise
     this._applyZillow(fields, z)
     if (z && !z.ok && z.error) notes.push(`Zillow: ${z.error}`)
@@ -669,8 +690,11 @@ export class Enrichment extends EventEmitter {
     fields['Enriched At'] = new Date().toISOString()
     this._applyPr(fields, { status: out.ok ? 'found' : 'not found', data: res.data, notes: res.notes, evidence: res.evidence }, address)
     const prev = this.results.get(row)
-    if (prev) for (const c of ENRICH_COLUMNS) if (c.startsWith('Web ') && !fields[c]) fields[c] = prev.fields[c] || ''
-    if (!prev) { fields['Web Status'] = this.options.webSearch ? 'pending' : 'skipped' }
+    if (prev) for (const c of ENRICH_COLUMNS) if ((c.startsWith('Web ') || c.startsWith('Redfin ')) && !fields[c]) fields[c] = prev.fields[c] || ''
+    if (!prev) {
+      fields['Web Status'] = this.options.webSearch ? 'pending' : 'skipped'
+      fields['Redfin Status'] = this.options.redfin ? 'pending' : 'skipped'
+    }
     fields['Enrichment Notes'] = ['Read from a property the operator opened by hand — check PR Address Match.', ...res.notes].join(' | ').slice(0, 600)
     fields._evidence = (res.evidence || []).filter((e) => e.file).map((e) => ({ file: e.file, label: e.label }))
     this._record(row, fields, 0)
@@ -750,8 +774,10 @@ export class Enrichment extends EventEmitter {
       ])
       this._applyWeb(fields, web)
       this._applyZillow(fields, z)
+      this._applyRedfin(fields, await this._redfin(fields['Web Redfin'], signal))
     } catch { /* best effort */ }
     if (fields['Web Status'] === 'pending') fields['Web Status'] = 'none'
+    if (fields['Redfin Status'] === 'pending') fields['Redfin Status'] = 'none'
     fields._evidence = row.evidence
     this._record(i, fields, row.ms || 0)
   }
@@ -780,6 +806,39 @@ export class Enrichment extends EventEmitter {
     } catch (err) {
       return { ok: false, url: '', county: '', propertyType: '', listingStatus: '', blocked: false, error: String(err?.message || err).slice(0, 160) }
     }
+  }
+
+  // Redfin is the only source we have that names the listing and buyer agents.
+  // Best effort: a block or a missing page leaves the columns empty and says so.
+  async _redfin(url, signal) {
+    if (!this.options.redfin) return null
+    if (!url) return { ok: false, error: 'no Redfin page found for this address' }
+    try {
+      return await lookupRedfin(url, { signal })
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err).slice(0, 160) }
+    }
+  }
+
+  _applyRedfin(fields, rf) {
+    if (!this.options.redfin) { fields['Redfin Status'] = 'skipped'; return }
+    if (!rf) { fields['Redfin Status'] = 'none'; return }
+    const la = rf.listingAgent || {}
+    const ba = rf.buyerAgent || {}
+    fields['Redfin Listing Agent'] = la.name || ''
+    fields['Redfin Listing Brokerage'] = la.brokerage || ''
+    fields['Redfin Listing Agent DRE'] = la.license || ''
+    fields['Redfin Listing Agent Phone'] = la.phone || la.brokerPhone || ''
+    fields['Redfin Listing Agent Email'] = la.email || ''
+    fields['Redfin Buyer Agent'] = ba.name || ''
+    fields['Redfin Buyer Brokerage'] = ba.brokerage || ''
+    fields['Redfin Buyer Agent Phone'] = ba.phone || ba.brokerPhone || ''
+    fields['Redfin MLS #'] = rf.mlsNumber || ''
+    fields['Redfin Deal Signals'] = (rf.signals || []).join(', ')
+    // Remarks are what make the fixer / as-is filter possible, but a full MLS
+    // write-up bloats the sheet, so keep the front of it.
+    fields['Redfin Remarks'] = String(rf.remarks || '').slice(0, 500)
+    fields['Redfin Status'] = rf.blocked ? 'blocked by Redfin' : rf.ok ? 'found' : 'not found'
   }
 
   _applyZillow(fields, z) {
@@ -929,6 +988,24 @@ export class Enrichment extends EventEmitter {
       fields['Web Listing Status'] = 'Off Market'
       fields['Web County'] = 'San Francisco'
     }
+    if (this.options.redfin) {
+      const fixer = Number(n) % 3 === 0
+      const remarks = fixer
+        ? 'Probate sale, sold strictly as-is. Contractor special, needs work throughout.'
+        : 'Beautifully remodelled home with designer finishes throughout.'
+      fields['Redfin Listing Agent'] = `Demo Listing Agent ${n}`
+      fields['Redfin Listing Brokerage'] = Number(n) % 2 ? 'Compass' : 'The Front Steps'
+      fields['Redfin Listing Agent DRE'] = `DRE #0${1000000 + Number(n)}`
+      fields['Redfin Listing Agent Phone'] = '415-555-0100'
+      fields['Redfin Listing Agent Email'] = `agent${n}@example.com`
+      fields['Redfin Buyer Agent'] = `Demo Buyer Agent ${n}`
+      fields['Redfin Buyer Brokerage'] = 'Demo Realty'
+      fields['Redfin Buyer Agent Phone'] = '415-555-0199'
+      fields['Redfin MLS #'] = `42${String(n).padStart(7, '0')}`
+      fields['Redfin Remarks'] = remarks
+      fields['Redfin Deal Signals'] = dealSignals(remarks).join(', ')
+      fields['Redfin Status'] = 'found'
+    } else fields['Redfin Status'] = 'skipped'
     return fields
   }
 
