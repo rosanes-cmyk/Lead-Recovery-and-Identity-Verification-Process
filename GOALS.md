@@ -33,9 +33,10 @@ and all of the following hold:
 - **Takes one typed address** as well as a CSV. Today: CSV only.
 - **Returns a CSV** that pastes straight back into Google Sheets. Done.
 
-**Where it stands:** about half. Ownership and money are solid and verified
-against live screenshots, the MLS sheet and internal arithmetic. Agents,
-permits and liens are missing.
+**Where it stands:** four of the six fields are done. Ownership and money are
+verified against live screenshots, the MLS sheet and internal arithmetic;
+agents come from Redfin. **Three things remain: permits, liens, and the
+single-address box.** Nothing else in this file is goal 1.
 
 ---
 
@@ -153,14 +154,33 @@ included, which would satisfy most of goal 2 with no scraping at all.
 
 1. ~~**Agents from Redfin.**~~ Done. Listing and buyer agent with brokerage,
    DRE, phone, email, plus MLS remarks and deal signals, on every row.
-2. **Add PropertyRadar's Listings tab to the run.** Status, date, days on
-   market, list price, failed-attempt count. Cheap, and the tab is already
-   mapped.
-3. **Permits**, from San Francisco's free parcel dataset. No browser needed.
+2. **Permits**, from San Francisco's free parcel dataset. No browser needed,
+   no terms-of-service question. The last missing field that has a clean
+   source.
+3. **Liens.** Blocked on a decision, not on work. See the question below.
 4. **Single-address box**, so goal 1 matches how it was described.
-5. **Liens.** Needs a source decision: foreclosure and default data sit in
-   PropertyRadar, tax and mechanics liens sit with the county recorder.
-6. **Get the MLS export** of every San Francisco sale for 24 months with
+
+Goal 1 is finished at step 4. Everything after it is goal 2.
+
+*Bonus, not part of goal 1, do it only if it is free along the way:*
+PropertyRadar's Listings tab (status, date, days on market, list price,
+failed attempts before a sale).
+5. **Get the MLS export** of every San Francisco sale for 24 months with
    listing agent and remarks. This is now a request to a person, not a build.
-7. **Build goal 2** on top of that export: filter, group by listing agent,
+6. **Build goal 2** on top of that export: filter, group by listing agent,
    rank, then enrich the top names with contact detail.
+
+---
+
+## Open question for Seth
+
+**What counts as "liens"?** The answer changes the work by an order of
+magnitude.
+
+- **Mortgages and notices of default only.** Already in PropertyRadar, already
+  in the account. Roughly a day, no new source.
+- **Recorded involuntary liens too** (tax liens, mechanics liens, judgments,
+  HOA). These live with the county recorder, whose index is not freely
+  queryable, so this needs a paid data source or a person looking them up.
+
+Nothing else in goal 1 is waiting on anyone.
