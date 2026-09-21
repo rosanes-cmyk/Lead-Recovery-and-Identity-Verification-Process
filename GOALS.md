@@ -157,7 +157,8 @@ included, which would satisfy most of goal 2 with no scraping at all.
 2. **Permits**, from San Francisco's free parcel dataset. No browser needed,
    no terms-of-service question. The last missing field that has a clean
    source.
-3. **Liens.** Blocked on a decision, not on work. See the question below.
+3. **Liens.** Free from the SF recorder by parcel number. Blocked on a
+   scope decision, not on a source. See below.
 4. **Single-address box**, so goal 1 matches how it was described.
 
 Goal 1 is finished at step 4. Everything after it is goal 2.
@@ -172,15 +173,62 @@ failed attempts before a sale).
 
 ---
 
+## Sources for the last two fields (checked live, 21 Sep 2026)
+
+### Permits — solved, free, no browser
+
+`data.sf.gov`, dataset `i98e-djp9`, "Building Permits". A Socrata REST API,
+no key required. Note the city moved off `data.sfgov.org`; old links 301.
+
+Query it by **block and lot**, which is the parcel number the tool already
+extracts, not by street text. For 547 Missouri St (block 4101, lot 032) the
+parcel query returns 11 permits where the street-name query returns 6, because
+permits get filed under spelling variants of the address.
+
+Each record carries: permit number, type and type definition, status and
+status date, filed / issued / approved / last-activity dates, revised cost,
+description, block, lot, address, neighborhood and supervisor district.
+
+Free and parcel-keyed from the same source, and arguably worth more to us than
+permits: **`nbtm-fbw5`, Notices of Violation from the Department of Building
+Inspection**, with an active / not-active status per violation. A property
+under an active building violation is a motivated seller.
+
+### Liens — better than first assessed
+
+An earlier note in this file said the county recorder's index was not freely
+queryable. **That was wrong**, and San Francisco is the exception in
+California.
+
+- **Already have, from PropertyRadar:** mortgages and deeds of trust, open
+  loan balances, notices of default and trustee sales.
+- **Free and online:** the Assessor-Recorder has published more than 7 million
+  recorded documents from 1990 to present at `recorder.sfgov.org`, the first
+  California county to do so. That set includes deeds, reconveyances, notices
+  of default and lien documents. Searchable **by block and lot**, which we
+  have; it cannot search by street address, which does not matter to us.
+  Viewing is free, a copy is $1.81.
+- **Shape of the work:** an AngularJS front end over a REST service at
+  `recorder.sfgov.org/SearchService/api/`. Either call that service directly,
+  the way the enrichment run already reads Redfin, or drive it with the
+  browser the way we drive PropertyRadar. The endpoint names are not in the
+  public config, so this needs one calibration pass with the network log on.
+- **Two limits to be honest about.** Documents before 1 Jan 1990 are in-person
+  only, at City Hall room 190. And an index says a lien was recorded, not that
+  it is still owed; establishing that means reading the release or
+  reconveyance alongside it.
+- **When certainty matters**, a title company preliminary report is still the
+  industry answer, and a title rep will usually run one for an investor they
+  work with. That is a phone call, not a build.
+
 ## Open question for Seth
 
-**What counts as "liens"?** The answer changes the work by an order of
-magnitude.
+**What counts as "liens"?** Cheaper than it looked, but still your call.
 
-- **Mortgages and notices of default only.** Already in PropertyRadar, already
-  in the account. Roughly a day, no new source.
-- **Recorded involuntary liens too** (tax liens, mechanics liens, judgments,
-  HOA). These live with the county recorder, whose index is not freely
-  queryable, so this needs a paid data source or a person looking them up.
+- **Mortgages and notices of default only.** Already in PropertyRadar. About a
+  day.
+- **Recorded involuntary liens too** (tax, mechanics, judgments, HOA). Now
+  reachable free from the SF recorder, so call it a few days plus one
+  calibration pass, rather than a paid data subscription.
 
 Nothing else in goal 1 is waiting on anyone.
