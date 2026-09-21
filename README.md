@@ -339,6 +339,38 @@ A few things to know before you share:
 - Nothing here makes the app safe to leave online permanently. It is for a demo
   or a hand-off, not hosting.
 
+### Liens, from the recorded chain of title
+
+Every enrichment row also searches the San Francisco Assessor-Recorder by the
+parcel number PropertyRadar just read, and reports what is still hanging over
+the property:
+
+| Column | What it is |
+| --- | --- |
+| Liens Open Loans | Loans recorded since the current owner took title, minus the releases that clear them |
+| Liens Unreleased | Judgments, tax liens, mechanics liens and assessment liens with no release recorded after them |
+| Liens Notice of Default | Dates of any notice of default or trustee sale |
+| Liens Last Transfer | The deed that put the current owner on title, and the parties |
+| Liens Documents | How many documents are recorded against the parcel |
+| Liens Summary | The one-line version, for the sheet |
+
+Three rules this follows, and they matter:
+
+- **By parcel, never by name.** The recorder indexes by party, and a name
+  search for one owner turned up three abstracts of judgment belonging to two
+  other men with the same name. Keying on a name would report a stranger's
+  debt against your seller.
+- **It never claims a debt is owed.** The index has no amounts and does not
+  link a release to the loan it cleared, so the wording is "not shown
+  released". For a figure, or for certainty, use a title company's
+  preliminary report.
+- **A short read says so.** If paging stops before every document is in, the
+  status reads `partial (N of M read)` rather than looking like a clean answer.
+
+San Francisco only, and only documents recorded from 28 Dec 1989. Earlier ones
+are on paper at City Hall. Turn it off with `ENRICH_LIENS=false` or the
+checkbox in the tab.
+
 ## Calibrating the SF recorder search (liens)
 
 `recorder.sfgov.org` holds every document recorded in San Francisco since 1990,

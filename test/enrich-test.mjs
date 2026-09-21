@@ -122,6 +122,15 @@ try {
   check('deal-signal column present', ENRICH_COLUMNS.includes('Redfin Deal Signals'))
   check('Redfin read per row', /Demo Listing Agent/.test(f(0)['Redfin Listing Agent']) && f(0)['Redfin Status'] === 'found', f(0)['Redfin Status'])
   check('skipped row has no Redfin agent', f(3)['Redfin Listing Agent'] === '')
+  check('lien columns present', ['Liens Open Loans', 'Liens Unreleased', 'Liens Notice of Default', 'Liens Summary', 'Liens Status'].every((c) => ENRICH_COLUMNS.includes(c)))
+  check('liens read per row', f(0)['Liens Status'] === 'found' && /loan/.test(f(0)['Liens Summary']), f(0)['Liens Summary'])
+  check('skipped row has no lien data', f(3)['Liens Status'] !== 'found')
+  check('liens can be turned off', (() => {
+    const off = Enrichment.create({ csvText: csv, filename: 'noliens.csv' })
+    made.push(off)
+    off.setOptions({ liens: false })
+    return off.options.liens === false
+  })())
   check('Redfin can be turned off', (() => {
     const off = Enrichment.create({ csvText: csv, filename: 'off.csv' })
     made.push(off)

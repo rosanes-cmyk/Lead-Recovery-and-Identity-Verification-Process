@@ -22,7 +22,7 @@ currently gathers by hand across five browser tabs.
 | Assessed value | done |
 | Listing agent and selling agent | **done** — read from Redfin, with brokerage, DRE licence, phone and email |
 | Permit history | **not built** |
-| Liens and encumbrances | **partial** — open loan balance only; no tax, mechanics or involuntary liens, no notice of default |
+| Liens and encumbrances | **done** — the recorded chain of title by parcel: open loans, unreleased judgments and tax/mechanics liens, notices of default. No amounts; the index carries none |
 
 and all of the following hold:
 
@@ -33,10 +33,11 @@ and all of the following hold:
 - **Takes one typed address** as well as a CSV. Today: CSV only.
 - **Returns a CSV** that pastes straight back into Google Sheets. Done.
 
-**Where it stands:** four of the six fields are done. Ownership and money are
+**Where it stands:** five of the six fields are done. Ownership and money are
 verified against live screenshots, the MLS sheet and internal arithmetic;
-agents come from Redfin. **Three things remain: permits, liens, and the
-single-address box.** Nothing else in this file is goal 1.
+agents come from Redfin and liens from the recorded chain of title.
+**Two things remain: permits and the single-address box.** Nothing else in
+this file is goal 1.
 
 ---
 
@@ -157,11 +158,8 @@ included, which would satisfy most of goal 2 with no scraping at all.
 2. **Permits**, from San Francisco's free parcel dataset. No browser needed,
    no terms-of-service question. The last missing field that has a clean
    source.
-3. **Liens.** Source calibrated and the reader is written and tested. What
-   remains is driving the page per property and adding the columns. The scope
-   question below is now moot: one parcel query returns mortgages, judgments,
-   tax and mechanics liens and notices of default together, so there is no
-   saving in asking for less.
+3. ~~**Liens.**~~ Done. Read per property from the SF recorder by parcel
+   number, with liens paired against their releases.
 4. **Single-address box**, so goal 1 matches how it was described.
 
 Goal 1 is finished at step 4. Everything after it is goal 2.
@@ -238,14 +236,8 @@ California.
   industry answer, and a title rep will usually run one for an investor they
   work with. That is a phone call, not a build.
 
-## Open question for Seth
+## Open questions
 
-**What counts as "liens"?** Cheaper than it looked, but still your call.
-
-- **Mortgages and notices of default only.** Already in PropertyRadar. About a
-  day.
-- **Recorded involuntary liens too** (tax, mechanics, judgments, HOA). Now
-  reachable free from the SF recorder, so call it a few days plus one
-  calibration pass, rather than a paid data subscription.
-
-Nothing else in goal 1 is waiting on anyone.
+None. The lien scope question is closed: one parcel query returns mortgages,
+judgments, tax and mechanics liens and notices of default together, so there
+was nothing to save by asking for less, and all of it is in.

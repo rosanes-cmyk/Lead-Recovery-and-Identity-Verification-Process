@@ -200,3 +200,153 @@ export function splitApn(apn = '') {
   if (!m) return { block: '', lot: '' }
   return { block: m[1], lot: m[2].toUpperCase() }
 }
+
+// ---------------------------------------------------------------------------------
+// Driving the page.
+//
+// The service will not take a direct call: every endpoint needs a single-use key
+// that the app mints and encrypts for itself. So we use the site the way a person
+// does, and read the JSON the page fetches for its own table. That gives clean
+// records instead of scraped HTML, without going near their key machinery.
+// ---------------------------------------------------------------------------------
+
+export const SEARCH_URL = `${RECORDER_HOST}/#!/simple`
+
+// The form's inputs all share name="last-name", so the ng-model is the only thing
+// that identifies them. Label text is the fallback if the app is ever rebuilt.
+const FIELD = {
+  block: ['input[ng-model="SearchRequestModel.Block"]', 'input[ng-model$=".Block"]'],
+  lot: ['input[ng-model="SearchRequestModel.LowLot"]', 'input[ng-model$=".LowLot"]'],
+}
+const SEARCH_BUTTON = ['button:has-text("Search")', 'input[type="button"][value="Search"]', '#btnSearch']
+const CLEAR_BUTTON = ['a:has-text("Clear All")', 'button:has-text("Clear All")']
+const AGREE_BUTTON = [
+  'button:has-text("I Agree")', 'button:has-text("Agree")', 'button:has-text("Accept")',
+  'input[type="button"][value*="Agree" i]', 'button:has-text("Continue")',
+]
+
+async function clickAny(page, selectors, { timeout = 4000, required = false } = {}) {
+  for (const sel of selectors) {
+    try {
+      const el = page.locator(sel).first()
+      await el.waitFor({ state: 'visible', timeout })
+      await el.click({ timeout })
+      return true
+    } catch { /* try the next one */ }
+  }
+  if (required) throw new Error(`Could not find: ${selectors[0]}`)
+  return false
+}
+
+async function fillAny(page, selectors, value) {
+  for (const sel of selectors) {
+    try {
+      const el = page.locator(sel).first()
+      await el.waitFor({ state: 'visible', timeout: 8000 })
+      await el.fill('')
+      await el.fill(String(value))
+      return true
+    } catch { /* try the next one */ }
+  }
+  return false
+}
+
+/**
+ * Every document recorded against one parcel.
+ *
+ * Returns whole records, deduplicated by document number, plus what the service
+ * said the total was — so a short read announces itself rather than looking
+ * like a clean answer.
+ */
+export async function readParcel(page, { block, lot, signal, timeoutMs = 45000, maxPages = 12, url = SEARCH_URL } = {}) {
+  if (!block || !lot) return { ok: false, total: 0, rows: [], partial: false, error: 'No parcel number for this property.' }
+
+  const seen = new Map()
+  let reported = 0
+  let sawResponse = false
+  // Reading a response body is asynchronous, and the listener is not awaited by
+  // the page. Every parse is tracked so the results are read only once they have
+  // all landed — otherwise a fast return sees an empty map.
+  const inFlight = []
+  const collect = (resp) => {
+    if (!resp.url().includes('GetSearchResults')) return
+    inFlight.push(
+      (async () => {
+        try {
+          if (!resp.ok()) return
+          const parsed = parseSearchResults(await resp.json())
+          if (!parsed.ok) return
+          sawResponse = true
+          reported = Math.max(reported, parsed.total)
+          for (const r of parsed.rows) if (r.docNumber && !seen.has(r.docNumber)) seen.set(r.docNumber, r)
+        } catch { /* a body we could not read is no worse than one we never saw */ }
+      })(),
+    )
+  }
+  const settle = async () => { await Promise.allSettled(inFlight.splice(0)) }
+  page.on('response', collect)
+
+  try {
+    // Only navigate when the tab is not already on the search site. Comparing
+    // hosts rather than matching the recorder by name keeps this drivable
+    // against a stand-in, which is how the flow is tested.
+    let host = ''
+    try { host = new URL(url).host } catch { /* fall through to a plain navigate */ }
+    let onSite = false
+    try { onSite = Boolean(host) && new URL(page.url()).host === host } catch { onSite = false }
+    if (!onSite) await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
+    await clickAny(page, AGREE_BUTTON, { timeout: 3000 })
+    // A second search in the same tab must not inherit the first one's criteria.
+    await clickAny(page, CLEAR_BUTTON, { timeout: 3000 })
+
+    if (!(await fillAny(page, FIELD.block, block))) throw new Error('Could not find the Block box on the recorder search form.')
+    if (!(await fillAny(page, FIELD.lot, lot))) throw new Error('Could not find the Lot box on the recorder search form.')
+
+    const first = page.waitForResponse((r) => r.url().includes('GetSearchResults'), { timeout: timeoutMs }).catch(() => null)
+    await clickAny(page, SEARCH_BUTTON, { required: true })
+    await first
+    await settle()
+
+    // Page until we have everything the service said exists. The pager is the
+    // only way through, since asking for more rows directly needs their key.
+    for (let i = 0; i < maxPages && seen.size < reported; i++) {
+      if (signal?.aborted) break
+      const before = seen.size
+      const next = page.waitForResponse((r) => r.url().includes('GetSearchResults'), { timeout: 15000 }).catch(() => null)
+      const moved = await clickAny(page, ['a[ng-click*="selectPage"]:has-text("›")', 'li:not(.disabled) > a:has-text("›")', 'a[title="Next"]', 'li.pagination-next:not(.disabled) a'], { timeout: 3000 })
+      if (!moved) break
+      await next
+      await settle()
+      if (seen.size === before) break // the pager moved but nothing new arrived
+    }
+
+    const rows = [...seen.values()]
+    const total = reported || rows.length
+    // "ok" means the service answered, not that it found something. A parcel
+    // with no recorded documents is a real answer; never hearing back is not.
+    return { ok: sawResponse, total, rows, partial: rows.length < total, error: sawResponse ? '' : 'The recorder never returned a result list.' }
+  } catch (err) {
+    await settle()
+    const rows = [...seen.values()]
+    return { ok: false, total: reported, rows, partial: rows.length < reported, error: String(err?.message || err).slice(0, 180) }
+  } finally {
+    page.off('response', collect)
+  }
+}
+
+// One parcel, start to finish: search, read, classify, pair.
+export async function lookupLiens(page, apn, opts = {}) {
+  const { block, lot } = splitApn(apn)
+  if (!block) return { ok: false, error: `Parcel number not usable: "${apn}"`, summary: null, rows: [] }
+  // opts carries `url` through, so the whole lookup is testable end to end.
+  const res = await readParcel(page, { block, lot, ...opts })
+  if (!res.ok && !res.rows.length) return { ok: false, error: res.error || 'No recorded documents found.', summary: null, rows: [] }
+  return {
+    ok: true,
+    error: res.error,
+    partial: res.partial,
+    total: res.total,
+    rows: res.rows,
+    summary: summariseEncumbrances(res.rows),
+  }
+}

@@ -21,6 +21,7 @@ import * as pr from './sources/propertyradar.js'
 import { searchAddress } from './sources/websearch.js'
 import { checkZillow } from './sources/zillow.js'
 import { lookupRedfin, dealSignals } from './sources/redfin.js'
+import { lookupLiens, encumbranceSummary } from './sources/recorder.js'
 import { csvToRecords, toCsv, detectAddressColumns, buildAddress, addressMatch } from './csv.js'
 
 // Columns appended to the input sheet, in this order.
@@ -77,6 +78,13 @@ export const ENRICH_COLUMNS = [
   'Redfin Deal Signals',
   'Redfin Remarks',
   'Redfin Status',
+  'Liens Open Loans',
+  'Liens Unreleased',
+  'Liens Notice of Default',
+  'Liens Last Transfer',
+  'Liens Documents',
+  'Liens Summary',
+  'Liens Status',
   'Enrichment Notes',
   'Enriched At',
 ]
@@ -107,6 +115,7 @@ export class Enrichment extends EventEmitter {
       screenshots: config.enrichScreenshots,
       zillowCheck: config.enrichZillow,
       redfin: config.enrichRedfin,
+      liens: config.enrichLiens,
       delayMs: config.enrichDelayMs,
       headless: null, // null = leave the browser mode as configured
       ...(job.options || {}),
@@ -127,6 +136,7 @@ export class Enrichment extends EventEmitter {
     this._prFailStreak = 0
     this._page = null // the PropertyRadar tab (may be replaced by a fresh one mid-run)
     this._zpage = null // a second tab for Zillow, so it never disturbs PropertyRadar's
+    this._rpage = null // a third for the SF recorder, for the same reason
     this.dir = jobDir(this.id)
     // Output column names, suffixed if the input sheet already has them (re-run
     // of an enriched file) so nothing in the original is overwritten.
@@ -277,6 +287,7 @@ export class Enrichment extends EventEmitter {
     if (typeof opts.screenshots === 'boolean') this.options.screenshots = opts.screenshots
     if (typeof opts.zillowCheck === 'boolean') this.options.zillowCheck = opts.zillowCheck
     if (typeof opts.redfin === 'boolean') this.options.redfin = opts.redfin
+    if (typeof opts.liens === 'boolean') this.options.liens = opts.liens
     if (typeof opts.headless === 'boolean') this.options.headless = opts.headless
     if (opts.delayMs != null) {
       const n = parseInt(opts.delayMs, 10)
@@ -458,6 +469,7 @@ export class Enrichment extends EventEmitter {
             page = await this._openBrowser()
             this._page = page
             this._zpage = null
+            this._rpage = null
             fields = await this._processRow(i)
           } catch (err2) {
             fields = this._errorFields(i, err2)
@@ -598,6 +610,12 @@ export class Enrichment extends EventEmitter {
     this._applyWeb(fields, web)
     if (web?.notes?.length && !web.ok) notes.push(...web.notes)
 
+    // The recorded chain of title, keyed by the parcel number PropertyRadar just
+    // read. Must run after it, and in its own tab.
+    const lien = await this._liens(fields['PR APN'], signal)
+    this._applyLiens(fields, lien)
+    if (lien && !lien.ok && lien.error) notes.push(`Recorder: ${lien.error}`)
+
     // Redfin names the agents PropertyRadar does not carry. Plain fetch of the
     // page the web search already found, so it costs a second, not a tab.
     const rf = await this._redfin(fields['Web Redfin'], signal)
@@ -690,10 +708,11 @@ export class Enrichment extends EventEmitter {
     fields['Enriched At'] = new Date().toISOString()
     this._applyPr(fields, { status: out.ok ? 'found' : 'not found', data: res.data, notes: res.notes, evidence: res.evidence }, address)
     const prev = this.results.get(row)
-    if (prev) for (const c of ENRICH_COLUMNS) if ((c.startsWith('Web ') || c.startsWith('Redfin ')) && !fields[c]) fields[c] = prev.fields[c] || ''
+    if (prev) for (const c of ENRICH_COLUMNS) if ((c.startsWith('Web ') || c.startsWith('Redfin ') || c.startsWith('Liens ')) && !fields[c]) fields[c] = prev.fields[c] || ''
     if (!prev) {
       fields['Web Status'] = this.options.webSearch ? 'pending' : 'skipped'
       fields['Redfin Status'] = this.options.redfin ? 'pending' : 'skipped'
+      fields['Liens Status'] = this.options.liens ? 'pending' : 'skipped'
     }
     fields['Enrichment Notes'] = ['Read from a property the operator opened by hand — check PR Address Match.', ...res.notes].join(' | ').slice(0, 600)
     fields._evidence = (res.evidence || []).filter((e) => e.file).map((e) => ({ file: e.file, label: e.label }))
@@ -778,6 +797,7 @@ export class Enrichment extends EventEmitter {
     } catch { /* best effort */ }
     if (fields['Web Status'] === 'pending') fields['Web Status'] = 'none'
     if (fields['Redfin Status'] === 'pending') fields['Redfin Status'] = 'none'
+    if (fields['Liens Status'] === 'pending') fields['Liens Status'] = 'none'
     fields._evidence = row.evidence
     this._record(i, fields, row.ms || 0)
   }
@@ -818,6 +838,40 @@ export class Enrichment extends EventEmitter {
     } catch (err) {
       return { ok: false, error: String(err?.message || err).slice(0, 160) }
     }
+  }
+
+  // The SF recorder gets its own tab so it never navigates PropertyRadar away.
+  async _liens(apn, signal) {
+    if (!this.options.liens) return null
+    const clean = String(apn || '').trim()
+    if (!clean || clean === FIELD_NOT_FOUND) return { ok: false, error: 'no parcel number, so no recorder search' }
+    try {
+      if (!this._rpage || this._rpage.isClosed?.()) {
+        const ctx = this._page && !this._page.isClosed?.() ? this._page.context() : await getContext()
+        this._rpage = await ctx.newPage()
+      }
+      return await lookupLiens(this._rpage, clean, { signal })
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err).slice(0, 160) }
+    }
+  }
+
+  _applyLiens(fields, res) {
+    if (!this.options.liens) { fields['Liens Status'] = 'skipped'; return }
+    if (!res) { fields['Liens Status'] = 'none'; return }
+    if (!res.ok || !res.summary) {
+      fields['Liens Status'] = /no parcel/i.test(res.error || '') ? 'no parcel number' : 'not found'
+      return
+    }
+    const s = res.summary
+    fields['Liens Open Loans'] = String(s.likelyOpenLoans)
+    fields['Liens Unreleased'] = s.unreleasedEncumbrances.map((r) => `${r.titles.join(' + ')} ${r.date}`).join('; ')
+    fields['Liens Notice of Default'] = s.noticesOfDefault.map((r) => r.date).join('; ')
+    fields['Liens Last Transfer'] = s.lastTransfer ? `${s.lastTransfer.date} ${s.lastTransfer.parties.map((p) => p.name).join(' -> ')}` : ''
+    fields['Liens Documents'] = String(res.total || s.total)
+    fields['Liens Summary'] = encumbranceSummary(s)
+    // A short read must say so: a missing page of documents could hide a lien.
+    fields['Liens Status'] = res.partial ? `partial (${s.total} of ${res.total} read)` : 'found'
   }
 
   _applyRedfin(fields, rf) {
@@ -1006,6 +1060,15 @@ export class Enrichment extends EventEmitter {
       fields['Redfin Deal Signals'] = dealSignals(remarks).join(', ')
       fields['Redfin Status'] = 'found'
     } else fields['Redfin Status'] = 'skipped'
+    if (this.options.liens) {
+      const owes = Number(n) % 4 === 0
+      fields['Liens Open Loans'] = owes ? '2' : '1'
+      fields['Liens Unreleased'] = owes ? `ABSTRACT OF JUDGMENT 3/${(Number(n) % 27) + 1}/2019` : ''
+      fields['Liens Last Transfer'] = `Oct 2023 DEMO SELLER -> Demo Owner ${n}`
+      fields['Liens Documents'] = String(12 + (Number(n) % 40))
+      fields['Liens Summary'] = owes ? '2 loans not shown released; ABSTRACT OF JUDGMENT (no release recorded)' : '1 loan not shown released'
+      fields['Liens Status'] = 'found'
+    } else fields['Liens Status'] = 'skipped'
     return fields
   }
 
@@ -1060,6 +1123,9 @@ export class Enrichment extends EventEmitter {
     const z = this._zpage
     this._zpage = null
     if (z) z.close().catch(() => {})
+    const r = this._rpage
+    this._rpage = null
+    if (r) r.close().catch(() => {})
   }
 
   // The original sheet plus the enrichment columns. Rows not yet processed have
