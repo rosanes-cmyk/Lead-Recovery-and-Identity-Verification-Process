@@ -1,0 +1,115 @@
+{
+ "ResultCount": 55,
+ "SearchResults": [
+  {
+   "ID": "10981865",
+   "PrimaryDocNumber": "2023086344",
+   "DocumentDate": "11/3/2023",
+   "FilingCode": "SUBSTITUTION TRUSTEE<br/>RECONVEYANCE",
+   "Names": "(R) WESTEN DAVID<br/>(E) CORELOGIC SOLUTIONS LLC",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "10981773",
+   "PrimaryDocNumber": "2023086267",
+   "DocumentDate": "11/3/2023",
+   "FilingCode": "ASSGN DEED OF TRUST",
+   "Names": "(R) WESTEN DAVID<br/>(E) JPMORGAN CHASE BANK NA",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "10972466",
+   "PrimaryDocNumber": "2023079179",
+   "DocumentDate": "10/23/2023",
+   "FilingCode": "DEED OF TRUST",
+   "Names": "(R) WINTERS MICHAEL<br/>(E) ROCKET MORTGAGE LLC",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "10972465",
+   "PrimaryDocNumber": "2023079178",
+   "DocumentDate": "10/23/2023",
+   "FilingCode": "DEED",
+   "Names": "(R) WESTEN DAVID<br/>(E) WINTERS MICHAEL",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "10964184",
+   "PrimaryDocNumber": "2023073152",
+   "DocumentDate": "10/10/2023",
+   "FilingCode": "RES ENERGY INSPCTN",
+   "Names": "(R) WESTEN DAVID<br/>(R) WESTEN AYNUR",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "6854366",
+   "PrimaryDocNumber": "2020948547",
+   "DocumentDate": "7/6/2020",
+   "FilingCode": "SUBSTITUTION TRUSTEE<br/>RECONVEYANCE",
+   "Names": "(R) WELLS FARGO BANK NA<br/>(E) WELLS FARGO BANK NA",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "6846071",
+   "PrimaryDocNumber": "2020940252",
+   "DocumentDate": "6/12/2020",
+   "FilingCode": "DEED OF TRUST",
+   "Names": "(R) WESTEN AYNUR GIRGIN<br/>(E) FIRST REPUBLIC BANK",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "6309581",
+   "PrimaryDocNumber": "2019831882",
+   "DocumentDate": "9/17/2019",
+   "FilingCode": "RECONVEYANCE",
+   "Names": "(R) FJM PRIVATE MORTGAGE FUND LLC<br/>(E) MISSOURI PARTNERS LLC",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "6308778",
+   "PrimaryDocNumber": "2019831079",
+   "DocumentDate": "9/13/2019",
+   "FilingCode": "SUBSTITUTION TRUSTEE<br/>RECONVEYANCE",
+   "Names": "(R) IRA SVCS TRUST CO<br/>(E) IRA SVCS TRUST CO",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "6308777",
+   "PrimaryDocNumber": "2019831078",
+   "DocumentDate": "9/13/2019",
+   "FilingCode": "SUBSTITUTION TRUSTEE<br/>RECONVEYANCE",
+   "Names": "(R) IRA SERVICES TR CO<br/>(E) IRA SERVICES TR CO",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  }
+ ]
+}

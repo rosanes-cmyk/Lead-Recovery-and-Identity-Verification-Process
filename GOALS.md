@@ -157,8 +157,11 @@ included, which would satisfy most of goal 2 with no scraping at all.
 2. **Permits**, from San Francisco's free parcel dataset. No browser needed,
    no terms-of-service question. The last missing field that has a clean
    source.
-3. **Liens.** Free from the SF recorder by parcel number. Blocked on a
-   scope decision, not on a source. See below.
+3. **Liens.** Source calibrated and the reader is written and tested. What
+   remains is driving the page per property and adding the columns. The scope
+   question below is now moot: one parcel query returns mortgages, judgments,
+   tax and mechanics liens and notices of default together, so there is no
+   saving in asking for less.
 4. **Single-address box**, so goal 1 matches how it was described.
 
 Goal 1 is finished at step 4. Everything after it is goal 2.
@@ -208,11 +211,25 @@ California.
   of default and lien documents. Searchable **by block and lot**, which we
   have; it cannot search by street address, which does not matter to us.
   Viewing is free, a copy is $1.81.
-- **Shape of the work:** an AngularJS front end over a REST service at
-  `recorder.sfgov.org/SearchService/api/`. Either call that service directly,
-  the way the enrichment run already reads Redfin, or drive it with the
-  browser the way we drive PropertyRadar. The endpoint names are not in the
-  public config, so this needs one calibration pass with the network log on.
+- **Calibrated 21 Sep 2026.** The search is
+  `GET /SearchService/api/Search/GetSearchResults` with plain query
+  parameters — `Block`, `LowLot`, `DocumentClass=OfficialRecords`,
+  `MinRecordedDate`, `MaxRecordedDate`, `Rows`, `StartRow` — returning
+  `{ResultCount, SearchResults[{PrimaryDocNumber, DocumentDate, FilingCode,
+  Names}]}`.
+- **But it cannot be called directly.** Every data endpoint requires a rolling
+  single-use key: `password` and `encryptedkey` headers, spent on one request
+  and replaced by calling `GetSecureKey`, which needs the current pair itself.
+  The client mints a random number and encrypts it with a key baked into the
+  app. That is an anti-automation measure, and reproducing it means defeating
+  it, so we drive the page with the browser instead and read the JSON response
+  it fetches. A few seconds per property rather than one, which is nothing
+  beside the 40 the PropertyRadar step already takes.
+- **Search by parcel, never by name.** Proven: block 4101 lot 032 returned 55
+  documents, the whole history of the property. The owner's name returned six,
+  three of them abstracts of judgment against a MICHAEL A WINTERS and a
+  MICHAEL P WINTERS — different people. A name key would have reported a
+  stranger's collections judgment against the seller.
 - **Two limits to be honest about.** Documents before 1 Jan 1990 are in-person
   only, at City Hall room 190. And an index says a lien was recorded, not that
   it is still owed; establishing that means reading the release or

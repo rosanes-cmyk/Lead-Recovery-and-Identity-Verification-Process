@@ -1,0 +1,199 @@
+{
+ "ResultCount": 6,
+ "SearchResults": [
+  {
+   "ID": "11135334",
+   "PrimaryDocNumber": "2024077928",
+   "DocumentDate": "10/11/2024",
+   "FilingCode": "RES ENERGY INSPCTN",
+   "Names": "(R) WINTERS KRISTEN<br/>(R) WINTERS MICHAEL",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "10972466",
+   "PrimaryDocNumber": "2023079179",
+   "DocumentDate": "10/23/2023",
+   "FilingCode": "DEED OF TRUST",
+   "Names": "(R) WINTERS MICHAEL<br/>(E) ROCKET MORTGAGE LLC",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "10972465",
+   "PrimaryDocNumber": "2023079178",
+   "DocumentDate": "10/23/2023",
+   "FilingCode": "DEED",
+   "Names": "(R) WESTEN DAVID<br/>(E) WINTERS MICHAEL",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "3686940",
+   "PrimaryDocNumber": "2006209161",
+   "DocumentDate": "7/6/2006",
+   "FilingCode": "ABSTRACT OF JUDGMENT",
+   "Names": "(R) WINTERS MICHAEL A<br/>(E) ATLANTIC CREDIT & FINANCE INC",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "1480940",
+   "PrimaryDocNumber": "1996998381",
+   "DocumentDate": "7/9/1996",
+   "FilingCode": "ABSTRACT OF JUDGMENT",
+   "Names": "(R) WINTERS MICHAEL P<br/>(E) FARAC ROBERT G",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  },
+  {
+   "ID": "1259984",
+   "PrimaryDocNumber": "1995777423",
+   "DocumentDate": "4/7/1995",
+   "FilingCode": "ABSTRACT OF JUDGMENT",
+   "Names": "(R) WINTERS MICHAEL P<br/>(E) FARAC ROBERT G",
+   "SecondaryDocNumber": "0",
+   "BookType": "",
+   "BookNumber": "",
+   "NumberOfPages": "0"
+  }
+ ],
+ "RefinementPanelData": {
+  "Years": [
+   {
+    "Key": "2023",
+    "Value": 2,
+    "ID": "2023",
+    "RefinementToken": null
+   },
+   {
+    "Key": "1995",
+    "Value": 1,
+    "ID": "1995",
+    "RefinementToken": null
+   },
+   {
+    "Key": "1996",
+    "Value": 1,
+    "ID": "1996",
+    "RefinementToken": null
+   },
+   {
+    "Key": "2006",
+    "Value": 1,
+    "ID": "2006",
+    "RefinementToken": null
+   },
+   {
+    "Key": "2024",
+    "Value": 1,
+    "ID": "2024",
+    "RefinementToken": null
+   }
+  ],
+  "FilingCodes": [
+   {
+    "Key": "ABSTRACT OF JUDGMENT",
+    "Value": 3,
+    "ID": "020",
+    "RefinementToken": null
+   },
+   {
+    "Key": "DEED",
+    "Value": 1,
+    "ID": "001",
+    "RefinementToken": null
+   },
+   {
+    "Key": "DEED OF TRUST",
+    "Value": 1,
+    "ID": "002",
+    "RefinementToken": null
+   },
+   {
+    "Key": "RES ENERGY INSPCTN",
+    "Value": 1,
+    "ID": "046",
+    "RefinementToken": null
+   }
+  ],
+  "Names": [
+   {
+    "Key": "WINTERS MICHAEL",
+    "Value": 3,
+    "ID": "WINTERS MICHAEL",
+    "RefinementToken": null
+   },
+   {
+    "Key": "FARAC ROBERT G",
+    "Value": 2,
+    "ID": "FARAC ROBERT G",
+    "RefinementToken": null
+   },
+   {
+    "Key": "WINTERS KIRSTEN",
+    "Value": 2,
+    "ID": "WINTERS KIRSTEN",
+    "RefinementToken": null
+   },
+   {
+    "Key": "WINTERS MICHAEL P",
+    "Value": 2,
+    "ID": "WINTERS MICHAEL P",
+    "RefinementToken": null
+   },
+   {
+    "Key": "ATLANTIC CREDIT & FINANCE INC",
+    "Value": 1,
+    "ID": "ATLANTIC CREDIT & FINANCE INC",
+    "RefinementToken": null
+   },
+   {
+    "Key": "MERS INC",
+    "Value": 1,
+    "ID": "MERS INC",
+    "RefinementToken": null
+   },
+   {
+    "Key": "ROCKET MORTGAGE LLC",
+    "Value": 1,
+    "ID": "ROCKET MORTGAGE LLC",
+    "RefinementToken": null
+   },
+   {
+    "Key": "WESTEN AYNUR GIRGIN",
+    "Value": 1,
+    "ID": "WESTEN AYNUR GIRGIN",
+    "RefinementToken": null
+   },
+   {
+    "Key": "WESTEN DAVID",
+    "Value": 1,
+    "ID": "WESTEN DAVID",
+    "RefinementToken": null
+   },
+   {
+    "Key": "WINTERS KRISTEN",
+    "Value": 1,
+    "ID": "WINTERS KRISTEN",
+    "RefinementToken": null
+   },
+   {
+    "Key": "WINTERS MICHAEL A",
+    "Value": 1,
+    "ID": "WINTERS MICHAEL A",
+    "RefinementToken": null
+   }
+  ]
+ }
+}
