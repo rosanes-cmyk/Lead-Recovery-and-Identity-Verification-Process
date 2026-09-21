@@ -7,7 +7,7 @@ import fs from 'node:fs'
 const { parseCsv, csvToRecords, toCsv, detectAddressColumns, buildAddress, tidyZip, addressMatch } = await import('../server/csv.js')
 const { parseDdgHtml, classifyLink, extractSoldFacts } = await import('../server/sources/websearch.js')
 const { Enrichment, ENRICH_COLUMNS } = await import('../server/enrich.js')
-const { parseZillowText, zillowSearchUrl } = await import('../server/sources/zillow.js')
+const { parseZillowText, zillowSearchUrl, parseZillowAgents, parseAgentBlock } = await import('../server/sources/zillow.js')
 
 let pass = 0, fail = 0
 const check = (name, cond, detail) => {
@@ -28,6 +28,36 @@ check('records keyed by header', recs.records[0].B === 'x, y')
 check('round-trip', JSON.stringify(csvToRecords(toCsv(recs.headers, recs.records)).records) === JSON.stringify(recs.records))
 check('duplicate headers suffixed', csvToRecords('A,A,B\n1,2,3').headers.join('|') === 'A|A (2)|B')
 check('blank rows skipped', csvToRecords('A,B\n1,2\n,\n3,4\n').records.length === 2)
+
+// ---- Zillow agents (the attribution block, verbatim from a live page) ------------
+console.log('\n[Enrich] Zillow listing attribution')
+const ZTEXT = `Zillow last checked: 29 minutes ago
+Listing updated: February 10, 2026 at 10:02am
+Listed by:
+Perry Kayasone DRE #01943235 415-290-0736,
+Sequoia Real Estate 888-499-7773
+Bought with:
+Donna Chan, DRE #01774693
+Exp Realty of California Inc.
+Source: SFAR,  MLS#: 426097788
+Originating MLS: San Francisco Association of REALTORS`
+const za = parseZillowAgents(ZTEXT)
+check('listing agent name', za.listingAgent?.name === 'Perry Kayasone', za.listingAgent?.name)
+check('listing agent licence', za.listingAgent?.license === 'DRE #01943235')
+check('listing agent phone', za.listingAgent?.phone === '415-290-0736')
+check('brokerage, not the phone number', za.listingAgent?.brokerage === 'Sequoia Real Estate', za.listingAgent?.brokerage)
+check('broker phone kept separately', za.listingAgent?.brokerPhone === '888-499-7773')
+check('buyer agent name', za.buyerAgent?.name === 'Donna Chan', za.buyerAgent?.name)
+check('buyer agent licence', za.buyerAgent?.license === 'DRE #01774693')
+check('buyer brokerage across a line break', za.buyerAgent?.brokerage === 'Exp Realty of California Inc.', za.buyerAgent?.brokerage)
+check('MLS number', za.mlsNumber === '426097788')
+check('MLS source', za.mlsSource === 'SFAR', za.mlsSource)
+const none = parseZillowAgents('Zillow last checked: 3 minutes ago\nNo listing attribution here.')
+check('no attribution -> no agents invented', !none.listingAgent && !none.buyerAgent)
+check('empty text is safe', !parseZillowAgents('').listingAgent)
+check('a name with digits is rejected', parseAgentBlock('12345 DRE #01943235') === null)
+check('placeholder name rejected', parseAgentBlock('N/A, DRE #01943235') === null)
+check('agent with no licence still read', parseAgentBlock('Jane Doe, Compass')?.name === 'Jane Doe')
 
 // ---- address columns ------------------------------------------------------------
 console.log('\n[Enrich] Address column detection')
@@ -122,6 +152,8 @@ try {
   check('deal-signal column present', ENRICH_COLUMNS.includes('Redfin Deal Signals'))
   check('Redfin read per row', /Demo Listing Agent/.test(f(0)['Redfin Listing Agent']) && f(0)['Redfin Status'] === 'found', f(0)['Redfin Status'])
   check('skipped row has no Redfin agent', f(3)['Redfin Listing Agent'] === '')
+  check('Zillow agent columns present', ['Zillow Listing Agent', 'Zillow Listing Brokerage', 'Zillow Buyer Agent', 'Agents Agree'].every((c) => ENRICH_COLUMNS.includes(c)))
+  check('agents cross-checked between the two sites', f(0)['Agents Agree'] === 'yes', f(0)['Agents Agree'])
   check('lien columns present', ['Liens Open Loans', 'Liens Unreleased', 'Liens Notice of Default', 'Liens Summary', 'Liens Status'].every((c) => ENRICH_COLUMNS.includes(c)))
   check('liens read per row', f(0)['Liens Status'] === 'found' && /loan/.test(f(0)['Liens Summary']), f(0)['Liens Summary'])
   check('skipped row has no lien data', f(3)['Liens Status'] !== 'found')

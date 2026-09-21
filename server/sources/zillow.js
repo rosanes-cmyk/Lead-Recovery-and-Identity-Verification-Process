@@ -69,7 +69,7 @@ function earliest(text, pairs) {
 
 // Load the Zillow page for an address in the given page/tab and read it.
 export async function checkZillow(page, address, { signal = null, timeoutMs = 15000 } = {}) {
-  const res = { ok: false, url: zillowSearchUrl(address), county: '', propertyType: '', listingStatus: '', blocked: false, error: '' }
+  const res = { ok: false, url: zillowSearchUrl(address), county: '', propertyType: '', listingStatus: '', blocked: false, error: '', listingAgent: null, buyerAgent: null, mlsNumber: '', mlsSource: '' }
   if (!address) { res.error = 'No address.'; return res }
   try {
     if (signal?.aborted) throw new Error('stopped')
@@ -78,10 +78,86 @@ export async function checkZillow(page, address, { signal = null, timeoutMs = 15
     res.url = page.url() // the real property URL (with zpid) after Zillow's redirect
     const text = await page.evaluate(() => document.body.innerText).catch(() => '')
     Object.assign(res, parseZillowText(text))
-    res.ok = !res.blocked && Boolean(res.propertyType || res.listingStatus || res.county || /_zpid/.test(res.url))
+    if (!res.blocked) Object.assign(res, parseZillowAgents(text))
+    res.ok = !res.blocked && Boolean(res.propertyType || res.listingStatus || res.county || res.listingAgent || /_zpid/.test(res.url))
     if (res.blocked) res.error = 'Zillow showed a bot check for this page.'
   } catch (err) {
     res.error = String(err?.message || err).slice(0, 160)
   }
   return res
+}
+
+// ---------------------------------------------------------------------------------
+// Agents, from the listing attribution block.
+//
+// Zillow prints the same facts Redfin does, in its own wording, near the bottom
+// of the overview:
+//
+//   Listed by: Perry Kayasone DRE #01943235 415-290-0736, Sequoia Real Estate 888-499-7773
+//   Bought with: Donna Chan, DRE #01774693
+//                Exp Realty of California Inc.
+//   Source: SFAR,  MLS#: 426097788
+//
+// Worth having as a second opinion: the two sites disagree often enough that a
+// mismatch is a signal, and one answers when the other is blocked. Like Redfin,
+// these are the agents of the MOST RECENT listing.
+// ---------------------------------------------------------------------------------
+
+const PHONE_RE = /\b(?:\+?1[\s.-]*)?\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4}\b/g
+const DRE_RE = /\bDRE\s*#?\s*(\d{5,10})\b/i
+
+function tidyPhone(v) {
+  const d = String(v || '').replace(/\D/g, '')
+  const ten = d.length === 11 && d.startsWith('1') ? d.slice(1) : d
+  return ten.length === 10 ? `${ten.slice(0, 3)}-${ten.slice(3, 6)}-${ten.slice(6)}` : ''
+}
+
+// One "Listed by" / "Bought with" block into a person.
+export function parseAgentBlock(block = '') {
+  const raw = String(block || '').replace(/\s+/g, ' ').trim()
+  if (!raw || raw.length > 300) return null
+  const phones = (raw.match(PHONE_RE) || []).map(tidyPhone).filter(Boolean)
+  const withoutPhones = raw.replace(PHONE_RE, ' ')
+  const dre = withoutPhones.match(DRE_RE)
+  let name = ''
+  let brokerage = ''
+  if (dre) {
+    const at = withoutPhones.search(DRE_RE)
+    name = withoutPhones.slice(0, at)
+    brokerage = withoutPhones.slice(at + dre[0].length)
+  } else {
+    // No licence shown: take the first comma as the split.
+    const c = withoutPhones.indexOf(',')
+    name = c > 0 ? withoutPhones.slice(0, c) : withoutPhones
+    brokerage = c > 0 ? withoutPhones.slice(c + 1) : ''
+  }
+  const clean = (v) => String(v).replace(/\s+/g, ' ').replace(/^[\s,;:–-]+|[\s,;:–-]+$/g, '').trim()
+  name = clean(name)
+  brokerage = clean(brokerage)
+  // A name with digits or a "no agent" placeholder is not a person.
+  if (!name || /\d/.test(name) || name.length > 60 || /^(n\/?a|none|unknown)$/i.test(name)) return null
+  return {
+    name,
+    brokerage: brokerage && brokerage.length <= 80 ? brokerage : '',
+    license: dre ? `DRE #${dre[1]}` : '',
+    phone: phones[0] || '',
+    brokerPhone: phones[1] || '',
+  }
+}
+
+export function parseZillowAgents(text = '') {
+  const t = String(text || '')
+  const grab = (label) => {
+    const re = new RegExp(`${label}\\s*:?\\s*([\\s\\S]{0,240}?)(?=\\n\\s*(?:Listed by|Bought with|Co[- ]?listing|Source\\s*:|Originating MLS|Zillow last checked|Listing updated)|$)`, 'i')
+    const m = t.match(re)
+    return m ? parseAgentBlock(m[1]) : null
+  }
+  const mls = t.match(/\bMLS\s*#\s*:?\s*([A-Za-z0-9-]{4,20})\b/i)
+  const source = t.match(/\bSource\s*:\s*([A-Za-z0-9 .&-]{2,40}?)\s*(?:,|\n|MLS)/i)
+  return {
+    listingAgent: grab('Listed by'),
+    buyerAgent: grab('Bought with'),
+    mlsNumber: mls ? mls[1] : '',
+    mlsSource: source ? source[1].trim() : '',
+  }
 }

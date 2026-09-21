@@ -262,6 +262,35 @@ No browser is involved. It is a plain fetch of the Redfin URL the web-search
 step already found, so it adds about a second per row rather than a tab. Turn
 it off with `ENRICH_REDFIN=false` or the checkbox in the tab.
 
+### Captchas stop the run, they do not skip the row
+
+Redfin and Zillow both put up a "press and hold" check from time to time. When
+one appears the job pauses, brings that tab to the front and says so, exactly
+like the PropertyRadar login pause. Clear it by hand and the run continues on
+its own; nothing is lost and the row is not written off as a miss. This needs
+the browser visible, so a headless run reports the block instead.
+
+Redfin is read with a plain fetch first, because that costs a second rather
+than a tab. If the fetch comes back blocked or empty, the same page is opened
+in the browser, where cookies exist and a check can actually be cleared.
+
+### Zillow names the agents too
+
+Zillow's listing attribution carries the same facts in its own wording:
+
+```
+Listed by: Perry Kayasone DRE #01943235 415-290-0736, Sequoia Real Estate 888-499-7773
+Bought with: Donna Chan, DRE #01774693
+             Exp Realty of California Inc.
+Source: SFAR,  MLS#: 426097788
+```
+
+That is read from the tab already open for the Zillow check, so it costs
+nothing extra, and it fills the `Zillow Listing Agent` columns. Two uses: it
+answers on rows where Redfin is blocked, and `Agents Agree` compares the two.
+A disagreement usually means one of the sites is showing a different listing,
+which is worth a look before you act on the name.
+
 **Which sale the agents belong to.** Redfin names the agents of the property's
 MOST RECENT listing. On a property that has sold again since the sale in your
 sheet, those are not the agents of your sale. The `Redfin Agents For` column

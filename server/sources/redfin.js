@@ -274,3 +274,19 @@ function sleep(ms, signal) {
     signal?.addEventListener?.('abort', () => { clearTimeout(t); resolve() }, { once: true })
   })
 }
+
+// When the plain fetch comes back blocked or empty, read the same page in the
+// browser instead. The browser has its own cookies and, if Redfin puts up a
+// check, the operator can clear it there — a plain fetch has no such recourse.
+export async function readRedfinInBrowser(page, url, { timeoutMs = 30000 } = {}) {
+  if (!page || !url) return { ok: false, error: 'No Redfin page for this address.' }
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
+    await page.waitForTimeout(1200)
+    const html = await page.content()
+    const parsed = parseRedfinHtml(html)
+    return { ...parsed, url, error: parsed.ok ? '' : parsed.error || 'Redfin page had no agent or remarks.' }
+  } catch (err) {
+    return { ok: false, url, error: String(err?.message || err).slice(0, 160) }
+  }
+}

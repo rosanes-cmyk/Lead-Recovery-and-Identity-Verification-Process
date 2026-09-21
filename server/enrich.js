@@ -20,7 +20,7 @@ import { FIELD_NOT_FOUND } from './sources/extract.js'
 import * as pr from './sources/propertyradar.js'
 import { searchAddress } from './sources/websearch.js'
 import { checkZillow } from './sources/zillow.js'
-import { lookupRedfin, dealSignals } from './sources/redfin.js'
+import { lookupRedfin, dealSignals, readRedfinInBrowser } from './sources/redfin.js'
 import { lookupLiens, encumbranceSummary } from './sources/recorder.js'
 import { csvToRecords, toCsv, detectAddressColumns, buildAddress, addressMatch } from './csv.js'
 
@@ -65,6 +65,11 @@ export const ENRICH_COLUMNS = [
   'Web Property Type',
   'Web Listing Status',
   'Web County',
+  'Zillow Listing Agent',
+  'Zillow Listing Brokerage',
+  'Zillow Listing Agent Phone',
+  'Zillow Buyer Agent',
+  'Agents Agree',
   'Web Status',
   'Redfin Listing Agent',
   'Redfin Listing Brokerage',
@@ -373,6 +378,32 @@ export class Enrichment extends EventEmitter {
 
   // Pause for a login (or a kicked session) and auto-resume once the page no
   // longer looks blocked. Manual Resume works too. Gives up auto after 10 min.
+  // A captcha is not a dead row. Bring the tab to the front, ask the operator to
+  // clear it (they press and hold), and carry on by itself once it is gone —
+  // the same shape as the PropertyRadar login pause.
+  async _requireOperator(page, { message, isClear, label = 'site' }) {
+    if (this.state === 'stopped' || this._headlessNow()) return false
+    try { await page?.bringToFront?.() } catch { /* best effort */ }
+    this._pauseGate = new Promise((res) => (this._resume = res))
+    this.state = 'login'
+    this._saveJob()
+    this._emit('login-required', { message, reason: 'captcha' })
+    const gate = this._pauseGate
+    const started = Date.now()
+    ;(async () => {
+      while (this.state === 'login' && this._pauseGate === gate && !this._abort.signal.aborted) {
+        await new Promise((r) => setTimeout(r, 2500))
+        if (this.state !== 'login' || this._pauseGate !== gate) break
+        let clear = false
+        try { clear = await isClear() } catch { clear = false }
+        if (clear) { this._log(`${label} check cleared — continuing.`, 'state'); this.resume(); break }
+        if (Date.now() - started > 10 * 60 * 1000) break
+      }
+    })()
+    await gate
+    return this.state !== 'stopped'
+  }
+
   async _requireLogin(page, reason) {
     if (this.state === 'stopped') return
     this._pauseGate = new Promise((res) => (this._resume = res))
@@ -619,14 +650,45 @@ export class Enrichment extends EventEmitter {
 
     // Redfin names the agents PropertyRadar does not carry. Plain fetch of the
     // page the web search already found, so it costs a second, not a tab.
-    const rf = await this._redfin(fields['Web Redfin'], signal)
+    let rf = await this._redfin(fields['Web Redfin'], signal)
+    // Nothing from the fetch: try the same page in the browser, where cookies
+    // exist and a check can be cleared by hand.
+    if (rf && !rf.ok && fields['Web Redfin'] && !this._headlessNow() && this.state !== 'stopped') {
+      const viaBrowser = await this._redfinInBrowser(fields['Web Redfin'])
+      if (viaBrowser?.ok) rf = viaBrowser
+      else if (viaBrowser?.blocked) {
+        const ok = await this._requireOperator(this._zpage, {
+          label: 'Redfin',
+          message: 'Redfin is showing a captcha. Clear it in the browser window (press and hold the button), and I will carry on by myself.',
+          isClear: async () => {
+            const again = await this._redfinInBrowser(fields['Web Redfin'])
+            if (again?.ok) { rf = again; return true }
+            return false
+          },
+        })
+        if (!ok) this._log('Stopped while waiting for the Redfin check.', 'warn')
+      }
+    }
     this._applyRedfin(fields, rf)
     if (rf && !rf.ok && rf.error) notes.push(`Redfin: ${rf.error}`)
 
-    const z = await zillowPromise
+    let z = await zillowPromise
+    if (z?.blocked && !this._headlessNow() && this.state !== 'stopped') {
+      const ok = await this._requireOperator(this._zpage, {
+        label: 'Zillow',
+        message: 'Zillow is showing a captcha. Clear it in the browser window (press and hold the button), and I will carry on by myself.',
+        isClear: async () => {
+          const again = await this._zillow(address)
+          if (again && !again.blocked) { z = again; return true }
+          return false
+        },
+      })
+      if (!ok) this._log('Stopped while waiting for the Zillow check.', 'warn')
+    }
     this._applyZillow(fields, z)
     if (z && !z.ok && z.error) notes.push(`Zillow: ${z.error}`)
 
+    this._crossCheckAgents(fields)
     fields['Enrichment Notes'] = notes.filter(Boolean).join(' | ').slice(0, 600)
     fields._evidence = (prRes.evidence || []).filter((e) => e.file).map((e) => ({ file: e.file, label: e.label }))
     return fields
@@ -709,7 +771,7 @@ export class Enrichment extends EventEmitter {
     fields['Enriched At'] = new Date().toISOString()
     this._applyPr(fields, { status: out.ok ? 'found' : 'not found', data: res.data, notes: res.notes, evidence: res.evidence }, address)
     const prev = this.results.get(row)
-    if (prev) for (const c of ENRICH_COLUMNS) if ((c.startsWith('Web ') || c.startsWith('Redfin ') || c.startsWith('Liens ')) && !fields[c]) fields[c] = prev.fields[c] || ''
+    if (prev) for (const c of ENRICH_COLUMNS) if ((c.startsWith('Web ') || c.startsWith('Redfin ') || c.startsWith('Liens ') || c.startsWith('Zillow ') || c === 'Agents Agree') && !fields[c]) fields[c] = prev.fields[c] || ''
     if (!prev) {
       fields['Web Status'] = this.options.webSearch ? 'pending' : 'skipped'
       fields['Redfin Status'] = this.options.redfin ? 'pending' : 'skipped'
@@ -799,6 +861,7 @@ export class Enrichment extends EventEmitter {
     if (fields['Web Status'] === 'pending') fields['Web Status'] = 'none'
     if (fields['Redfin Status'] === 'pending') fields['Redfin Status'] = 'none'
     if (fields['Liens Status'] === 'pending') fields['Liens Status'] = 'none'
+    this._crossCheckAgents(fields)
     fields._evidence = row.evidence
     this._record(i, fields, row.ms || 0)
   }
@@ -887,6 +950,18 @@ export class Enrichment extends EventEmitter {
     fields['Liens Status'] = res.partial ? `partial (${s.total} of ${res.total} read)` : 'found'
   }
 
+  async _redfinInBrowser(url) {
+    try {
+      if (!this._zpage || this._zpage.isClosed?.()) {
+        const ctx = this._page && !this._page.isClosed?.() ? this._page.context() : await getContext()
+        this._zpage = await ctx.newPage()
+      }
+      return await readRedfinInBrowser(this._zpage, url)
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err).slice(0, 160) }
+    }
+  }
+
   _applyRedfin(fields, rf) {
     if (!this.options.redfin) { fields['Redfin Status'] = 'skipped'; return }
     if (!rf) { fields['Redfin Status'] = 'none'; return }
@@ -912,8 +987,30 @@ export class Enrichment extends EventEmitter {
     fields['Redfin Status'] = rf.blocked ? 'blocked by Redfin' : rf.ok ? 'found' : 'not found'
   }
 
+  // Do the two sites name the same agents? A disagreement is worth seeing: it
+  // usually means one of them is showing a different listing.
+  _crossCheckAgents(fields) {
+    const same = (a, b) => {
+      const x = String(a || '').trim().toLowerCase()
+      const y = String(b || '').trim().toLowerCase()
+      return Boolean(x) && x === y
+    }
+    const r = fields['Redfin Listing Agent']
+    const z = fields['Zillow Listing Agent']
+    if (r && z) fields['Agents Agree'] = same(r, z) ? 'yes' : 'no — the sites name different agents'
+    else if (r) fields['Agents Agree'] = 'Redfin only'
+    else if (z) fields['Agents Agree'] = 'Zillow only'
+    else fields['Agents Agree'] = ''
+  }
+
   _applyZillow(fields, z) {
     if (!this.options.zillowCheck || !z) return
+    if (z.listingAgent) {
+      fields['Zillow Listing Agent'] = z.listingAgent.name || ''
+      fields['Zillow Listing Brokerage'] = z.listingAgent.brokerage || ''
+      fields['Zillow Listing Agent Phone'] = z.listingAgent.phone || z.listingAgent.brokerPhone || ''
+    }
+    if (z.buyerAgent) fields['Zillow Buyer Agent'] = z.buyerAgent.name || ''
     if (z.propertyType) fields['Web Property Type'] = z.propertyType
     if (z.listingStatus) fields['Web Listing Status'] = z.listingStatus
     if (z.county) fields['Web County'] = z.county
@@ -1058,6 +1155,10 @@ export class Enrichment extends EventEmitter {
       fields['Web Property Type'] = Number(n) % 5 === 0 ? 'Condo' : 'Single Family'
       fields['Web Listing Status'] = 'Off Market'
       fields['Web County'] = 'San Francisco'
+      fields['Zillow Listing Agent'] = `Demo Listing Agent ${n}`
+      fields['Zillow Listing Brokerage'] = Number(n) % 2 ? 'Compass' : 'The Front Steps'
+      fields['Zillow Listing Agent Phone'] = '415-555-0100'
+      fields['Zillow Buyer Agent'] = `Demo Buyer Agent ${n}`
     }
     if (this.options.redfin) {
       const fixer = Number(n) % 3 === 0
@@ -1087,6 +1188,7 @@ export class Enrichment extends EventEmitter {
       fields['Liens Summary'] = owes ? '2 loans not shown released; ABSTRACT OF JUDGMENT (no release recorded)' : '1 loan not shown released'
       fields['Liens Status'] = 'found'
     } else fields['Liens Status'] = 'skipped'
+    this._crossCheckAgents(fields)
     return fields
   }
 
