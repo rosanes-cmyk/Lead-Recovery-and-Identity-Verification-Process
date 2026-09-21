@@ -42,10 +42,10 @@ const outDir = path.join(root, 'runs', '_calibration', 'recorder')
 const HOST_RE = process.env.CALIBRATE_URL ? new RegExp(new URL(startUrl).host.replace(/[.]/g, '\\.'), 'i') : /recorder\.sfgov\.org/i
 
 const STEPS = [
-  ['search-form', 'Accept the disclaimer if one appears. When the search form is on screen — it starts with "Document Type" and "Search For" — press ENTER.'],
-  ['document-types', 'Open the "Document Type" list so all the choices are visible (Deed, Lien, Notice of Default, …). This list also decides which search boxes appear below. Press ENTER with it open.'],
-  ['parcel-search', `Choose a document type (use --All Types-- if it is offered), then search BY PARCEL: Block ${BLOCK}, Lot ${LOT}. Leave the name boxes empty.\n    Run the search. When the results appear — or when it says none were found — press ENTER.`],
-  ['name-search', `Click "Clear All", then search BY NAME instead: last name ${LAST}, first name ${FIRST}. Leave the parcel boxes empty.\n    Run the search. When the results appear, press ENTER.`],
+  ['search-form', 'Accept the disclaimer if one appears. You want the "Public Index Search" form, the one with Document Type, Grantor/Grantee Name, Titles, Block and Lot. Press ENTER when it is on screen.'],
+  ['titles-list', 'Open the "Titles" dropdown — the one showing --All Types-- — and leave it open. That is the list of document kinds (Deed, Lien, Notice of Default and so on). Press ENTER with it open.'],
+  ['parcel-search', `Set Titles back to --All Types--. Leave Document Type on Officials and leave the date range alone.\n    Put ${BLOCK} in Block and ${LOT} in Lot, leave the name box empty, and click Search.\n    Press ENTER when the results appear, or when it says none were found.`],
+  ['name-search', `Click "Clear All". Type   ${LAST} ${FIRST}   into the Grantor/Grantee Name box, leave the selector on "Grantor or Grantee", leave Block and Lot empty, and click Search.\n    If that finds nothing, try just   ${LAST}  . Press ENTER when the results appear.`],
   ['open-document', 'Open one document from the results — a deed of trust, a lien or a notice of default is ideal. When its detail or preview is on screen, press ENTER.'],
 ]
 

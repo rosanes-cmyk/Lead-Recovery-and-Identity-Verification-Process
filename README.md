@@ -354,11 +354,16 @@ npm run calibrate:recorder
 npm run calibrate:recorder -- 4101 032 WINTERS MICHAEL
 ```
 
-The search form has two ways in, and the calibration exercises both:
+The form is the "Public Index Search". Document Type offers only one choice,
+Officials. The list of document kinds sits under **Titles**, and Block and Lot
+are always visible. The date range defaults to 28 Dec 1989 through today,
+which is the whole free window.
 
-- **By parcel** — an Assessor Parcel Number box plus Block and Lot. These
-  appear only once a Document Type is chosen.
-- **By name** — last / first / middle, for up to three parties.
+Two ways in, and the calibration exercises both:
+
+- **By parcel** — the Block and Lot boxes.
+- **By name** — one Grantor/Grantee Name box, with a selector for whether the
+  party was the grantor, the grantee, or either.
 
 The name search matters as much as the parcel one. California recorders index
 documents by the parties to them; a parcel number is on a document only when
