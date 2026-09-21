@@ -15,7 +15,8 @@
     "test:propertyradar-search": "node test/propertyradar-search-test.mjs",
     "test:propertyradar-profile": "node test/propertyradar-profile-test.mjs",
     "test:enrich": "node test/enrich-test.mjs",
-    "test": "node test/enrich-test.mjs && node test/fixture-live-test.mjs && node test/peoplesearch-test.mjs && node test/propertyradar-test.mjs && node test/propertyradar-search-test.mjs && node test/propertyradar-profile-test.mjs",
+    "test:share": "node test/share-test.mjs",
+    "test": "node test/share-test.mjs && node test/enrich-test.mjs && node test/fixture-live-test.mjs && node test/peoplesearch-test.mjs && node test/propertyradar-test.mjs && node test/propertyradar-search-test.mjs && node test/propertyradar-profile-test.mjs",
     "install-browser": "npx playwright install chromium"
   },
   "dependencies": {

@@ -16,6 +16,12 @@ import * as reibb from '../server/sources/reiblackbook.js'
 import * as propertyradar from '../server/sources/propertyradar.js'
 import { Investigation } from '../server/orchestrator.js'
 import { ensureRunDir } from '../server/store.js'
+import { config } from '../server/config.js'
+
+// This suite asserts the dry-run safety posture, so pin the flags it checks
+// instead of inheriting the operator's local .env (which enables people search
+// and would fail the check below on a real machine).
+config.peopleSearchEnabled = false
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const fx = (f) => 'file://' + path.join(dir, 'fixtures', f)

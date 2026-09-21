@@ -22,6 +22,7 @@ async function init() {
     const cfg = await (await fetch('/api/config')).json()
     limits = cfg.limits
     renderSafety(cfg.safety)
+    if (cfg.shared) $('signout').hidden = false
   } catch {
     $('safety').textContent = 'server not reachable'
   }

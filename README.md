@@ -249,6 +249,60 @@ PropertyRadar's own page fetches to `runs/enrich_<id>/network-sample.jsonl` —
 the data needed to later read the app's responses directly instead of the
 rendered page.
 
+## Letting someone else in (temporary sharing)
+
+By default the server listens on `127.0.0.1` only. Nothing on your network can
+open it, which is the right default: the app drives a browser that is already
+signed in to PropertyRadar, and anyone who reaches the UI can start runs and
+download every CSV in `runs/`.
+
+To share it, first set one password in `.env`:
+
+```
+SHARE_PASSWORD=pick-a-long-passphrase
+SHARE_TTL_HOURS=12
+```
+
+Then `npm start`. Every page, API call, live progress stream and CSV download
+now asks for that password once, and the sign-in lasts `SHARE_TTL_HOURS`. The
+startup banner prints the links to hand out. "Sign out" appears in the header,
+and restarting the server signs everyone out.
+
+**Same office / same Wi-Fi.** Setting a password also binds the server to your
+LAN, so the banner prints something like `http://192.168.1.42:4319`. Send that
+plus the password. Windows will ask once to allow Node through the firewall —
+choose Private networks. The password crosses the LAN unencrypted, so use a
+tunnel instead if the network is not yours.
+
+**Anywhere else, no account needed.** Leave `npm start` running and open a
+second terminal:
+
+```
+winget install --id Cloudflare.cloudflared
+cloudflared tunnel --url http://localhost:4319
+```
+
+It prints a temporary `https://<random>.trycloudflare.com` address that works
+from anywhere and dies when you press Ctrl+C. `ngrok http 4319` does the same
+if you already have ngrok. Both reach the server over loopback, which is why
+there is **no localhost exemption** in the password guard — a tunnel would
+otherwise hand the whole app to the internet.
+
+**When you are done:** stop the tunnel, then blank `SHARE_PASSWORD` in `.env`
+and restart. The server goes back to this machine only.
+
+A few things to know before you share:
+
+- One browser, one operator. A guest starting a run uses the same signed-in
+  browser you do, and PropertyRadar allows a single active session, so agree on
+  who is driving. The app already refuses a second run while one is going.
+- Guests see the whole app, including past runs and their CSVs. There are no
+  per-person accounts, just the one shared password.
+- Eight wrong passwords from the same address locks that address out for ten
+  minutes.
+- Nothing here makes the app safe to leave online permanently. It is for a demo
+  or a hand-off, not hosting.
+
 ## People search — disabled by default
 
 `PEOPLE_SEARCH_ENABLED=false`. Do **not** use TruePeopleSearch, Spokeo,
@@ -273,6 +327,7 @@ server/
   store.js         saves each run (report.json + evidence screenshots) under runs/
   enrich.js        Property Enrichment engine: CSV queue, checkpoint/resume, output
   csv.js           CSV parse/write, address-column detection, address matching
+  share.js         one shared password in front of everything, for temporary sharing
   sources/         one module per source (reiblackbook, propertyradar,
                    dealmachine, county, google, peoplesearch, websearch) + selectors.js
 public/            the operator UI: Investigation tab (input → progress → evidence →

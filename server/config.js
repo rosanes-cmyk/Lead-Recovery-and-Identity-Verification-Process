@@ -56,6 +56,15 @@ export const config = {
   // Server
   port: num(process.env.PORT, 4319),
 
+  // Temporary sharing. Set SHARE_PASSWORD to put the whole UI behind a shared
+  // password; leave it blank and the app stays on this machine only.
+  sharePassword: (process.env.SHARE_PASSWORD || '').trim(),
+  shareTtlHours: num(process.env.SHARE_TTL_HOURS, 12),
+  // Which network interface to listen on. Without a share password the server
+  // binds to loopback only, so nothing on the network can reach it. Setting a
+  // password opens it to the LAN. HOST always wins if it is set explicitly.
+  host: (process.env.HOST || '').trim() || ((process.env.SHARE_PASSWORD || '').trim() ? '0.0.0.0' : '127.0.0.1'),
+
   // Where run artifacts (screenshots, reports) are written.
   runsDir: path.resolve(ROOT, 'runs'),
 }

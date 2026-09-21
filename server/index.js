@@ -14,10 +14,19 @@ import { config, safetySummary, canWrite, ROOT } from './config.js'
 import { Investigation } from './orchestrator.js'
 import { loadReport, listRuns, runDir, saveReport } from './store.js'
 import { Enrichment } from './enrich.js'
+import { createShare } from './share.js'
+import os from 'node:os'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 app.use(express.json({ limit: '2mb' }))
+
+// --- temporary sharing -------------------------------------------------------
+// With SHARE_PASSWORD set, everything below (UI files, API, SSE, downloads) is
+// behind one shared password. Mounted before express.static on purpose.
+const share = createShare({ password: config.sharePassword, ttlHours: config.shareTtlHours })
+app.use('/login', express.urlencoded({ extended: false, limit: '4kb' }))
+app.use(share.middleware)
 // Never cache the operator UI files, so pulling an update always shows the
 // latest HTML/CSS/JS on a normal reload (no hard-refresh needed).
 app.use(
@@ -49,6 +58,7 @@ app.get('/api/config', (req, res) => {
     safety: safetySummary(),
     limits: { standard: config.standardLimitMin, enhanced: config.enhancedLimitMin },
     headless: config.headless,
+    shared: share.enabled, // UI shows a Sign out link when the app is shared
   })
 })
 
@@ -315,11 +325,19 @@ app.get('/evidence/:runId/:file', (req, res) => {
   res.sendFile(abs)
 })
 
-app.listen(config.port, () => {
+app.listen(config.port, config.host, () => {
   const url = `http://localhost:${config.port}`
   console.log('\n  Lead Recovery & Seller Identity Verification Automation')
   console.log('  ' + '-'.repeat(54))
   console.log(`  Open:      ${url}`)
+  if (config.host !== '127.0.0.1' && config.host !== 'localhost') {
+    for (const addr of lanAddresses()) console.log(`  Share:     http://${addr}:${config.port}   (same Wi-Fi / network)`)
+  }
+  console.log(
+    share.enabled
+      ? `  Access:    password required (SHARE_PASSWORD), sign-in lasts ${config.shareTtlHours}h`
+      : '  Access:    this machine only (set SHARE_PASSWORD in .env to share)',
+  )
   console.log(`  Mode:      ${canWrite() ? 'LIVE (writes enabled)' : 'DRY-RUN (research only, no CRM changes)'}`)
   console.log(`  Browser:   ${config.headless ? 'headless' : 'visible (log in when prompted)'}`)
   console.log(`  Time:      Standard ${config.standardLimitMin}m / Enhanced ${config.enhancedLimitMin}m`)
@@ -327,6 +345,18 @@ app.listen(config.port, () => {
   console.log('  ' + '-'.repeat(54) + '\n')
   openInBrowser(url)
 })
+
+// Every non-internal IPv4 address of this machine, so the banner can print a
+// link other people on the same network can open.
+function lanAddresses() {
+  const out = []
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const ni of list || []) {
+      if (ni.family === 'IPv4' && !ni.internal) out.push(ni.address)
+    }
+  }
+  return out
+}
 
 // Best-effort: open the operator UI in the default browser on start.
 function openInBrowser(url) {
