@@ -489,6 +489,17 @@ const HEADER_LABELS = [
   'Address', 'Property Type', 'Beds / Baths', 'Year Built', 'Square Feet', 'Est. Value', 'Estimated Value',
   'Equity', 'Lot Size', 'Assessed Value', 'Total Loan Bal', 'Purchase Price', 'Owned Since', 'Distress Score',
 ]
+const LABELISH = new Set(
+  [
+    ...HEADER_LABELS,
+    'Radar ID', 'County', 'Lat/Lon', 'Subdivision', 'Site Congressional District', 'School Tax District', 'Census Tract',
+    'Census Block', 'Carrier Route', 'Tax Rate Area', 'Legal BookPage/Block/Lot', 'Legal Description', 'Parcel Map',
+    'Driving Directions', 'Look Up Assessor', 'Advanced Type', 'Lot SqFt', 'Lot Acres', 'Site Vacant?', 'Zoning',
+    'Mailing Address', 'Primary Residence', 'Other Properties', 'Notes', 'Person Type', 'Ownership Role', 'Gender', 'Age',
+    'Primary Contact', 'Phone', 'Email', 'Social', 'Skip Trace', 'Taxpayer', 'Mail Vacant', 'Homeowner Tax Exemption',
+    'Owner Name', 'Owner Phone Number', 'Owner Email Address', 'Full Address', 'Full Mailing Address', 'Assessor Parcel Number',
+  ].map((l) => l.toLowerCase()),
+)
 export function headerFields(text) {
   const out = {}
   if (!text) return out
@@ -573,17 +584,26 @@ export function taxpayerBlock(text) {
 // The current owner's deed on the Transactions tab: "Grant Deed / Market /
 // <doc#> / <date> / GRANTOR / GRANTEE / $amount / LTV". Returns the prior owner
 // (grantor) and a one-line summary of the transfer.
+// Same party regardless of order or punctuation: "PACE,JAMES W & SANDRA H" is
+// "JAMES W PACE and SANDRA H PACE".
+export function sameParty(a, b) {
+  const toks = (v) => new Set(String(v || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').split(' ').filter((t) => t && t !== 'AND'))
+  const A = toks(a), B = toks(b)
+  if (!A.size || !B.size) return false
+  let hit = 0
+  for (const t of A) if (B.has(t)) hit++
+  return hit / Math.min(A.size, B.size) >= 0.75
+}
 export function lastTransfer(text, ownerName) {
   const tokens = String(text || '').split(/[\n\t]+/).map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean)
   const i = tokens.findIndex((t) => /^grant deed\b/i.test(t))
   if (i < 0) return { priorOwner: '', summary: '' }
-  const own = String(ownerName || '').toUpperCase().replace(/\s+/g, ' ').trim()
   let date = '', amount = '', grantor = ''
   for (let j = i; j < Math.min(i + 10, tokens.length); j++) {
     const t = tokens[j]
     if (!date && /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(t)) date = t
     else if (!amount && /^\$[\d,]+$/.test(t)) amount = t
-    else if (!grantor && /^[A-Z][A-Z0-9 .'&-]{4,}$/.test(t) && /[A-Z]{2,}\s+[A-Z0-9]{2,}/.test(t) && t.toUpperCase() !== own && !/^(GRANT DEED|MARKET|CURRENT OWNER)$/i.test(t)) grantor = t
+    else if (!grantor && /^[A-Z][A-Z0-9 .,'&-]{4,}$/.test(t) && /[A-Z]{2,}[ ,]+[A-Z0-9]{2,}/.test(t) && !sameParty(t, ownerName) && !/^(GRANT DEED|MARKET|CURRENT OWNER)$/i.test(t)) grantor = t
     if (date && amount && grantor) break
   }
   const summary = ['Grant Deed', date, amount].filter(Boolean).join(' · ')
@@ -603,22 +623,33 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
   const allText = [tabsText, bodyText].filter(Boolean).join('\n')
   const T = (lbl) => textLabelValue(tabsText, lbl) || textLabelValue(bodyText, lbl)
   const missing = (v) => !v || v === FIELD_NOT_FOUND
+  // PropertyRadar's page keeps hidden menus whose items are field NAMES
+  // ("Assessor Parcel Number", "Radar ID", …). The positional engine matches
+  // those too and returns the next item — a label, not a value — so the rendered
+  // TEXT is authoritative here and a DOM value is only a fallback, never when it
+  // is itself a label name.
+  const labelish = (v) => LABELISH.has(String(v || '').trim().toLowerCase().replace(/:$/, ''))
+  const dom = (v) => (missing(v) || labelish(v) ? '' : String(v).trim())
   // A plausible owner has at least two words and is not a role/type word. A
   // Taxpayer-style value carries the mailing address after the name ("NAME, 97
   // MAIN ST…"), so judge the name part only.
   const nameOnly = (v) => String(v || '').split(/,\s*(?=\d)/)[0].trim()
   const plausibleOwner = (v) => !missing(v) && looksLikeName(nameOnly(v)) && /\s/.test(nameOnly(v))
-  if (!plausibleOwner(values.recordedOwner)) values.recordedOwner = T('Taxpayer') || T('Owner Name') || FIELD_NOT_FOUND
-  if (!plausibleOwner(values.recordedOwner)) {
-    const owners = ownersFromProfileText(allText)
-    if (owners.length) values.recordedOwner = owners.join(' and ')
-  }
-  if (missing(values.apn)) values.apn = T('Assessor Parcel Number') || T('APN') || values.apn
+  // Owner: the header's names first (natural order, "JAMES W PACE"), then the
+  // assessor's Taxpayer line ("PACE,JAMES W & SANDRA H"), then the engine.
+  const headerRegion = bodyText.split(/\n\s*Contacts\b/)[0]
+  const headerOwners = ownersFromProfileText(headerRegion)
   const taxpayer = taxpayerBlock(allText)
-  if (missing(values.ownerMailingAddress)) values.ownerMailingAddress = T('Mailing Address') || taxpayer.address || values.ownerMailingAddress
-  if (missing(values.propertyAddress)) values.propertyAddress = T('Address') || values.propertyAddress
-  if (missing(values.ownershipType)) values.ownershipType = T('Person Type') || values.ownershipType
-  if (missing(values.occupancy)) values.occupancy = T('Primary Residence') || T('Occupancy') || values.occupancy
+  const domOwner = plausibleOwner(values.recordedOwner) ? values.recordedOwner : ''
+  values.recordedOwner = headerOwners.length ? headerOwners.join(' and ') : ''
+  if (!plausibleOwner(values.recordedOwner)) values.recordedOwner = [taxpayer.name, T('Owner Name'), domOwner].find((v) => plausibleOwner(v)) || FIELD_NOT_FOUND
+  const validApn = (v) => /\d{3}/.test(v || '') && /^[\w -]{5,24}$/.test(v || '')
+  values.apn = [T('Assessor Parcel Number'), T('APN'), dom(values.apn)].find(validApn) || FIELD_NOT_FOUND
+  values.ownerMailingAddress = T('Mailing Address') || taxpayer.address || dom(values.ownerMailingAddress) || FIELD_NOT_FOUND
+  values.propertyAddress = T('Address') || dom(values.propertyAddress) || FIELD_NOT_FOUND
+  values.ownershipType = T('Person Type') || dom(values.ownershipType) || FIELD_NOT_FOUND
+  values.vesting = T('Vesting') || dom(values.vesting) || FIELD_NOT_FOUND
+  values.occupancy = T('Primary Residence') || T('Occupancy') || dom(values.occupancy) || FIELD_NOT_FOUND
   // Addresses read from the DOM can lose the space after a wrapped comma.
   const tidyAddr = (v) => (missing(v) ? v : String(v).replace(/\s*,\s*/g, ', ').replace(/\s+/g, ' ').trim())
   values.propertyAddress = tidyAddr(values.propertyAddress)
@@ -657,6 +688,8 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
     purchaseType: /^[A-Za-z -]{3,30}$/.test(T('Purchase Type') || '') ? T('Purchase Type') : '',
     // Transactions tab
     likelyToList: T('Likely to List for Sale') || '',
+    // Assessor's taxpayer of record (surname-first), kept beside the owner names
+    taxpayer: taxpayer.name || '',
   }
   facts.estValue = facts.estValue || money(T('Estimated Value'))
   facts.equity = facts.equity || money(T('Estimated Equity $')) || money(T('Estimated Equity'))

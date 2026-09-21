@@ -26,6 +26,7 @@ import { csvToRecords, toCsv, detectAddressColumns, buildAddress, addressMatch }
 export const ENRICH_COLUMNS = [
   'Enriched Address',
   'PR Owner of Record',
+  'PR Taxpayer',
   'PR Entity Owner',
   'PR Title Holder',
   'PR Ownership Type',
@@ -727,6 +728,7 @@ export class Enrichment extends EventEmitter {
       const tabsText = opened ? await pr.readProfileTabs(page, emit, signal, BATCH_TABS) : ''
       const out = await pr.extractAndBuild(page, cfg, res, this.dir, { address }, tabsText, { screenshot: Boolean(this.options.screenshots) || manual })
       if (!out.ok && (await pr.sessionKicked(page))) return { status: 'session kicked', evidence: res.evidence }
+      for (const m of trail) if (/Could not confirm/.test(m)) res.notes.push(m)
       if (manual) res.notes.push('Read from the property the operator opened by hand — check PR Address Match.')
       return { status: out.ok ? 'found' : 'not found', opened: Boolean(opened), data: res.data, notes: res.notes, evidence: res.evidence }
     } finally {
@@ -824,6 +826,7 @@ export class Enrichment extends EventEmitter {
     fields['PR Status'] = prRes.status
     if (prRes.status === 'found') {
       fields['PR Owner of Record'] = nf(d.ownerOfRecord) || nf(d.ownerName) || FIELD_NOT_FOUND
+      fields['PR Taxpayer'] = nf(d.taxpayer)
       fields['PR Entity Owner'] = d.isEntityOwner ? 'Yes' : 'No'
       fields['PR Title Holder'] = nf(d.titleHolder)
       fields['PR Ownership Type'] = nf(d.ownershipType)
@@ -893,6 +896,7 @@ export class Enrichment extends EventEmitter {
       const owner = entity ? 'LAKEVIEW LN SERVICING LLC' : `Demo Owner ${n}`
       fields['PR Status'] = 'found'
       fields['PR Owner of Record'] = owner
+      fields['PR Taxpayer'] = entity ? owner : `DEMO,OWNER ${n}`
       fields['PR Entity Owner'] = entity ? 'Yes' : 'No'
       fields['PR Title Holder'] = entity ? owner : ''
       fields['PR Ownership Type'] = entity ? 'Entity / REO' : 'Individual'

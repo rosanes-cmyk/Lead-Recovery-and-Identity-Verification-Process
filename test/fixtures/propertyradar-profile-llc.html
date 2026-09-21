@@ -78,6 +78,12 @@
     </table>
     <h3>Foreclosures</h3><div>No Foreclosures</div>
   </section>
+  <!-- The app keeps its criteria menu in the DOM even on a profile: field NAMES as
+       sibling items. A positional "label -> next sibling" lookup lands on the next
+       item ("Radar ID") instead of a value. Hidden, so the rendered text never sees it. -->
+  <ul class="criteria-menu" hidden>
+    <li>County</li><li>Assessor Parcel Number</li><li>Radar ID</li><li>Mailing Address</li><li>Primary Residence</li><li>Person Type</li><li>Vesting</li>
+  </ul>
   <section id="listings" hidden><h3>Listings</h3><div>MLS Auction Sold 10/31/2023 38 $6,375,000</div><div>Check for Listings</div></section>
   <script>
     document.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', () => {

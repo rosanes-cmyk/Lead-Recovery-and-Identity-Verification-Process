@@ -7,7 +7,7 @@ import { chromium } from 'playwright'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { extractAndBuild, readProfileTabs, ownersFromProfileText, headerFields, textLabelValue, taxpayerBlock, lastTransfer } from '../server/sources/propertyradar.js'
+import { extractAndBuild, readProfileTabs, ownersFromProfileText, headerFields, textLabelValue, taxpayerBlock, lastTransfer, sameParty } from '../server/sources/propertyradar.js'
 import { selectors } from '../server/sources/selectors.js'
 import { emptyResult } from '../server/sources/base.js'
 
@@ -36,6 +36,9 @@ const tp = taxpayerBlock('Annual Taxes\n$77,852\nTaxpayer\nGOLDEN PROPERTIES LLC
 check('taxpayer block: name + mailing lines', tp.name === 'GOLDEN PROPERTIES LLC' && tp.address === '2170 SUTTER ST, SAN FRANCISCO,CA 94115', JSON.stringify(tp))
 const lt = lastTransfer('Grant Deed\tMarket\t\t84224\n10/31/23\tSPERLING JOHN 1994 TRUST\nGOLDEN PROPERTIES LLC\t$6,375,000\n100%', 'GOLDEN PROPERTIES LLC')
 check('last transfer: grantor + summary', lt.priorOwner === 'SPERLING JOHN 1994 TRUST' && lt.summary === 'Grant Deed · 10/31/23 · $6,375,000', JSON.stringify(lt))
+check('same party across order + punctuation', sameParty('PACE,JAMES W & SANDRA H', 'JAMES W PACE and SANDRA H PACE') && !sameParty('SMITH,JOHN Q', 'JAMES W PACE and SANDRA H PACE'))
+const lt2 = lastTransfer('Grant Deed\nMarket\t55555\n10/10/23\tSMITH,JOHN Q\nPACE,JAMES W & SANDRA H\t$1,685,000', 'JAMES W PACE and SANDRA H PACE')
+check('grantee (current owner, assessor-style) is not the prior owner', lt2.priorOwner === 'SMITH,JOHN Q', JSON.stringify(lt2))
 
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH })
 try {
@@ -47,7 +50,10 @@ try {
   const out = await extractAndBuild(page, selectors.propertyradar, res, runDir, { address: '212 Texas Street, CA 94107' }, tabs, { screenshot: false })
   const d = res.data
   check('found', out.ok === true)
-  check('owners joined', d.ownerOfRecord === 'JAMES W PACE and SANDRA H PACE', d.ownerOfRecord)
+  check('owners joined — header names win over the assessor line', d.ownerOfRecord === 'JAMES W PACE and SANDRA H PACE', d.ownerOfRecord)
+  check('taxpayer kept separately', d.taxpayer === 'PACE,JAMES W & SANDRA H', d.taxpayer)
+  check('prior owner from the deed, not the current owner', d.priorOwner === 'SMITH,JOHN Q', d.priorOwner)
+  check('homeowner exemption Yes', d.homeownerExemption === 'Yes')
   check('not an entity', d.isEntityOwner === false)
   check('ownership type from Person Type', d.ownershipType === 'Person', d.ownershipType)
   check('property address (wrapped) read', d.propertyAddress === '212 TEXAS ST, SAN FRANCISCO, CA 94107', d.propertyAddress)
@@ -86,7 +92,9 @@ try {
   check('LLC is the owner of record, flagged entity', g.ownerOfRecord === 'GOLDEN PROPERTIES LLC' && g.isEntityOwner === true, g.ownerOfRecord)
   check('ownership type Company', g.ownershipType === 'Company', g.ownershipType)
   check('mailing address from the Taxpayer block', g.mailingAddress === '2170 SUTTER ST, SAN FRANCISCO, CA 94115', g.mailingAddress)
-  check('APN + county from the Property tab', g.apn === '0069-005' && g.county === 'SAN FRANCISCO', `${g.apn} / ${g.county}`)
+  check('APN from text, not the hidden menu\'s next item ("Radar ID")', g.apn === '0069-005', g.apn)
+  check('county from the Property tab', g.county === 'SAN FRANCISCO', g.county)
+  check('taxpayer = the LLC', g.taxpayer === 'GOLDEN PROPERTIES LLC', g.taxpayer)
   check('property type', g.propertyType === 'Multi-Family 2-4', g.propertyType)
   check('estimated value / equity / loans from Value & Equity', g.estValue === '$7,551,529' && g.equity === '$7,551,529' && g.loanBalance === '$0', `${g.estValue} ${g.equity} ${g.loanBalance}`)
   check('assessed / purchase / owned since / built / distress from header', g.assessedValue === '$6,502,500' && g.purchasePrice === '$6,375,000' && g.ownedSince === 'Oct 2023' && g.yearBuilt === '1900' && g.distressScore === '44', `${g.assessedValue} ${g.purchasePrice} ${g.ownedSince} ${g.yearBuilt} ${g.distressScore}`)
