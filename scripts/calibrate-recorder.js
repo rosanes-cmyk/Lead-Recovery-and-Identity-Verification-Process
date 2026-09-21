@@ -1,7 +1,7 @@
 // Guided calibration of the San Francisco Assessor-Recorder document search.
 //
 //   npm run calibrate:recorder
-//   npm run calibrate:recorder -- 4101 032        (any block and lot)
+//   npm run calibrate:recorder -- 4101 032 WINTERS MICHAEL
 //
 // Why this exists: recorder.sfgov.org is a single-page app. The page you see is
 // drawn by JavaScript that calls a REST service behind it. Those calls are what
@@ -28,6 +28,12 @@ import { getPage, capture, closeBrowser } from '../server/browser.js'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const BLOCK = process.argv[2] || '4101'
 const LOT = process.argv[3] || '032'
+// A name search matters as much as a parcel one: California recorders index by
+// the parties to a document, and the parcel number is only present when whoever
+// filed it supplied one. This owner comes from the same property as the block
+// and lot above.
+const LAST = process.argv[4] || 'WINTERS'
+const FIRST = process.argv[5] || 'MICHAEL'
 const startUrl = process.env.CALIBRATE_URL || 'https://recorder.sfgov.org/'
 const outDir = path.join(root, 'runs', '_calibration', 'recorder')
 // Only the recorder's own traffic is recorded. Pointing CALIBRATE_URL somewhere
@@ -36,11 +42,11 @@ const outDir = path.join(root, 'runs', '_calibration', 'recorder')
 const HOST_RE = process.env.CALIBRATE_URL ? new RegExp(new URL(startUrl).host.replace(/[.]/g, '\\.'), 'i') : /recorder\.sfgov\.org/i
 
 const STEPS = [
-  ['search-form', 'The search page should be open. If it shows a disclaimer or a "I agree" box, accept it. When the search form is on screen, press ENTER.'],
-  ['parcel-search', `Search by PARCEL, not by address. Put block ${BLOCK} and lot ${LOT} into the block/lot (APN) fields and run the search.\n    When the list of recorded documents appears, press ENTER.`],
-  ['document-list', 'Now sort or page the list once (click a column heading, or go to page 2) so I can see how paging works. Press ENTER.'],
-  ['open-document', 'Open one document from the list — ideally a deed of trust, a lien or a notice of default. When its detail or preview is on screen, press ENTER.'],
-  ['document-types', 'Go back to the search form and open the document TYPE list (the dropdown of Deed, Lien, Notice of Default, …) so the choices are visible. Press ENTER.'],
+  ['search-form', 'Accept the disclaimer if one appears. When the search form is on screen — it starts with "Document Type" and "Search For" — press ENTER.'],
+  ['document-types', 'Open the "Document Type" list so all the choices are visible (Deed, Lien, Notice of Default, …). This list also decides which search boxes appear below. Press ENTER with it open.'],
+  ['parcel-search', `Choose a document type (use --All Types-- if it is offered), then search BY PARCEL: Block ${BLOCK}, Lot ${LOT}. Leave the name boxes empty.\n    Run the search. When the results appear — or when it says none were found — press ENTER.`],
+  ['name-search', `Click "Clear All", then search BY NAME instead: last name ${LAST}, first name ${FIRST}. Leave the parcel boxes empty.\n    Run the search. When the results appear, press ENTER.`],
+  ['open-document', 'Open one document from the results — a deed of trust, a lien or a notice of default is ideal. When its detail or preview is on screen, press ENTER.'],
 ]
 
 // One reader for the whole session: a line per ENTER on a keyboard, and all
@@ -133,7 +139,9 @@ process.on('SIGINT', () => finish(0))
 
 console.log(`\nOpening ${startUrl} …`)
 await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch((err) => console.log('  (page load issue: ' + err.message + ' — carry on in the browser anyway)'))
-console.log(`\nYou drive the site by hand; I only watch. Five short steps, using block ${BLOCK} lot ${LOT}.`)
+console.log(`\nYou drive the site by hand; I only watch. Five short steps.`)
+console.log(`  Parcel to search: block ${BLOCK}, lot ${LOT}`)
+console.log(`  Name to search:   ${LAST}, ${FIRST}`)
 console.log('Viewing the index is free. Do NOT buy a copy of anything — we only need the search.')
 
 for (let i = 0; i < STEPS.length; i++) {

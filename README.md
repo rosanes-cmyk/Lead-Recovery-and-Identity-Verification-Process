@@ -351,8 +351,20 @@ make them once:
 
 ```
 npm run calibrate:recorder
-npm run calibrate:recorder -- 4101 032     # any block and lot
+npm run calibrate:recorder -- 4101 032 WINTERS MICHAEL
 ```
+
+The search form has two ways in, and the calibration exercises both:
+
+- **By parcel** — an Assessor Parcel Number box plus Block and Lot. These
+  appear only once a Document Type is chosen.
+- **By name** — last / first / middle, for up to three parties.
+
+The name search matters as much as the parcel one. California recorders index
+documents by the parties to them; a parcel number is on a document only when
+whoever filed it supplied one, so parcel coverage can be patchy while name
+coverage is the index itself. We already have both from PropertyRadar, so the
+calibration captures each and we pick whichever turns out to be reliable.
 
 A browser window opens on the recorder site. **You** do the searching by hand;
 the script only watches and writes down what the page asked for and what came
