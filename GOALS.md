@@ -20,7 +20,7 @@ currently gathers by hand across five browser tabs.
 | Owner of record (plus taxpayer, entity/trust, vesting, mailing address, occupancy) | done |
 | Last sale price and date | done |
 | Assessed value | done |
-| Listing agent and selling agent | **not built** |
+| Listing agent and selling agent | **not built** — not available in PropertyRadar, needs MLS (see below) |
 | Permit history | **not built** |
 | Liens and encumbrances | **partial** — open loan balance only; no tax, mechanics or involuntary liens, no notice of default |
 
@@ -58,13 +58,41 @@ whole city at once, to produce the target list that replaces mass outreach.
 MLS export someone else ran. Those are buyer's agents, unfiltered and
 unranked, so that file is an input, not this deliverable.
 
-**The open question that sizes this work:** does our PropertyRadar plan carry
-MLS listing data? The Listings tab on a profile currently reads "Check for
-listings". If agent names are not in PropertyRadar, then goal 1's agent fields
-and the whole of goal 2 need a different source, and "fixer" and "as-is" exist
-only in MLS remarks, which no property-data source carries.
+### ANSWERED (21 Sep 2026): listing status yes, agent names no
 
-### How to answer it
+Checked live on the Listings tab of 547 Missouri St, a property that sold on
+the open market in Oct 2023. The tab holds three MLS Market rows:
+
+| Type | Status | Date | Description | DOM | Price |
+| --- | --- | --- | --- | --- | --- |
+| MLS Market | Sold | 10/23/2023 | (blank) | 12 | $4,850,000 |
+| MLS Market | Cancelled | 7/7/2023 | (blank) | 36 | $4,895,000 |
+| MLS Market | Expired | 12/30/2022 | (blank) | 675 | $5,350,000 |
+
+There is **no agent column at all**, and the Description column, where "fixer"
+and "as-is" would live, is empty. Below the table PropertyRadar offers "Check
+for Listings" buttons that send you out to Zillow, Realtor and Redfin, which
+is the vendor telling us it does not hold listing detail itself.
+
+**What this settles:**
+
+- Listing agent and selling agent **cannot come from PropertyRadar**, for one
+  property or for thousands. Goal 1's agent fields and the whole of goal 2
+  need another source.
+- The fixer / as-is filter **cannot come from PropertyRadar** either, since
+  remarks are not carried. Probate and trust can still be derived from vesting
+  and deed type, which we already extract.
+- **The MLS export is now the path for goal 2**, not a fallback. Whoever
+  produced our 234-row starting file has the access needed.
+
+**What this unlocks straight away**, and was not in the original goal: real
+listing history per property. Status, date, days on market, list price, and
+the count of failed attempts before a sale. Three of those rows show a
+property that sat 675 days, expired, was cancelled, then sold. That pattern is
+a motivated seller, and we get it for free. The code already knows this tab
+exists; it just does not read it yet.
+
+### How the check was done (for next time)
 
 Public records and MLS are two separate worlds. The county records who owns a
 property, what they paid and what they owe. Agents are not parties to a deed,
@@ -99,7 +127,7 @@ If the UI is ambiguous, send support this, in writing:
 > listing agent and selling agent names on sold properties? Can listing agent
 > be used as a search criterion and included in a list export?
 
-### The fallback is already in reach
+### The MLS route
 
 The 234-row file we started from contains days on market and buyer's agent
 name, phone and email. Those are MLS fields; public records have none of them.
@@ -111,8 +139,14 @@ included, which would satisfy most of goal 2 with no scraping at all.
 
 ## Order of work
 
-1. Finish goal 1 on the fields that do not depend on MLS: permits (free San
-   Francisco parcel dataset), liens (source decision needed), single-address
-   box.
-2. Answer the MLS question.
-3. Build goal 2.
+1. **Add the Listings tab to the enrichment run.** Status, date, days on
+   market, list price, failed-attempt count. Cheap, and the tab is already
+   mapped.
+2. **Permits**, from San Francisco's free parcel dataset. No browser needed.
+3. **Single-address box**, so goal 1 matches how it was described.
+4. **Liens.** Needs a source decision: foreclosure and default data sit in
+   PropertyRadar, tax and mechanics liens sit with the county recorder.
+5. **Get the MLS export** of every San Francisco sale for 24 months with
+   listing agent and remarks. This is now a request to a person, not a build.
+6. **Build goal 2** on top of that export: filter, group by listing agent,
+   rank, then enrich the top names with contact detail.
