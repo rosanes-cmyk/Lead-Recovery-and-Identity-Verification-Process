@@ -610,6 +610,26 @@ export function lastTransfer(text, ownerName) {
   return { priorOwner: grantor, summary }
 }
 
+// Occupancy from what the profile shows, strongest evidence first:
+//   1. the assessor's Homeowner Tax Exemption (Yes = owner occupied, on record)
+//   2. the owner's Primary Residence address vs. the property
+//   3. with no exemption: the mailing address — elsewhere means not owner
+//      occupied; at the property means owner occupied for a person, but for a
+//      company/trust that only proves mail arrives there, so it stays Unknown.
+export function deriveOccupancy({ raw = '', propertyAddress = '', mailingAddress = '', exemption = '', isEntity = false }) {
+  const has = (v) => Boolean(v) && v !== FIELD_NOT_FOUND
+  const ex = String(exemption || '').replace(/[^A-Za-z]/g, '').toLowerCase()
+  if (ex === 'yes') return 'Owner Occupied'
+  let occ = ''
+  if (has(raw) && /\d/.test(raw) && has(propertyAddress)) occ = addressMatch(propertyAddress, raw) === 'match' ? 'Owner Occupied' : 'Non-Owner Occupied'
+  else if (has(raw) && !/\d/.test(raw)) occ = String(raw).trim()
+  if (!occ && ex === 'no' && has(mailingAddress) && has(propertyAddress)) {
+    const atProperty = addressMatch(propertyAddress, mailingAddress) === 'match'
+    occ = !atProperty ? 'Non-Owner Occupied' : isEntity ? 'Unknown (entity; mail at property)' : 'Owner Occupied'
+  }
+  return occ || FIELD_NOT_FOUND
+}
+
 export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsText = '', opts = {}) {
   if (opts.screenshot !== false) res.evidence.push(await capture(page, runDir, 'propertyradar-result'))
   const { values, audit } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
@@ -649,23 +669,12 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
   values.propertyAddress = T('Address') || dom(values.propertyAddress) || FIELD_NOT_FOUND
   values.ownershipType = T('Person Type') || dom(values.ownershipType) || FIELD_NOT_FOUND
   values.vesting = T('Vesting') || dom(values.vesting) || FIELD_NOT_FOUND
-  values.occupancy = T('Primary Residence') || T('Occupancy') || dom(values.occupancy) || FIELD_NOT_FOUND
+  const rawOccupancy = T('Primary Residence') || T('Occupancy') || dom(values.occupancy) || ''
   // Addresses read from the DOM can lose the space after a wrapped comma.
   const tidyAddr = (v) => (missing(v) ? v : String(v).replace(/\s*,\s*/g, ', ').replace(/\s+/g, ' ').trim())
   values.propertyAddress = tidyAddr(values.propertyAddress)
   values.ownerMailingAddress = tidyAddr(values.ownerMailingAddress)
-  // On this layout "Primary Residence" is the owner's home ADDRESS, not a yes/no:
-  // owner-occupied when it is the property itself.
-  if (!missing(values.occupancy) && /\d/.test(values.occupancy) && !missing(values.propertyAddress)) {
-    values.occupancy = addressMatch(values.propertyAddress, values.occupancy) === 'match' ? 'Owner Occupied' : 'Non-Owner Occupied'
-  }
-  // The Property tab's "Homeowner Tax Exemption" is the strongest occupancy
-  // signal there is; a mailing address elsewhere is the next best.
   const exemption = (T('Homeowner Tax Exemption') || '').replace(/[^A-Za-z]/g, '')
-  if (/^yes$/i.test(exemption)) values.occupancy = 'Owner Occupied'
-  else if (missing(values.occupancy) && /^no$/i.test(exemption) && !missing(values.ownerMailingAddress) && !missing(values.propertyAddress)) {
-    values.occupancy = addressMatch(values.propertyAddress, values.ownerMailingAddress) === 'match' ? 'Owner Occupied' : 'Non-Owner Occupied'
-  }
   // Header facts (values, dates, scores) — validated so a neighbouring label
   // can never be mistaken for a value.
   const hdr = headerFields(allText)
@@ -721,6 +730,10 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
       res.notes.push(`Owner of record is an entity "${titleHolder}" (often a lender/REO after foreclosure). The individual seller is a prior owner in the Transactions/deed history.`)
     }
   }
+
+  // Occupancy is decided last: for a company or trust, mail at the property is
+  // not proof anyone lives there.
+  values.occupancy = deriveOccupancy({ raw: rawOccupancy, propertyAddress: values.propertyAddress, mailingAddress: values.ownerMailingAddress, exemption, isEntity })
 
   res.data = {
     ownerName: verifiedOwner || FIELD_NOT_FOUND,

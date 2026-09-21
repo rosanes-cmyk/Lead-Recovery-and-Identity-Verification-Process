@@ -7,7 +7,7 @@ import { chromium } from 'playwright'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { extractAndBuild, readProfileTabs, ownersFromProfileText, headerFields, textLabelValue, taxpayerBlock, lastTransfer, sameParty } from '../server/sources/propertyradar.js'
+import { extractAndBuild, readProfileTabs, ownersFromProfileText, headerFields, textLabelValue, taxpayerBlock, lastTransfer, sameParty, deriveOccupancy } from '../server/sources/propertyradar.js'
 import { selectors } from '../server/sources/selectors.js'
 import { emptyResult } from '../server/sources/base.js'
 
@@ -39,6 +39,16 @@ check('last transfer: grantor + summary', lt.priorOwner === 'SPERLING JOHN 1994 
 check('same party across order + punctuation', sameParty('PACE,JAMES W & SANDRA H', 'JAMES W PACE and SANDRA H PACE') && !sameParty('SMITH,JOHN Q', 'JAMES W PACE and SANDRA H PACE'))
 const lt2 = lastTransfer('Grant Deed\nMarket\t55555\n10/10/23\tSMITH,JOHN Q\nPACE,JAMES W & SANDRA H\t$1,685,000', 'JAMES W PACE and SANDRA H PACE')
 check('grantee (current owner, assessor-style) is not the prior owner', lt2.priorOwner === 'SMITH,JOHN Q', JSON.stringify(lt2))
+
+console.log('\n[Profile] occupancy rule')
+const P = '324 5TH ST, SAN FRANCISCO, CA 94107'
+check('exemption Yes wins', deriveOccupancy({ exemption: 'Yes', mailingAddress: '1 ELSEWHERE RD, DALY CITY, CA', propertyAddress: P }) === 'Owner Occupied')
+check('primary residence = property', deriveOccupancy({ raw: P, propertyAddress: P }) === 'Owner Occupied')
+check('primary residence elsewhere', deriveOccupancy({ raw: '9 OTHER ST, OAKLAND, CA 94601', propertyAddress: P }) === 'Non-Owner Occupied')
+check('no exemption, mail elsewhere', deriveOccupancy({ exemption: 'No', mailingAddress: '2170 SUTTER ST, SAN FRANCISCO, CA 94115', propertyAddress: P, isEntity: true }) === 'Non-Owner Occupied')
+check('no exemption, person, mail at property', deriveOccupancy({ exemption: 'No', mailingAddress: P, propertyAddress: P }) === 'Owner Occupied')
+check('no exemption, COMPANY, mail at property -> unknown, not a claim', deriveOccupancy({ exemption: 'No', mailingAddress: P, propertyAddress: P, isEntity: true }) === 'Unknown (entity; mail at property)')
+check('nothing to go on -> FIELD NOT FOUND', deriveOccupancy({ propertyAddress: P }) === 'FIELD NOT FOUND')
 
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH })
 try {
