@@ -218,9 +218,12 @@ automatically again. Each stuck screen is kept as a screenshot under
 that were attempted.
 
 Per property, PropertyRadar contributes: owner(s) of record, entity/trust flag,
-ownership (person / trust / company), mailing address, owner-occupied or not,
-APN, property type, est. value, equity, assessed value, purchase price, owned
-since, year built and distress score.
+ownership (person / trust / company), mailing address (Contacts, or the
+Property tab's Taxpayer block), owner-occupied or not (homeowner tax exemption,
+then mailing/primary-residence address), APN, county, property type, estimated
+value, equity, assessed value, loan balance, purchase price / date / type,
+owned since, year built, distress score, homeowner exemption, "likely to list
+for sale" score, prior owner (deed grantor) and the last transfer.
 
 Log into PropertyRadar once in the visible browser when prompted. After that the
 saved session lets a job run with the browser hidden (**Hide the browser

@@ -34,14 +34,22 @@ export const ENRICH_COLUMNS = [
   'PR Occupancy',
   'PR APN',
   'PR Trust / Entity',
+  'PR County',
   'PR Property Type',
   'PR Est. Value',
   'PR Equity',
   'PR Assessed Value',
+  'PR Loan Balance',
   'PR Purchase Price',
+  'PR Purchase Date',
+  'PR Purchase Type',
   'PR Owned Since',
   'PR Year Built',
   'PR Distress Score',
+  'PR Homeowner Exemption',
+  'PR Likely to List for Sale',
+  'PR Prior Owner',
+  'PR Last Transfer',
   'PR Property Address',
   'PR Address Match',
   'PR Status',
@@ -59,9 +67,10 @@ export const ENRICH_COLUMNS = [
   'Enriched At',
 ]
 
-// Profile tabs worth reading for enrichment. "Value & Equity" is skipped — it
-// holds nothing we write out and costs a click + wait per row.
-const BATCH_TABS = ['Contacts', 'Property', 'Transactions']
+// Profile tabs read per row (seen live): Contacts (owner, mailing), Property
+// (APN, county, taxpayer, exemption), Value & Equity (estimated value, equity,
+// loans, purchase date), Transactions (deed, prior owner, likely-to-list).
+const BATCH_TABS = ['Contacts', 'Property', 'Value & Equity', 'Transactions']
 const NETWORK_SAMPLE_ROWS = 3 // rows whose PropertyRadar JSON responses are logged for calibration
 const PR_FAIL_PAUSE_AFTER = 3 // consecutive PropertyRadar misses before pausing to ask the operator
 const LOG_KEEP = 300 // events replayed to a reconnecting UI
@@ -823,14 +832,22 @@ export class Enrichment extends EventEmitter {
       fields['PR Occupancy'] = nf(d.occupancy)
       fields['PR APN'] = nf(d.apn)
       fields['PR Trust / Entity'] = nf(d.trustEntity)
+      fields['PR County'] = nf(d.county)
       fields['PR Property Type'] = nf(d.propertyType)
       fields['PR Est. Value'] = nf(d.estValue)
       fields['PR Equity'] = nf(d.equity)
       fields['PR Assessed Value'] = nf(d.assessedValue)
+      fields['PR Loan Balance'] = nf(d.loanBalance)
       fields['PR Purchase Price'] = nf(d.purchasePrice)
+      fields['PR Purchase Date'] = nf(d.purchaseDate)
+      fields['PR Purchase Type'] = nf(d.purchaseType)
       fields['PR Owned Since'] = nf(d.ownedSince)
       fields['PR Year Built'] = nf(d.yearBuilt)
       fields['PR Distress Score'] = nf(d.distressScore)
+      fields['PR Homeowner Exemption'] = nf(d.homeownerExemption)
+      fields['PR Likely to List for Sale'] = nf(d.likelyToList)
+      fields['PR Prior Owner'] = nf(d.priorOwner)
+      fields['PR Last Transfer'] = nf(d.lastTransfer)
       fields['PR Property Address'] = nf(d.propertyAddress)
       fields['PR Address Match'] = addressMatch(address, fields['PR Property Address'])
     } else if (prRes.status === 'not found') {
@@ -889,6 +906,8 @@ export class Enrichment extends EventEmitter {
       fields['PR Purchase Price'] = `$${(Number(n) * 9137 + 515000).toLocaleString('en-US')}`
       fields['PR Owned Since'] = 'Oct 2023'
       fields['PR Year Built'] = String(1900 + (Number(n) % 120))
+      fields['PR County'] = 'SAN FRANCISCO'
+      fields['PR Likely to List for Sale'] = `${40 + (Number(n) % 55)} - ${Number(n) % 2 ? 'High' : 'Medium'} (demo)`
       fields['PR Property Address'] = address.toUpperCase()
       fields['PR Address Match'] = 'match'
       fields['Enrichment Notes'] = entity ? `Demo: title held by entity "${owner}" — likely post-foreclosure/REO.` : 'Demo data — not a real record.'

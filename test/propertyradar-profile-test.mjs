@@ -7,7 +7,7 @@ import { chromium } from 'playwright'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { extractAndBuild, readProfileTabs, ownersFromProfileText, headerFields, textLabelValue } from '../server/sources/propertyradar.js'
+import { extractAndBuild, readProfileTabs, ownersFromProfileText, headerFields, textLabelValue, taxpayerBlock, lastTransfer } from '../server/sources/propertyradar.js'
 import { selectors } from '../server/sources/selectors.js'
 import { emptyResult } from '../server/sources/base.js'
 
@@ -32,6 +32,10 @@ check('header pairs (label/value) still work', headerFields('Year Built\n1925\nL
 check('label + value on one line', textLabelValue('Mailing Address 212 TEXAS ST, SAN FRANCISCO, CA 94107\nPhone edit', 'Mailing Address') === '212 TEXAS ST, SAN FRANCISCO, CA 94107')
 check('"Phone edit" is not a value', textLabelValue('Phone edit\nUnlock Phone', 'Phone') === '')
 check('wrapped address joined', textLabelValue('Address\n212 TEXAS ST,\nSAN FRANCISCO, CA 94107', 'Address') === '212 TEXAS ST, SAN FRANCISCO, CA 94107')
+const tp = taxpayerBlock('Annual Taxes\n$77,852\nTaxpayer\nGOLDEN PROPERTIES LLC\n2170 SUTTER ST\nSAN FRANCISCO,CA 94115\nMail Vacant\nNo')
+check('taxpayer block: name + mailing lines', tp.name === 'GOLDEN PROPERTIES LLC' && tp.address === '2170 SUTTER ST, SAN FRANCISCO,CA 94115', JSON.stringify(tp))
+const lt = lastTransfer('Grant Deed\tMarket\t\t84224\n10/31/23\tSPERLING JOHN 1994 TRUST\nGOLDEN PROPERTIES LLC\t$6,375,000\n100%', 'GOLDEN PROPERTIES LLC')
+check('last transfer: grantor + summary', lt.priorOwner === 'SPERLING JOHN 1994 TRUST' && lt.summary === 'Grant Deed · 10/31/23 · $6,375,000', JSON.stringify(lt))
 
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH })
 try {
@@ -68,6 +72,28 @@ try {
   check('owner occupied (primary residence = property)', e.occupancy === 'Owner Occupied', e.occupancy)
   check('assessed value / loan balance labels', e.assessedValue === '$3,111,000' && e.loanBalance === '$1,932,208', `${e.assessedValue} / ${e.loanBalance}`)
   check('no est value on this layout (not invented)', e.estValue === '')
+
+  console.log('\n[Profile] LLC owner across four tabs (2323 Hyde St) — tabs must really switch')
+  const page3 = await browser.newPage()
+  await page3.goto(fx('propertyradar-profile-llc.html'), { waitUntil: 'domcontentloaded' })
+  const msgs = []
+  const tabs3 = await readProfileTabs(page3, (ev) => msgs.push(ev.message), signal, ['Contacts', 'Property', 'Value & Equity', 'Transactions'])
+  check('every tab opened and was confirmed', !msgs.some((m) => /Could not confirm/.test(m)), msgs.join(' | '))
+  const res3 = emptyResult('PropertyRadar'); res3.audit = []
+  const out3 = await extractAndBuild(page3, selectors.propertyradar, res3, runDir, { address: '2323 Hyde Street, San Francisco, CA 94109' }, tabs3, { screenshot: false })
+  const g = res3.data
+  check('found', out3.ok === true)
+  check('LLC is the owner of record, flagged entity', g.ownerOfRecord === 'GOLDEN PROPERTIES LLC' && g.isEntityOwner === true, g.ownerOfRecord)
+  check('ownership type Company', g.ownershipType === 'Company', g.ownershipType)
+  check('mailing address from the Taxpayer block', g.mailingAddress === '2170 SUTTER ST, SAN FRANCISCO, CA 94115', g.mailingAddress)
+  check('APN + county from the Property tab', g.apn === '0069-005' && g.county === 'SAN FRANCISCO', `${g.apn} / ${g.county}`)
+  check('property type', g.propertyType === 'Multi-Family 2-4', g.propertyType)
+  check('estimated value / equity / loans from Value & Equity', g.estValue === '$7,551,529' && g.equity === '$7,551,529' && g.loanBalance === '$0', `${g.estValue} ${g.equity} ${g.loanBalance}`)
+  check('assessed / purchase / owned since / built / distress from header', g.assessedValue === '$6,502,500' && g.purchasePrice === '$6,375,000' && g.ownedSince === 'Oct 2023' && g.yearBuilt === '1900' && g.distressScore === '44', `${g.assessedValue} ${g.purchasePrice} ${g.ownedSince} ${g.yearBuilt} ${g.distressScore}`)
+  check('purchase date / type', g.purchaseDate === '10/31/2023' && g.purchaseType === 'Market', `${g.purchaseDate} ${g.purchaseType}`)
+  check('homeowner exemption No -> non-owner occupied (mailing elsewhere)', g.homeownerExemption === 'No' && g.occupancy === 'Non-Owner Occupied', `${g.homeownerExemption} / ${g.occupancy}`)
+  check('likely to list for sale', g.likelyToList === '82 - Very High (as of 08/11/2026)', g.likelyToList)
+  check('prior owner + last transfer', g.priorOwner === 'SPERLING JOHN 1994 TRUST' && g.lastTransfer === 'Grant Deed · 10/31/23 · $6,375,000', `${g.priorOwner} | ${g.lastTransfer}`)
 } finally {
   await browser.close()
   fs.rmSync(runDir, { recursive: true, force: true })

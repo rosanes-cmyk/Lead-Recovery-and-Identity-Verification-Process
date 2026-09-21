@@ -379,20 +379,44 @@ async function genericSearch(page, address, streetNum, emit, signal) {
 // combined text of every tab. PropertyRadar is an SPA that swaps tab content, so
 // we capture each tab's text as we visit it — the Transactions tab in particular
 // holds the deed history we use to recover the individual homeowner on REO deals.
+// Text that proves a tab's content is on screen (seen live, Sept 2026).
+const TAB_MARKERS = {
+  Contacts: /person type|ownership role|primary contact/i,
+  Property: /assessor parcel number|legal description|property taxes/i,
+  'Value & Equity': /estimated value|estimated equity/i,
+  Transactions: /transaction history|grant deed|likely to list/i,
+  Listings: /check for listings|\bMLS\b/i,
+}
 export async function readProfileTabs(page, emit, signal, tabs = PROFILE_TABS) {
   let text = ''
   for (const tab of tabs) {
     if (signal?.aborted) return text
-    try {
-      const t = page.getByText(new RegExp(`^${tab.replace(/&/g, '&')}$`, 'i')).first()
-      if ((await t.count()) > 0) {
+    const re = new RegExp(`^${escapeRe(tab)}$`, 'i')
+    const marker = TAB_MARKERS[tab]
+    // Several elements can carry the tab's text (a hidden clone, a label such as
+    // "Property Type" on a role match…): try role, then visible text, then any
+    // text — and only accept a click that actually shows the tab's content.
+    const factories = [
+      () => page.getByRole('tab', { name: re }),
+      () => page.locator(`text=/^${escapeRe(tab)}$/i >> visible=true`),
+      () => page.getByText(re),
+    ]
+    let body = ''
+    let verified = false
+    for (const make of factories) {
+      try {
+        const t = make().first()
+        if ((await t.count()) === 0) continue
         await t.click({ timeout: 2000, force: true })
         await page.waitForTimeout(800)
-        text += '\n\n' + (await page.innerText('body').catch(() => ''))
+        body = await page.innerText('body').catch(() => '')
+        if (!marker || marker.test(body)) { verified = true; break }
+      } catch {
+        /* try the next way */
       }
-    } catch {
-      /* tab not present */
     }
+    if (body) text += '\n\n' + body
+    if (!verified && emit) emit({ type: 'log', source: label, message: `Could not confirm the ${tab} tab opened` })
   }
   // Return to Contacts so owner/contact fields are on screen for extraction.
   try {
@@ -529,6 +553,43 @@ export function personFromDeeds(text, crmName) {
   return ''
 }
 
+// The Property tab's "Taxpayer" is a block: the name, then the mailing address
+// on one or two more lines ("GOLDEN PROPERTIES LLC" / "2170 SUTTER ST" /
+// "SAN FRANCISCO,CA 94115").
+export function taxpayerBlock(text) {
+  const lines = String(text || '').split(/[\n\t]+/).map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean)
+  const i = lines.findIndex((l) => /^taxpayer:?$/i.test(l))
+  if (i < 0 || !lines[i + 1]) return { name: '', address: '' }
+  const name = lines[i + 1]
+  const addr = []
+  for (let j = i + 2; j < Math.min(i + 4, lines.length); j++) {
+    const l = lines[j]
+    if (/^\d+\s+\S/.test(l) || /\b[A-Z]{2}\s*\d{5}\b/.test(l) || (addr.length && /^[A-Z][A-Z .'-]+,\s*[A-Z]{2}\b/.test(l))) addr.push(l)
+    else break
+  }
+  return { name, address: addr.join(', ') }
+}
+
+// The current owner's deed on the Transactions tab: "Grant Deed / Market /
+// <doc#> / <date> / GRANTOR / GRANTEE / $amount / LTV". Returns the prior owner
+// (grantor) and a one-line summary of the transfer.
+export function lastTransfer(text, ownerName) {
+  const tokens = String(text || '').split(/[\n\t]+/).map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean)
+  const i = tokens.findIndex((t) => /^grant deed\b/i.test(t))
+  if (i < 0) return { priorOwner: '', summary: '' }
+  const own = String(ownerName || '').toUpperCase().replace(/\s+/g, ' ').trim()
+  let date = '', amount = '', grantor = ''
+  for (let j = i; j < Math.min(i + 10, tokens.length); j++) {
+    const t = tokens[j]
+    if (!date && /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(t)) date = t
+    else if (!amount && /^\$[\d,]+$/.test(t)) amount = t
+    else if (!grantor && /^[A-Z][A-Z0-9 .'&-]{4,}$/.test(t) && /[A-Z]{2,}\s+[A-Z0-9]{2,}/.test(t) && t.toUpperCase() !== own && !/^(GRANT DEED|MARKET|CURRENT OWNER)$/i.test(t)) grantor = t
+    if (date && amount && grantor) break
+  }
+  const summary = ['Grant Deed', date, amount].filter(Boolean).join(' · ')
+  return { priorOwner: grantor, summary }
+}
+
 export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsText = '', opts = {}) {
   if (opts.screenshot !== false) res.evidence.push(await capture(page, runDir, 'propertyradar-result'))
   const { values, audit } = await extractFields(page, cfg.fields, { listFields: ['phones', 'emails'], semantics: { phones: 'phone', emails: 'email' } })
@@ -553,7 +614,8 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
     if (owners.length) values.recordedOwner = owners.join(' and ')
   }
   if (missing(values.apn)) values.apn = T('Assessor Parcel Number') || T('APN') || values.apn
-  if (missing(values.ownerMailingAddress)) values.ownerMailingAddress = T('Mailing Address') || values.ownerMailingAddress
+  const taxpayer = taxpayerBlock(allText)
+  if (missing(values.ownerMailingAddress)) values.ownerMailingAddress = T('Mailing Address') || taxpayer.address || values.ownerMailingAddress
   if (missing(values.propertyAddress)) values.propertyAddress = T('Address') || values.propertyAddress
   if (missing(values.ownershipType)) values.ownershipType = T('Person Type') || values.ownershipType
   if (missing(values.occupancy)) values.occupancy = T('Primary Residence') || T('Occupancy') || values.occupancy
@@ -565,6 +627,13 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
   // owner-occupied when it is the property itself.
   if (!missing(values.occupancy) && /\d/.test(values.occupancy) && !missing(values.propertyAddress)) {
     values.occupancy = addressMatch(values.propertyAddress, values.occupancy) === 'match' ? 'Owner Occupied' : 'Non-Owner Occupied'
+  }
+  // The Property tab's "Homeowner Tax Exemption" is the strongest occupancy
+  // signal there is; a mailing address elsewhere is the next best.
+  const exemption = (T('Homeowner Tax Exemption') || '').replace(/[^A-Za-z]/g, '')
+  if (/^yes$/i.test(exemption)) values.occupancy = 'Owner Occupied'
+  else if (missing(values.occupancy) && /^no$/i.test(exemption) && !missing(values.ownerMailingAddress) && !missing(values.propertyAddress)) {
+    values.occupancy = addressMatch(values.propertyAddress, values.ownerMailingAddress) === 'match' ? 'Owner Occupied' : 'Non-Owner Occupied'
   }
   // Header facts (values, dates, scores) — validated so a neighbouring label
   // can never be mistaken for a value.
@@ -580,7 +649,19 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
     ownedSince: /^[A-Z][a-z]{2,8}\.? \d{4}$|^\d{4}$|^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(hdr['Owned Since'] || '') ? hdr['Owned Since'] : '',
     yearBuilt: /^\d{4}$/.test(hdr['Year Built'] || '') ? hdr['Year Built'] : '',
     distressScore: /^\d{1,3}$/.test(hdr['Distress Score'] || '') ? hdr['Distress Score'] : '',
+    // Property tab
+    county: T('County') || '',
+    homeownerExemption: /^(yes|no)$/i.test(exemption) ? exemption : '',
+    // Value & Equity tab (fills what the header did not show)
+    purchaseDate: /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(T('Purchase Date') || '') ? T('Purchase Date') : '',
+    purchaseType: /^[A-Za-z -]{3,30}$/.test(T('Purchase Type') || '') ? T('Purchase Type') : '',
+    // Transactions tab
+    likelyToList: T('Likely to List for Sale') || '',
   }
+  facts.estValue = facts.estValue || money(T('Estimated Value'))
+  facts.equity = facts.equity || money(T('Estimated Equity $')) || money(T('Estimated Equity'))
+  facts.loanBalance = facts.loanBalance || money(T('Estimated Open Loans Balance'))
+  facts.purchasePrice = facts.purchasePrice || money(T('Purchase Amount'))
 
   // The "Taxpayer" value is "NAME, <mailing address>" — keep just the name.
   let owner = values.recordedOwner
@@ -623,6 +704,7 @@ export async function extractAndBuild(page, cfg, res, runDir, input = {}, tabsTe
     emails: values.emails,
     trustEntity: isEntity ? titleHolder : values.trustEntity,
     ...facts,
+    ...(() => { const t = lastTransfer(allText, ownerOfRecord); return { priorOwner: t.priorOwner, lastTransfer: t.summary } })(),
   }
   // Green when we have EITHER a usable owner identity or a clear owner of record.
   res.ok = Boolean((verifiedOwner && verifiedOwner !== FIELD_NOT_FOUND) || ownerOfRecord)

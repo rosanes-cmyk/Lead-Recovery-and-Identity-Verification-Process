@@ -1,0 +1,88 @@
+<!doctype html>
+<!-- STRUCTURAL FIXTURE of an LLC-owned profile (2323 Hyde St) modelled on four live tab
+     screenshots (Sept 2026): Contacts / Property / Value & Equity / Transactions, shown one at
+     a time like the real single-page app. "Taxpayer" lives on the Property tab as a
+     name + mailing-address block. NOT real PropertyRadar markup. -->
+<html lang="en"><head><meta charset="utf-8" /><title>2323 HYDE ST, SAN FRANCISCO, CA 94109</title>
+<style>[hidden]{display:none!important} td{padding:2px 8px} .tabs span{margin-right:12px;cursor:pointer}</style></head>
+<body>
+  <div class="hdr">
+    <div>Address</div><div>2323 HYDE ST,<br>SAN FRANCISCO, CA 94109</div>
+    <div>Property Type</div><div>Multi-Family 2-4</div>
+    <div><div>Beds / Baths</div><div>Year Built</div><div>Square Feet</div><div>6 / 6</div><div>1900</div><div>7,930</div></div>
+    <div><div>Assessed Value</div><div>Total Loan Bal</div><div>Lot Size</div><div>$6,502,500</div><div>$0</div><div>6,651</div></div>
+    <div><div>Purchase Price</div><div>Owned Since</div><div>Distress Score</div><div>$6,375,000</div><div>Oct 2023</div><div>44</div></div>
+    <div class="owners"><div>GOLDEN PROPERTIES LLC</div></div>
+  </div>
+  <div class="tabs" role="tablist">
+    <span role="tab" data-tab="contacts">Contacts</span><span role="tab" data-tab="property">Property</span>
+    <span role="tab" data-tab="value">Value &amp; Equity</span><span role="tab" data-tab="transactions">Transactions</span>
+    <span role="tab" data-tab="listings">Listings</span><span role="tab">Neighborhood</span><span role="tab">My Info</span>
+  </div>
+  <section id="contacts">
+    <h3>GOLDEN PROPERTIES LLC <a href="#">edit</a></h3>
+    <table>
+      <tr><td>Person Type</td><td>Company</td></tr>
+      <tr><td>Ownership Role</td><td>Owner</td></tr>
+      <tr><td>Primary Contact</td><td>☑</td></tr>
+      <tr><td>Phone <a href="#">edit</a></td><td>Add Phone</td></tr>
+      <tr><td>Notes</td><td>No Notes</td></tr>
+    </table>
+  </section>
+  <section id="property" hidden>
+    <h3>Location</h3>
+    <div>2323 HYDE ST<br>SAN FRANCISCO, CA 94109</div>
+    <table>
+      <tr><td>County</td><td>SAN FRANCISCO</td></tr>
+      <tr><td>Assessor Parcel Number</td><td>0069-005</td></tr>
+      <tr><td>Radar ID</td><td>P10BB506</td></tr>
+      <tr><td>Legal Description</td><td>BLK 293</td></tr>
+    </table>
+    <h3>Site</h3>
+    <table><tr><td>Advanced Type</td><td>Duplex</td></tr><tr><td>Site Vacant?</td><td>No</td></tr><tr><td>Zoning</td><td>RH3</td></tr></table>
+    <h3>Structure</h3>
+    <table><tr><td>Year Built</td><td>1900</td></tr><tr><td>Square Feet</td><td>7,930</td></tr><tr><td>Units</td><td>2</td></tr></table>
+    <h3>Property Taxes</h3>
+    <table>
+      <tr><td>Assessed Value</td><td>$6,502,500</td></tr>
+      <tr><td>Annual Taxes</td><td>$77,852</td></tr>
+      <tr><td>Taxpayer</td><td>GOLDEN PROPERTIES LLC<br>2170 SUTTER ST<br>SAN FRANCISCO,CA 94115</td></tr>
+      <tr><td>Mail Vacant</td><td>No</td></tr>
+      <tr><td>Homeowner Tax Exemption</td><td>No</td></tr>
+    </table>
+  </section>
+  <section id="value" hidden>
+    <h3>Value</h3>
+    <h4>Summary</h4>
+    <table>
+      <tr><td>Estimated Value</td><td>$7,551,529</td></tr>
+      <tr><td>Assessed Value</td><td>$6,502,500</td></tr>
+      <tr><td>Estimated Open Loans Balance</td><td>$0</td></tr>
+      <tr><td>Estimated Equity $</td><td>$7,551,529</td></tr>
+      <tr><td>Purchase Date</td><td>10/31/2023</td></tr>
+      <tr><td>Purchase Amount</td><td>$6,375,000</td></tr>
+      <tr><td>Purchase Type</td><td>Market</td></tr>
+    </table>
+  </section>
+  <section id="transactions" hidden>
+    <h3>Transaction History</h3>
+    <table>
+      <tr><th>Type<br>Purpose</th><th>#</th><th>Doc #<br>Rec Date</th><th>Grantor<br>Grantee</th><th>Amount<br>LTV/Down</th></tr>
+      <tr><td>Grant Deed<br>Market</td><td></td><td>84224<br>10/31/23</td><td>SPERLING JOHN 1994 TRUST<br>GOLDEN PROPERTIES LLC</td><td>$6,375,000<br>100%</td></tr>
+      <tr><td>County/City Lien</td><td>1r</td><td>97702<br>11/19/25</td><td>GOLDEN PROPERTIES LLC<br>SAN FRANCISCO WATER POWER &amp; SEWER CUSTOMER SERVICES</td><td>$882</td></tr>
+    </table>
+    <h3>Likely Transactions</h3>
+    <table>
+      <tr><td>Likely to List for Sale</td><td>82 - Very High (as of 08/11/2026)</td></tr>
+      <tr><td>Likely to Purchase</td><td>73 - High (as of 08/14/2026)</td></tr>
+    </table>
+    <h3>Foreclosures</h3><div>No Foreclosures</div>
+  </section>
+  <section id="listings" hidden><h3>Listings</h3><div>MLS Auction Sold 10/31/2023 38 $6,375,000</div><div>Check for Listings</div></section>
+  <script>
+    document.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', () => {
+      document.querySelectorAll('section').forEach((s) => { s.hidden = true })
+      document.getElementById(t.dataset.tab).hidden = false
+    }))
+  </script>
+</body></html>
