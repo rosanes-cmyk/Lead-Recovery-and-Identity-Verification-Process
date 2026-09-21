@@ -95,7 +95,7 @@ const writeAll = () => {
   fs.writeFileSync(path.join(outDir, 'network.jsonl'), calls.map((c) => JSON.stringify(c)).join('\n') + (calls.length ? '\n' : ''))
   // A short, readable index so the interesting calls are obvious at a glance.
   const lines = calls.map(
-    (c) => `[${c.step}] ${c.method} ${c.status} ${c.url}\n    sent: ${c.requestBody ? c.requestBody.slice(0, 300) : '(no body)'}\n    got : ${(c.responsePreview || '').replace(/\s+/g, ' ').slice(0, 300)}\n`,
+    (c) => `[${c.step}] ${c.method} ${c.status} ${c.url}\n    sent: ${c.requestBody ? c.requestBody.slice(0, 300) : '(no body)'}\n    got : ${(c.responsePreview || '').replace(/\s+/g, ' ').slice(0, 300)}${(c.responsePreview || '').length > 300 ? ` … (${c.responsePreview.length} chars, full text in network.jsonl)` : ''}\n`,
   )
   fs.writeFileSync(path.join(outDir, 'api-calls.txt'), `${calls.length} calls to the recorder service\n\n${lines.join('\n')}`)
 }
@@ -109,7 +109,9 @@ page.on('response', async (resp) => {
     const req = resp.request()
     const ct = resp.headers()['content-type'] || ''
     let preview = ''
-    if (/json|text|xml/i.test(ct)) { try { preview = (await resp.text()).slice(0, 4000) } catch { /* body gone */ } }
+    // Reference lists (the Titles dropdown is hundreds of entries) arrive in one
+    // response, so keep enough of it to be useful rather than a teaser.
+    if (/json|text|xml/i.test(ct)) { try { preview = (await resp.text()).slice(0, 200000) } catch { /* body gone */ } }
     calls.push({
       step: stepName,
       method: req.method(),
