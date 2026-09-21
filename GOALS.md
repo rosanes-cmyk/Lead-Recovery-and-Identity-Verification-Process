@@ -64,6 +64,49 @@ listings". If agent names are not in PropertyRadar, then goal 1's agent fields
 and the whole of goal 2 need a different source, and "fixer" and "as-is" exist
 only in MLS remarks, which no property-data source carries.
 
+### How to answer it
+
+Public records and MLS are two separate worlds. The county records who owns a
+property, what they paid and what they owe. Agents are not parties to a deed,
+so their names are never in public records. Listing agent, selling agent, days
+on market and remarks like "fixer" or "as-is" exist only in the MLS, which is
+licensed, not public. PropertyRadar is built on public records and resells MLS
+data only where it has an agreement and the plan includes it.
+
+There are three possible answers, not two: no MLS at all, listing status only
+(on market, list price, days on market, no names), or full detail including
+the agent. Only the third one is enough for us.
+
+Four checks, quickest first:
+
+1. **One property.** Open a property that definitely sold on the open market
+   (any address from our 8-row test set) and click the Listings tab. A row
+   with an agent name means yes. A row with dates and price but no name means
+   status only. "Check for listings", an empty tab, or an upgrade prompt means
+   no.
+2. **The export columns.** Start any list export and look at the column
+   chooser for "Listing Agent". This is the decisive one: if that column does
+   not exist, the ranked list cannot come from PropertyRadar even if a name
+   shows on a single property.
+3. **The criteria menu.** Look for a Listing or MLS category holding Listing
+   Status, Days on Market, List Price, Listing Agent. No agent criterion means
+   no grouping by agent in bulk.
+4. **Billing.** Check the plan page for an MLS or Listings add-on.
+
+If the UI is ambiguous, send support this, in writing:
+
+> Does my plan include MLS listing data for San Francisco, specifically the
+> listing agent and selling agent names on sold properties? Can listing agent
+> be used as a search criterion and included in a list export?
+
+### The fallback is already in reach
+
+The 234-row file we started from contains days on market and buyer's agent
+name, phone and email. Those are MLS fields; public records have none of them.
+So someone we work with already has MLS access. The same person can export
+every San Francisco sale for 24 months with listing agent and remarks
+included, which would satisfy most of goal 2 with no scraping at all.
+
 ---
 
 ## Order of work
