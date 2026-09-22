@@ -80,6 +80,7 @@
     $('en-zillow').checked = s.options?.zillowCheck !== false
     $('en-redfin').checked = s.options?.redfin !== false
     $('en-liens').checked = s.options?.liens !== false
+    $('en-permits').checked = s.options?.permits !== false
     $('en-headless').checked = s.options?.headless === true
     if (s.options?.delayMs != null) $('en-delay').value = (s.options.delayMs / 1000).toString()
     hide('en-start-error')
@@ -129,6 +130,7 @@
       zillowCheck: $('en-zillow').checked,
       redfin: $('en-redfin').checked,
       liens: $('en-liens').checked,
+      permits: $('en-permits').checked,
       headless: $('en-headless').checked,
       delayMs: Math.round(parseFloat($('en-delay').value || '0') * 1000),
     }

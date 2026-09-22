@@ -21,7 +21,8 @@ import * as pr from './sources/propertyradar.js'
 import { searchAddress } from './sources/websearch.js'
 import { checkZillow } from './sources/zillow.js'
 import { lookupRedfin, dealSignals, readRedfinInBrowser } from './sources/redfin.js'
-import { lookupLiens, encumbranceSummary } from './sources/recorder.js'
+import { lookupLiens, encumbranceSummary, splitApn } from './sources/recorder.js'
+import { lookupPermits } from './sources/permits.js'
 import { csvToRecords, toCsv, detectAddressColumns, buildAddress, addressMatch } from './csv.js'
 
 // Columns appended to the input sheet, in this order.
@@ -92,6 +93,13 @@ export const ENRICH_COLUMNS = [
   'Liens Documents',
   'Liens Summary',
   'Liens Status',
+  'Permits Count',
+  'Permits Open',
+  'Permits Last Date',
+  'Permits Last Work',
+  'Permits Total Value',
+  'Violations Active',
+  'Permits Status',
   'Enrichment Notes',
   'Enriched At',
 ]
@@ -125,6 +133,7 @@ export class Enrichment extends EventEmitter {
       zillowCheck: config.enrichZillow,
       redfin: config.enrichRedfin,
       liens: config.enrichLiens,
+      permits: config.enrichPermits,
       delayMs: config.enrichDelayMs,
       headless: null, // null = leave the browser mode as configured
       ...(job.options || {}),
@@ -297,6 +306,7 @@ export class Enrichment extends EventEmitter {
     if (typeof opts.zillowCheck === 'boolean') this.options.zillowCheck = opts.zillowCheck
     if (typeof opts.redfin === 'boolean') this.options.redfin = opts.redfin
     if (typeof opts.liens === 'boolean') this.options.liens = opts.liens
+    if (typeof opts.permits === 'boolean') this.options.permits = opts.permits
     if (typeof opts.headless === 'boolean') this.options.headless = opts.headless
     if (opts.delayMs != null) {
       const n = parseInt(opts.delayMs, 10)
@@ -672,6 +682,12 @@ export class Enrichment extends EventEmitter {
     this._applyLiens(fields, lien)
     if (lien && !lien.ok && lien.error) notes.push(`Recorder: ${lien.error}`)
 
+    // Permits and code violations, from the city's own open data. Same parcel
+    // number as the recorder, plain fetch, about a second.
+    const perm = await this._permits(fields['PR APN'], signal)
+    this._applyPermits(fields, perm)
+    if (perm && !perm.ok && perm.error) notes.push(`Permits: ${perm.error}`)
+
     // Redfin names the agents PropertyRadar does not carry. Plain fetch of the
     // page the web search already found, so it costs a second, not a tab.
     let rf = await this._redfin(fields['Web Redfin'], signal)
@@ -804,11 +820,12 @@ export class Enrichment extends EventEmitter {
     fields['Enriched At'] = new Date().toISOString()
     this._applyPr(fields, { status: out.ok ? 'found' : 'not found', data: res.data, notes: res.notes, evidence: res.evidence }, address)
     const prev = this.results.get(row)
-    if (prev) for (const c of ENRICH_COLUMNS) if ((c.startsWith('Web ') || c.startsWith('Redfin ') || c.startsWith('Liens ') || c.startsWith('Zillow ') || c === 'Agents Agree') && !fields[c]) fields[c] = prev.fields[c] || ''
+    if (prev) for (const c of ENRICH_COLUMNS) if ((c.startsWith('Web ') || c.startsWith('Redfin ') || c.startsWith('Liens ') || c.startsWith('Permits ') || c.startsWith('Violations ') || c.startsWith('Zillow ') || c === 'Agents Agree') && !fields[c]) fields[c] = prev.fields[c] || ''
     if (!prev) {
       fields['Web Status'] = this.options.webSearch ? 'pending' : 'skipped'
       fields['Redfin Status'] = this.options.redfin ? 'pending' : 'skipped'
       fields['Liens Status'] = this.options.liens ? 'pending' : 'skipped'
+      fields['Permits Status'] = this.options.permits ? 'pending' : 'skipped'
     }
     fields['Enrichment Notes'] = ['Read from a property the operator opened by hand — check PR Address Match.', ...res.notes].join(' | ').slice(0, 600)
     fields._evidence = (res.evidence || []).filter((e) => e.file).map((e) => ({ file: e.file, label: e.label }))
@@ -894,6 +911,7 @@ export class Enrichment extends EventEmitter {
     if (fields['Web Status'] === 'pending') fields['Web Status'] = 'none'
     if (fields['Redfin Status'] === 'pending') fields['Redfin Status'] = 'none'
     if (fields['Liens Status'] === 'pending') fields['Liens Status'] = 'none'
+    if (fields['Permits Status'] === 'pending') fields['Permits Status'] = 'none'
     this._crossCheckAgents(fields)
     fields._evidence = row.evidence
     this._record(i, fields, row.ms || 0)
@@ -995,6 +1013,37 @@ export class Enrichment extends EventEmitter {
     } catch (err) {
       return { ok: false, error: String(err?.message || err).slice(0, 160) }
     }
+  }
+
+  async _permits(apn, signal) {
+    if (!this.options.permits) return null
+    const clean = String(apn || '').trim()
+    if (!clean || clean === FIELD_NOT_FOUND) return { ok: false, error: 'no parcel number, so no permit search' }
+    try {
+      return await lookupPermits(clean, { splitApn, signal })
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err).slice(0, 160) }
+    }
+  }
+
+  _applyPermits(fields, res) {
+    if (!this.options.permits) { fields['Permits Status'] = 'skipped'; return }
+    if (!res) { fields['Permits Status'] = 'none'; return }
+    if (!res.ok) {
+      fields['Permits Status'] = /no parcel/i.test(res.error || '') ? 'no parcel number' : 'not found'
+      return
+    }
+    const p = res.permits
+    const v = res.violations
+    // Street-space and sign permits say nothing about the building, so the count
+    // is the substantive work, with the raw total behind it.
+    fields['Permits Count'] = p.substantive === p.total ? String(p.total) : `${p.substantive} of ${p.total}`
+    fields['Permits Open'] = String(p.open)
+    fields['Permits Last Date'] = p.lastDate
+    fields['Permits Last Work'] = p.lastDescription
+    fields['Permits Total Value'] = p.totalValue ? `$${p.totalValue.toLocaleString('en-US')}` : ''
+    fields['Violations Active'] = v.active ? `${v.active}${v.activeKinds ? ` (${v.activeKinds})` : ''}` : ''
+    fields['Permits Status'] = 'found'
   }
 
   _applyRedfin(fields, rf) {
@@ -1236,6 +1285,15 @@ export class Enrichment extends EventEmitter {
       fields['Liens Summary'] = owes ? '2 loans not shown released; ABSTRACT OF JUDGMENT (no release recorded)' : '1 loan not shown released'
       fields['Liens Status'] = 'found'
     } else fields['Liens Status'] = 'skipped'
+    if (this.options.permits) {
+      fields['Permits Count'] = String(3 + (Number(n) % 9))
+      fields['Permits Open'] = String(Number(n) % 2)
+      fields['Permits Last Date'] = 'Mar 27, 2019'
+      fields['Permits Last Work'] = 'kitchen and bathroom remodel, demo only'
+      fields['Permits Total Value'] = `$${(50000 + Number(n) * 37).toLocaleString('en-US')}`
+      fields['Violations Active'] = Number(n) % 5 === 0 ? '1 (building section)' : ''
+      fields['Permits Status'] = 'found'
+    } else fields['Permits Status'] = 'skipped'
     this._crossCheckAgents(fields)
     return fields
   }

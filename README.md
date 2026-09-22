@@ -396,6 +396,27 @@ A few things to know before you share:
 - Nothing here makes the app safe to leave online permanently. It is for a demo
   or a hand-off, not hosting.
 
+### Permits and code violations, from the city
+
+The same parcel number goes to San Francisco's open data, free and without a
+key, for two more columns' worth of condition:
+
+| Column | What it is |
+| --- | --- |
+| Permits Count | Substantive permits, and the raw total behind it |
+| Permits Open | Permits issued or filed and not yet completed |
+| Permits Last Date / Last Work | When work was last filed, and what it was |
+| Permits Total Value | Declared cost of the substantive work |
+| Violations Active | Open Department of Building Inspection notices, and their kind |
+
+Two judgements worth knowing. Street-space, sign and banner permits are set
+aside from the count and can never become "the last work", because they say
+nothing about the building. And permit costs of zero or one dollar are
+excluded from the total, since the city's own data uses them as placeholders.
+
+An active building violation is the most direct motivation signal in the whole
+sheet. San Francisco only. Turn it off with `ENRICH_PERMITS=false`.
+
 ### Liens, from the recorded chain of title
 
 Every enrichment row also searches the San Francisco Assessor-Recorder by the

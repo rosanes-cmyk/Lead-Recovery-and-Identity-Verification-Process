@@ -54,6 +54,7 @@ export const config = {
   enrichZillow: bool(process.env.ENRICH_ZILLOW, true), // open the Zillow page per row (type / listing status / county)
   enrichRedfin: bool(process.env.ENRICH_REDFIN, true), // read the Redfin page per row (listing + buyer agent, MLS remarks)
   enrichLiens: bool(process.env.ENRICH_LIENS, true), // read the SF recorder per row (liens, releases, notices of default)
+  enrichPermits: bool(process.env.ENRICH_PERMITS, true), // read SF open data per row (building permits, code violations)
 
   // Server
   port: num(process.env.PORT, 4319),

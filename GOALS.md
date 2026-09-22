@@ -21,7 +21,7 @@ currently gathers by hand across five browser tabs.
 | Last sale price and date | done |
 | Assessed value | done |
 | Listing agent and selling agent | **done** — read from Redfin, with brokerage, DRE licence, phone and email. Caveat: these are the agents of the property's most recent listing, so on a property that sold again they are not the agents of an older sale. The `Redfin Agents For` column names the sale they belong to |
-| Permit history | **not built** |
+| Permit history | **done** — building permits and code violations from the city's open data, by parcel |
 | Liens and encumbrances | **done** — the recorded chain of title by parcel: open loans, unreleased judgments and tax/mechanics liens, notices of default. No amounts; the index carries none |
 
 and all of the following hold:
@@ -33,11 +33,11 @@ and all of the following hold:
 - **Takes one typed address** as well as a CSV. Today: CSV only.
 - **Returns a CSV** that pastes straight back into Google Sheets. Done.
 
-**Where it stands:** five of the six fields are done. Ownership and money are
+**Where it stands:** all six fields are done. Ownership and money are
 verified against live screenshots, the MLS sheet and internal arithmetic;
-agents come from Redfin and liens from the recorded chain of title.
-**Two things remain: permits and the single-address box.** Nothing else in
-this file is goal 1.
+agents come from Redfin, liens from the recorded chain of title, and permits
+from the city's open data. **One thing remains: the single-address box**, which
+is a matter of shape rather than data. Nothing else in this file is goal 1.
 
 ---
 
@@ -155,9 +155,8 @@ included, which would satisfy most of goal 2 with no scraping at all.
 
 1. ~~**Agents from Redfin.**~~ Done. Listing and buyer agent with brokerage,
    DRE, phone, email, plus MLS remarks and deal signals, on every row.
-2. **Permits**, from San Francisco's free parcel dataset. No browser needed,
-   no terms-of-service question. The last missing field that has a clean
-   source.
+2. ~~**Permits.**~~ Done. Building permits and Department of Building
+   Inspection notices of violation, by parcel, from the city's open data.
 3. ~~**Liens.**~~ Done. Read per property from the SF recorder by parcel
    number, with liens paired against their releases.
 4. **Single-address box**, so goal 1 matches how it was described.
