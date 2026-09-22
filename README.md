@@ -527,6 +527,15 @@ ordinary errors, because pausing a good run on one dead link would be worse. A
 refusal is not retried either — asking again immediately only asks faster while
 being told no.
 
+**"No agent or remarks" is two different failures.** Redfin either served
+something that is not the property page — a challenge, an interstitial, an
+empty shell — or it served the real page and our reader has stopped
+understanding it. Those need opposite responses: wait, or fix code. So every
+page that reads but yields nothing is described (its size, its title, and
+whether it still carries Redfin's `listingAgents` and `marketingRemarks`
+keys), the first three are kept whole under the run's `evidence/`, and the run
+says which of the two it is instead of leaving someone to reproduce it.
+
 **A run that ends with no agents says why.** "0 agents" is the same output
 whether Redfin refused every page, the agent reader broke, or the search
 genuinely holds none of our kind of property — and those need three different
@@ -577,6 +586,13 @@ is a wrong number on a call list.
 **A block is not a miss.** If Redfin refuses a page it is recorded as blocked
 rather than as a property with no agent, so a later pass can pick those up
 instead of them looking like properties with no agent on them.
+
+**An empty result page is only the end at the end.** Page 40 of a 26-page
+search comes back empty because the search finished. Page 8 of a 190-page
+search comes back empty because Redfin declined to answer. The crawler used to
+treat both as "finished", which handed back a twentieth of the city looking
+like a clean result. When the page counter says there is more, an empty page is
+reported as a refusal.
 
 **A partial crawl says so.** A crawl cut short is the failure that looks most
 like a success: a few hundred properties, read cleanly, with no sign that the

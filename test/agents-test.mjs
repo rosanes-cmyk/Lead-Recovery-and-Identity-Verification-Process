@@ -258,10 +258,43 @@ try {
   check('a wholly blocked run is diagnosed as blocked', /refused/.test(blocked.diagnosis()), blocked.diagnosis())
   check('and says to wait and raise the pause', /Resume/.test(blocked.diagnosis()))
 
+  // "No agent or remarks" has two causes needing opposite responses, and the
+  // run has to say which. This is the gap that left the first real run
+  // undiagnosable.
+  const { describePage } = await import('../server/sources/redfin.js')
+  const realPage = '<html><head><title>2625 Broderick St</title></head><body>' + 'x'.repeat(200000) + '\\"listingAgents\\":[] \\"marketingRemarks\\":[]</body></html>'
+  const d = describePage(realPage)
+  check('a real page is recognised by the keys it carries', d.hasListingAgents && d.hasRemarks)
+  check('and its title is kept', d.title === '2625 Broderick St', d.title)
+  check('an empty body carries nothing', describePage('').hasListingAgents === false)
+
+  const brokenReader = AgentList.create({ files: [{ name: 'x.csv', text: EXPORT }] })
+  made.push(brokenReader)
+  for (const p of brokenReader.properties) {
+    brokenReader._record(p, { ok: false, error: 'Redfin page had no agent or remarks.' }, 5, describePage(realPage))
+  }
+  check('pages that still carry the data point at the reader', /reader has stopped understanding/.test(brokenReader.missSummary()), brokenReader.missSummary())
+  check('and ask for the evidence file', /miss-1\.html/.test(brokenReader.missSummary()))
+
+  const softBlocked = AgentList.create({ files: [{ name: 'x.csv', text: EXPORT }] })
+  made.push(softBlocked)
+  for (const p of softBlocked.properties) {
+    softBlocked._record(p, { ok: false, error: 'Redfin page had no agent or remarks.' }, 5, describePage('<html><head><title>Just a moment...</title></head><body>checking</body></html>'))
+  }
+  check('pages missing the data point at a soft block', /soft block/.test(softBlocked.missSummary()), softBlocked.missSummary())
+  check('and name what was served instead', /Just a moment/.test(softBlocked.missSummary()))
+  const noMisses = AgentList.create({ files: [{ name: 'x.csv', text: EXPORT }] })
+  made.push(noMisses)
+  check('a run with no misses says nothing', noMisses.missSummary() === '')
+
   const noAgents = AgentList.create({ files: [{ name: 'x.csv', text: EXPORT }] })
   made.push(noAgents)
   for (const p of noAgents.properties) noAgents._record(p, { ok: true, listingAgent: null, signals: [], remarks: 'A home.' }, 5)
-  check('pages that read but carry no agent point at the reader', /reader being broken/.test(noAgents.diagnosis()), noAgents.diagnosis())
+  check('no agents anywhere is reported', /not one carried a listing agent/.test(noAgents.diagnosis()), noAgents.diagnosis())
+  // With nothing recorded about the pages, the run must not guess at a cause.
+  check('and with no evidence it points at the working file rather than guessing', /Download the working/.test(noAgents.diagnosis()))
+  // With evidence, the same shortfall names its cause instead.
+  check('the same shortfall with evidence names the cause', /reader has stopped understanding/.test(brokenReader.diagnosis()), brokenReader.diagnosis())
 
   const noDeals = AgentList.create({ files: [{ name: 'x.csv', text: EXPORT }] })
   made.push(noDeals)

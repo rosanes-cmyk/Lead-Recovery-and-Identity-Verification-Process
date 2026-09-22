@@ -264,7 +264,8 @@
         render({ ...(job || {}), state: ev.state })
         if (ev.state === 'paused' && ev.message) { $('ag-banner').hidden = false; $('ag-banner').textContent = ev.message }
         if (ev.state === 'running') hide('ag-banner')
-        if (ev.message) addLog(ev.message, 'state')
+        // The message is not logged here: _setState already emits it as its own
+        // log event, and logging it again printed every state change twice.
         break
       case 'crawl':
         // The crawl has its own measure — pages, not properties — so it drives

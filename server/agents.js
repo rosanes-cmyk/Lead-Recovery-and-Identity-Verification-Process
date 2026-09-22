@@ -218,7 +218,7 @@ import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { config } from './config.js'
 import { toCsv } from './csv.js'
-import { lookupRedfin } from './sources/redfin.js'
+import { lookupRedfin, describePage } from './sources/redfin.js'
 import { mergeSearchExports } from './sources/redfin-search.js'
 import { crawlSearch, normaliseSearchUrl, soldSearchUrl } from './sources/redfin-crawl.js'
 
@@ -228,6 +228,8 @@ const jobDir = (id) => path.join(config.runsDir, id)
 const DEFAULT_DELAY_MS = 1500
 // Consecutive blocks that mean "stop asking" rather than "try again".
 const BLOCK_PAUSE_AFTER = 5
+// Whole pages kept when a property reads but yields nothing.
+const MISS_PAGES_KEPT = 3
 // Walking the search is lighter than reading properties — one page hands back
 // forty of them — but it is still Redfin, so it gets its own gentler pace.
 const DEFAULT_CRAWL_DELAY_MS = 1200
@@ -508,7 +510,8 @@ export class AgentList extends EventEmitter {
     this._saveJob()
 
     if (res.refused) {
-      this._setState('ready', 'Redfin returned a page with no properties on it. That is what a refusal looks like — wait a while, raise the pause between pages, and try again.')
+      const got = this.properties.length ? `${this.properties.length} properties collected so far are saved. ` : ''
+      this._setState('ready', `${res.error || 'Redfin returned a page with no properties on it.'} ${got}Wait a while, raise the pause between pages, then press "Walk the rest of the search" — it picks up where it stopped.`)
     } else if (res.error) {
       this._setState('ready', `Stopped at page ${this.crawl.through}${this.crawl.totalPages ? ` of ${this.crawl.totalPages}` : ''}: ${res.error}. ${this.properties.length} properties collected — walk it again to pick up the rest, or start the run on what there is.`)
     } else if (this.crawl.partial) {
@@ -541,8 +544,17 @@ export class AgentList extends EventEmitter {
 
       const t0 = Date.now()
       let res
+      let miss = null
       try {
-        res = await lookupRedfin(prop.url, { signal: this._abort.signal, retries: 1 })
+        res = await lookupRedfin(prop.url, {
+          signal: this._abort.signal,
+          retries: 1,
+          // A page that loaded and gave us nothing is the failure worth keeping.
+          // Describe every one of them, and save the first few in full, so
+          // "no agent or remarks" can be told apart from a soft block without
+          // anyone having to reproduce it.
+          onMiss: (html) => { miss = describePage(html); this._keepMiss(prop, html) },
+        })
       } catch (err) {
         res = { ok: false, error: String(err?.message || err).slice(0, 160) }
       }
@@ -562,7 +574,7 @@ export class AgentList extends EventEmitter {
         if (this._blockStreak >= BLOCK_PAUSE_AFTER) {
           const why = res?.blocked
             ? `Redfin has refused ${this._blockStreak} properties in a row.`
-            : `${this._blockStreak} properties in a row failed to read. The last said: ${String(res?.error || 'no reason given').slice(0, 120)}`
+            : `${this._blockStreak} properties in a row failed to read. The last said: ${String(res?.error || 'no reason given').slice(0, 120)}. ${this.missSummary()}`.trim()
           this._setState('paused', `${why} Paused rather than working through the rest of the list getting nothing. Wait a while, raise the pause between properties, then Resume. Everything read so far is saved.`)
           this._pauseGate = new Promise((r) => (this._resume = r))
           await this._waitIfPaused()
@@ -570,7 +582,7 @@ export class AgentList extends EventEmitter {
         }
       }
 
-      this._record(prop, res, Date.now() - t0)
+      this._record(prop, res, Date.now() - t0, miss)
 
       if (k < pending.length - 1 && this.state !== 'stopped') {
         const base = this.options.delayMs
@@ -580,7 +592,21 @@ export class AgentList extends EventEmitter {
     return this._finalize(this.state === 'stopped' ? 'stopped' : 'done')
   }
 
-  _record(prop, res, ms) {
+  // Keep at most a handful of whole pages: enough to diagnose, not enough to
+  // fill the disk when a run of 8,000 properties goes wrong from the start.
+  _keepMiss(prop, html) {
+    this._missesKept = this._missesKept || 0
+    if (this._missesKept >= MISS_PAGES_KEPT || !html) return
+    this._missesKept++
+    try {
+      const dir = path.join(this.dir, 'evidence')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, `miss-${this._missesKept}.html`), String(html))
+      this._log(`Kept the page that gave nothing for ${prop.address || prop.url} as evidence/miss-${this._missesKept}.html`, 'warn')
+    } catch { /* evidence is best effort */ }
+  }
+
+  _record(prop, res, ms, miss = null) {
     const row = {
       url: prop.url,
       // A crawl gives us the address and price off the search card and no sale
@@ -597,6 +623,7 @@ export class AgentList extends EventEmitter {
       remarks: String(res?.remarks || '').slice(0, 300),
       blocked: Boolean(res?.blocked),
       error: res?.ok ? '' : String(res?.error || '').slice(0, 160),
+      miss,
       at: new Date().toISOString(),
       ms,
     }
@@ -613,6 +640,28 @@ export class AgentList extends EventEmitter {
    * genuinely holds none of our kind of property. Those need three different
    * responses from the operator, so the run has to say which it was.
    */
+  /**
+   * What the pages that gave us nothing actually were.
+   *
+   * Present-but-unparsed means the reader has stopped understanding Redfin's
+   * markup and needs fixing. Absent means we were served something that is not
+   * the property page, which is a soft block and needs waiting, not code.
+   */
+  missSummary() {
+    const misses = [...this.results.values()].map((r) => r.miss).filter(Boolean)
+    if (!misses.length) return ''
+    const withKeys = misses.filter((m) => m.hasListingAgents || m.hasRemarks).length
+    const tiny = misses.filter((m) => m.bytes < 5000).length
+    const titles = [...new Set(misses.map((m) => m.title).filter(Boolean))].slice(0, 2)
+    if (withKeys >= misses.length * 0.5) {
+      return `${withKeys} of ${misses.length} still carried Redfin's own agent data, so the pages are real and the reader has stopped understanding them. That is a bug here, not a block — send me evidence/miss-1.html.`
+    }
+    const what = tiny >= misses.length * 0.5
+      ? `${tiny} of ${misses.length} came back nearly empty`
+      : `none of the ${misses.length} carried Redfin's agent data`
+    return `${what}${titles.length ? `, titled ${titles.map((t) => `"${t}"`).join(' / ')}` : ''}, so Redfin is serving something other than the property page. That is a soft block: wait, raise the pause, then Resume.`
+  }
+
   diagnosis() {
     const c = this.counts()
     if (!c.read) return ''
@@ -620,7 +669,8 @@ export class AgentList extends EventEmitter {
       return `Redfin refused ${c.blocked} of ${c.read} properties, so this is about being blocked, not about the search. Wait a few hours, raise the pause between properties to 4 or 5 seconds, and Resume — the ones already read are kept.`
     }
     if (!c.withAgent) {
-      return `${c.read} properties were read but not one carried a listing agent. That is not what a real search looks like, so treat it as the reader being broken rather than the properties being empty. Download the working to see what came back.`
+      const why = this.missSummary()
+      return `${c.read} properties were read but not one carried a listing agent. ${why || 'Download the working to see what came back.'}`
     }
     if (!c.ourKind) {
       return `${c.withAgent} listing agents were found, but none of the ${c.read} properties read as fixer, probate, trust sale or as-is, so there is nothing to rank. Either the search is pointed at the wrong kind of property, or it is too small a slice to contain any.`

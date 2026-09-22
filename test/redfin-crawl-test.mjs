@@ -159,6 +159,34 @@ const threw = await crawlSearch(base, { fetchImpl: thrower.impl, delayMs: 0 })
 check('a thrown error is caught and reported', /socket hang up/.test(threw.error), threw.error)
 check('and is not a refusal', threw.refused === false)
 
+// An empty page BEFORE the known end is a refusal, not the end of the search.
+// Getting this wrong hands back a twentieth of the city looking like a clean
+// finish, which is what happened on the first real run.
+const earlyStop = {
+  impl: async (url) => {
+    const m = String(url).match(/\/page-(\d+)$/)
+    const n = m ? Number(m[1]) : 1
+    const cards = n <= 3
+      ? `<div class="bp-Homecard__Price"><span class="bp-Homecard__Price--value">$${n}00,000</span></div><a class="bp-Homecard__Address" href="/CA/San-Francisco/${n}-A-St-94110/home/${n}" target="_blank">${n} A St</a>`
+      : ''
+    return { ok: true, status: 200, text: async () => `<html>Viewing page ${n} of 190${cards}</html>` }
+  },
+}
+const cutOff = await crawlSearch(base, { fetchImpl: earlyStop.impl, delayMs: 0 })
+check('an empty page before the end is a refusal', cutOff.refused === true)
+check('and names the page it happened on', /page 4 of 190/.test(cutOff.error), cutOff.error)
+check('and says it is a refusal, not the end', /refusal rather than the end/.test(cutOff.error))
+check('but keeps everything collected', cutOff.properties.length === 3, String(cutOff.properties.length))
+check('and is still partial', cutOff.partial === true)
+
+// The genuine end must not be mistaken for a refusal.
+const trueEnd = await crawlSearch(base, { fetchImpl: fakeRedfin({ pages: 3, total: 3 }).impl, delayMs: 0 })
+check('reaching the real end is not a refusal', trueEnd.refused === false)
+// A search with no page counter cannot tell the two apart, and must not
+// invent a refusal out of an ordinary finish.
+const noCounter = await crawlSearch(base, { fetchImpl: fakeRedfin({ pages: 2, total: 0 }).impl, delayMs: 0 })
+check('with no counter an empty page is still just the end', noCounter.refused === false)
+
 console.log('\n[Crawl] Resuming part-way')
 const resumed = fakeRedfin({ pages: 6, perPage: 2, total: 6 })
 const rest = await crawlSearch(base, { fetchImpl: resumed.impl, delayMs: 0, startPage: 4 })

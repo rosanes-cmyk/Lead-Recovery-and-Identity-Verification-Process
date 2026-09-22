@@ -150,6 +150,7 @@ export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, sta
   let totalPages = 0
   let pagesRead = 0
   let through = first - 1 // the highest page actually read
+  let refusedMidway = false
   let error = ''
 
   for (let page = first; page < first + maxPages; page++) {
@@ -172,7 +173,17 @@ export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, sta
     pagesRead++
     through = page
     onPage?.({ page, totalPages, found: found.length, fresh: fresh.length, collected: properties.length })
-    if (!found.length) break // the end, or a refusal — the caller is told which
+    if (!found.length) {
+      // An empty page is how the end announces itself — but only at the end.
+      // Page 40 of a 26-page search is genuinely empty; page 8 of 190 is
+      // Redfin declining to answer, and calling that "finished" hands back a
+      // twentieth of the city with no sign anything went wrong.
+      if (totalPages && page < totalPages) {
+        refusedMidway = true
+        error = error || `Redfin served page ${page} of ${totalPages} with no properties on it, which is a refusal rather than the end of the search.`
+      }
+      break
+    }
     if (totalPages && page >= totalPages) break
     await new Promise((r) => setTimeout(r, delayMs + Math.round(Math.random() * delayMs * 0.4)))
   }
@@ -187,9 +198,10 @@ export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, sta
     // same as how many pages it read, and it is coverage the caller needs.
     through,
     totalPages,
-    // Nothing at all on the first page means we were turned away, not that the
-    // city has no sales.
-    refused: pagesRead > 0 && properties.length === 0,
+    // Two shapes of refusal: nothing at all on the first page (turned away from
+    // the start, which is not the same as the city having no sales), and an
+    // empty page part-way through a search we know to be longer.
+    refused: (pagesRead > 0 && properties.length === 0) || refusedMidway,
     partial: Boolean(totalPages) && through < totalPages,
     error,
   }

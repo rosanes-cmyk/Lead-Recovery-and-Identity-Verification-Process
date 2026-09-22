@@ -189,6 +189,30 @@ export function parseMls(html = '') {
   }
 }
 
+/**
+ * A one-line description of a page that gave us nothing.
+ *
+ * "No agent or remarks" has two very different causes and they need opposite
+ * responses: Redfin served something that is not the property page (a
+ * challenge, an interstitial, an empty shell), or it served the real page and
+ * our reader has stopped understanding it. The difference is visible in
+ * whether the page still carries the keys we read, so record that rather than
+ * make someone guess.
+ */
+export function describePage(html = '') {
+  const s = String(html)
+  const t = s.match(/<title>([^<]{0,200})<\/title>/i)
+  return {
+    bytes: s.length,
+    title: t ? t[1].trim().slice(0, 120) : '',
+    // The keys we parse. Present but unparsed means the reader broke; absent
+    // means we were served a different page.
+    hasListingAgents: s.includes('listingAgents'),
+    hasRemarks: s.includes('marketingRemarks'),
+    hasHistory: s.includes('propertyHistoryInfo'),
+  }
+}
+
 export function parseRedfinHtml(html = '') {
   if (looksBlocked(html)) return { ok: false, blocked: true, error: 'Redfin returned a bot check.' }
   const listing = parseAgents(html, 'listingAgents')
