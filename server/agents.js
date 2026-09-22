@@ -80,7 +80,17 @@ const firstFilled = (rows, pick) => rows.map(pick).map((v) => String(v || '').tr
  * A row counts as "our kind of deal" when its remarks carried at least one of
  * the deal signals goal 1 already matches.
  */
-export function rollupAgents(rows = [], { minDeals = 1 } = {}) {
+/**
+ * @param {object} opts
+ * @param {number} [opts.minDeals]   drop the long tail
+ * @param {boolean} [opts.prefiltered]
+ *   True when the search itself only returned our kind of deal — Redfin's own
+ *   Fixer-upper checkbox and keyword search do that, which turns a 13,000-page
+ *   job into about a thousand. The cost is the denominator: with nothing but
+ *   our kind in the run, "share of their business" would read 100% for
+ *   everyone, which is worse than useless. So it is left blank instead.
+ */
+export function rollupAgents(rows = [], { minDeals = 1, prefiltered = false } = {}) {
   const first = new Map()
   for (const r of rows) {
     const key = personKey(r?.listingAgent?.name)
@@ -122,7 +132,7 @@ export function rollupAgents(rows = [], { minDeals = 1 } = {}) {
       totalSales: listings.length,
       // How much of their business we are. An agent doing 3 of 5 cares far more
       // than one doing 3 of 90.
-      share: listings.length ? Math.round((ours.length / listings.length) * 100) : 0,
+      share: prefiltered ? null : listings.length ? Math.round((ours.length / listings.length) * 100) : 0,
       lastDeal: dates[0] ? dates[0].toISOString().slice(0, 10) : '',
       // Their as-is listings sitting on the market is the opening line of the
       // call: that is the problem a cash buyer solves.
@@ -164,7 +174,7 @@ export function agentsToRows(agents = []) {
     Email: a.email,
     'Our Deals': String(a.ourDeals),
     'Total Sales': String(a.totalSales),
-    'Share %': String(a.share),
+    'Share %': a.share == null ? '' : String(a.share),
     'Last Deal': a.lastDeal,
     'Median DOM': a.medianDom == null ? '' : String(a.medianDom),
     'Median Price': a.medianPrice == null ? '' : `$${a.medianPrice.toLocaleString('en-US')}`,
@@ -460,7 +470,17 @@ export class AgentList extends EventEmitter {
     return this.status()
   }
 
-  agents() { return rollupAgents([...this.results.values()], { minDeals: this.options.minDeals }) }
+  // Everything read was our kind of deal, so the search did the filtering and
+  // "share of their business" has no denominator to work from.
+  isPrefiltered() {
+    const read = [...this.results.values()].filter((r) => r.listingAgent?.name)
+    if (read.length < 5) return false
+    return read.every((r) => (r.signals || []).length)
+  }
+
+  agents() {
+    return rollupAgents([...this.results.values()], { minDeals: this.options.minDeals, prefiltered: this.isPrefiltered() })
+  }
 
   summary() { return rollupSummary([...this.results.values()], this.agents()) }
 

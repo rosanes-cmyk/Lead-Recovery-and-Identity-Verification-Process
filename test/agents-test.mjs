@@ -73,6 +73,13 @@ check('example properties carried for a sanity check', /Bradford/.test(ken.examp
 check('ranked by our deals first', agents[0].ourDeals >= agents[1].ourDeals)
 check('a specialist outranks a generalist on a tie', rollupAgents([ROWS[3], ROWS[0], ROWS[2]])[0].name === 'Isabelle Grotte')
 check('minDeals filters the long tail', rollupAgents(ROWS, { minDeals: 2 }).length === 1)
+// Redfin's own Fixer-upper checkbox and keyword search can do the filtering,
+// which collapses the job from 13,000 pages to about a thousand. The cost is
+// the denominator: everyone would read 100%, so share is left blank instead.
+const pre = rollupAgents(ROWS, { prefiltered: true })
+check('a pre-filtered run reports no share rather than a fake 100%', pre.every((a) => a.share === null))
+check('and its share column is blank, not zero', agentsToRows(pre).every((r) => r['Share %'] === ''))
+check('an unfiltered run still reports share', rollupAgents(ROWS)[0].share > 0)
 
 console.log('\n[Agents] Output')
 const out = agentsToRows(agents)
@@ -139,6 +146,7 @@ try {
   b._record(b.properties[0], { ok: false, blocked: true, error: 'Redfin returned a bot check.' }, 5)
   check('a block is recorded as a block', b.counts().blocked === 1 && b.counts().withAgent === 0)
   check('a blocked property is not counted as read-and-empty', /blocked by Redfin/.test(b.propertiesCsv()))
+  check('a short run is not assumed pre-filtered', a.isPrefiltered() === false)
 
   let threw = ''
   try { AgentList.create({ files: [{ name: 'junk.csv', text: 'A,B\n1,2\n' }] }) } catch (err) { threw = err.message }

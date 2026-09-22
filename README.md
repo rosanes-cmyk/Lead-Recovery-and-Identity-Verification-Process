@@ -468,17 +468,56 @@ checkbox in the tab.
 The enrichment engine run backwards: instead of one address in, the whole city,
 to produce the ranked list of listing agents that replaces mass outreach.
 
+### Let Redfin do the filtering
+
+San Francisco has about 13,000 sales in a 24-month window, and the download
+link caps at 350 per search. Downloading the lot would be forty-odd files and
+then seven hours of reading pages, most of them properties we do not care
+about.
+
+Redfin's own filters avoid nearly all of that. Two of them matter:
+
+- **Home features → Fixer-upper**, a checkbox.
+- **Keyword search**, which searches the listing text — the same words our
+  deal signals look for.
+
+So instead of the whole city, run one search per signal and download each:
+
+| Search | Set |
+| --- | --- |
+| Fixer-uppers | tick **Fixer-upper** |
+| As-is sales | keyword `as-is` |
+| Probate | keyword `probate` |
+| Trust sales | keyword `trust sale` |
+| Estate sales | keyword `estate sale` |
+| Contractor specials | keyword `contractor` |
+| Needs work | keyword `TLC` |
+| Tear-downs | keyword `tear down` |
+
+With **Home type** set to House and Multi-family, **Sold within** set to Last 2
+years, each of those comes back in the hundreds rather than the thousands, so
+one download covers it. If a search still exceeds 350, split it by price.
+
+That turns a seven-hour job into about forty minutes, and every property read
+is one we actually want.
+
+**What it costs.** The `Share %` column needs an agent's *total* sales as a
+denominator, and a pre-filtered run has none. Rather than report 100% for
+everyone, the tool detects that every property carried a signal and leaves
+that column blank. Everything else — the count, recency, days on market,
+signals, contact details — is unaffected. If you later want share, that is the
+full 13,000-property run.
+
 ### How to run it
 
-1. **In Redfin**, search San Francisco, filter to *Sold* in the last 24 months,
-   and use the **Download All** link under the results. It hands over a few
-   hundred rows at a time, so split the city by neighbourhood or price band and
-   save several files.
+1. **In Redfin**, set the filters above and use the **Download** link in the
+   "Viewing page 1 of N (Download top 350)" line above the results. It is
+   inline text, not a button.
 2. **In the Agent List tab**, add all of those files at once. Duplicates across
-   files are removed; only rows carrying a Redfin property link are kept.
+   files are removed, so overlapping searches are harmless; only rows carrying
+   a Redfin property link are kept.
 3. **Start.** Each property page is read for its listing agent and its listing
-   text. Roughly 2.4 seconds each at the default pace, so ten thousand
-   properties is about seven hours — an overnight job.
+   text, about 2.4 seconds each at the default pace.
 4. **Download the list** when it finishes, or at any point along the way.
 
 It saves after every property. Stop it, close the app, come back tomorrow and
@@ -494,7 +533,7 @@ deal each agent listed:
 | Agent, Brokerage, DRE, Phone, Email | Enough to make the call |
 | Our Deals | The ranking. How many fixer / probate / trust / as-is listings |
 | Total Sales | Their whole volume in the window |
-| Share % | Three of five matters far more than three of ninety |
+| Share % | Three of five matters far more than three of ninety. Blank on a pre-filtered run, which has no denominator |
 | Last Deal | A name that went quiet two years ago sinks |
 | Median DOM | An agent whose as-is listings sit is the one a cash buyer helps |
 | Signals | Which of the thirteen markers they actually see |
