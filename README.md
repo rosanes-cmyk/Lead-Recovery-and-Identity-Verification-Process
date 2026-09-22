@@ -563,10 +563,15 @@ is a wrong number on a call list.
 rather than as a property with no agent, so a later pass can pick those up
 instead of them looking like properties with no agent on them.
 
-**A partial crawl says so.** If walking the search stops early — a refusal, a
-timeout, the page cap — whatever was collected is kept and the run reports how
-many of how many pages it read, rather than presenting a quarter of the city as
-if it were all of it.
+**A partial crawl says so.** A crawl cut short is the failure that looks most
+like a success: a few hundred properties, read cleanly, with no sign that the
+rest of the city was never fetched. So the count is always reported as "N of M
+result pages", never as a bare "N pages walked", and a short crawl raises a
+banner saying how many pages are still to walk. **Walk the rest of the search**
+picks up where it stopped, with a page of overlap, because the result order
+shifts as new sales land and resuming exactly where it stopped could step over
+a property that moved down a page. Duplicates are free; a skipped property is
+invisible.
 
 ## Calibrating the SF recorder search (liens)
 

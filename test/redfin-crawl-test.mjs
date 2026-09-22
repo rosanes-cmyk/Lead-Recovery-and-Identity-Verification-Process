@@ -159,6 +159,24 @@ const threw = await crawlSearch(base, { fetchImpl: thrower.impl, delayMs: 0 })
 check('a thrown error is caught and reported', /socket hang up/.test(threw.error), threw.error)
 check('and is not a refusal', threw.refused === false)
 
+console.log('\n[Crawl] Resuming part-way')
+const resumed = fakeRedfin({ pages: 6, perPage: 2, total: 6 })
+const rest = await crawlSearch(base, { fetchImpl: resumed.impl, delayMs: 0, startPage: 4 })
+check('it starts where it was told to', resumed.seen[0] === `${base}/page-4`, resumed.seen[0])
+check('and does not refetch the pages already walked', !resumed.seen.some((u) => /page-[123]$/.test(u) || u === base))
+check('it reads to the end', rest.through === 6, String(rest.through))
+check('pages read is this pass, not the whole search', rest.pagesRead === 3, String(rest.pagesRead))
+check('coverage is what says whether it finished', rest.partial === false)
+// Page 1 is never fetched on a resume, so the counter has to be read from
+// whichever page comes first or a resumed crawl never knows how big it is.
+check('the page counter is read from a later page', rest.totalPages === 6, String(rest.totalPages))
+check('the start page is reported back', rest.startPage === 4)
+
+const cappedResume = await crawlSearch(base, { fetchImpl: fakeRedfin({ pages: 20, total: 20 }).impl, delayMs: 0, startPage: 5, maxPages: 3 })
+check('the cap counts pages walked in this pass', cappedResume.pagesRead === 3, String(cappedResume.pagesRead))
+check('and coverage reflects where it got to', cappedResume.through === 7, String(cappedResume.through))
+check('a capped resume is still partial', cappedResume.partial === true)
+
 let pagesSeen = 0
 await crawlSearch(base, { fetchImpl: fakeRedfin().impl, delayMs: 0, onPage: () => pagesSeen++ })
 check('progress is reported for each page', pagesSeen === 3, String(pagesSeen))

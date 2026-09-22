@@ -107,7 +107,11 @@
     $('ag-setup-card').hidden = false
     const fromSearch = s.source === 'search'
     $('ag-pages-row').hidden = !fromSearch
-    $('ag-crawl').hidden = !fromSearch || s.total > 0
+    // The button stays available while the search still has pages left, so a
+    // crawl that stopped short can be topped up rather than restarted.
+    const short = Boolean(s.crawl?.totalPages) && s.crawl.through < s.crawl.totalPages
+    $('ag-crawl').hidden = !fromSearch || (s.total > 0 && !short)
+    $('ag-crawl').textContent = s.total > 0 ? 'Walk the rest of the search' : 'Find the properties first'
     const saves = 'It saves after every property, so you can stop and pick up later.'
 
     if (fromSearch && !s.total) {
@@ -121,11 +125,27 @@
       const already = s.read ? ` ${s.read.toLocaleString()} already read.` : ''
       const mins = Math.round((s.total - s.read) * 2.4 / 60)
       const hrs = mins >= 90 ? ` (about ${(mins / 60).toFixed(1)} hours)` : ''
+      // "7 pages walked" reads like success whether the search had 7 pages or
+      // 328. Always say how many there were, so a crawl that stopped short
+      // cannot be mistaken for the whole city.
+      const c = s.crawl || {}
       const from = fromSearch
-        ? `From the search, ${s.crawl?.pagesRead ? `${s.crawl.pagesRead} pages walked` : 'duplicates removed'}.`
+        ? `From the search, ${c.through || 0} of ${c.totalPages ? c.totalPages.toLocaleString() : '?'} result pages walked.`
         : `From ${s.filenames.length} file${s.filenames.length === 1 ? '' : 's'}, duplicates removed.`
       $('ag-setup-sub').textContent =
         `${from}${already} At the default pace that is roughly ${mins} minute${mins === 1 ? '' : 's'}${hrs}. ${saves}`
+    }
+    // A short crawl is the failure that looks most like a success: a few hundred
+    // properties read cleanly, and no sign that the other nine tenths of the
+    // city were never fetched.
+    const c = s.crawl || {}
+    if (fromSearch && c.totalPages && c.through < c.totalPages) {
+      const left = c.totalPages - c.through
+      $('ag-banner').hidden = false
+      $('ag-banner').textContent =
+        `This is part of the search, not all of it: ${c.through} of ${c.totalPages} result pages, ${left} still to walk.` +
+        (c.error ? ` It stopped because: ${c.error}.` : ' It stopped early.') +
+        ' Press "Walk the rest of the search" to pick up where it stopped — nothing already collected is re-walked. Reading what you have now is fine, but it is a slice of the city, not the city.'
     }
     for (const w of s.warnings || []) addLog(w, 'warn')
   }

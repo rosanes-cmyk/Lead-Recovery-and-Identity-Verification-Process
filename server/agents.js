@@ -457,11 +457,20 @@ export class AgentList extends EventEmitter {
     if (!this.search?.url) throw new Error('This run was built from files, not a search.')
     if (this.isActive()) throw new Error('This run is already going.')
     this._abort = new AbortController()
-    this._setState('crawling', `Walking ${this.search.url}`)
+
+    // Pick up where the last pass stopped rather than re-walking the whole
+    // search. Two pages of overlap, because the result order shifts as new
+    // sales land and resuming exactly where we stopped could step over a
+    // property that moved down a page. Duplicates are free; a skipped
+    // property is invisible.
+    const done = this.crawl?.through || 0
+    const startPage = done > 0 && this.crawl?.totalPages && done < this.crawl.totalPages ? Math.max(1, done - 1) : 1
+    this._setState('crawling', startPage > 1 ? `Walking ${this.search.url} from page ${startPage}.` : `Walking ${this.search.url}`)
 
     const res = await crawlSearch(this.search.url, {
       maxPages: this.options.maxPages,
       delayMs: this.options.crawlDelayMs,
+      startPage,
       signal: this._abort.signal,
       onPage: (p) => {
         this._emit('crawl', p)
@@ -478,22 +487,26 @@ export class AgentList extends EventEmitter {
     }
     this.crawl = {
       at: new Date().toISOString(),
-      pagesRead: res.pagesRead,
-      totalPages: res.totalPages,
+      // How far into the search we have got, not how many pages this pass
+      // fetched — a resume reads few pages but covers many.
+      through: Math.max(done, res.through),
+      pagesRead: (this.crawl?.pagesRead || 0) + res.pagesRead,
+      totalPages: res.totalPages || this.crawl?.totalPages || 0,
       partial: res.partial,
       refused: res.refused,
       error: res.error,
     }
+    this.crawl.partial = Boolean(this.crawl.totalPages) && this.crawl.through < this.crawl.totalPages
     this._saveJob()
 
     if (res.refused) {
       this._setState('ready', 'Redfin returned a page with no properties on it. That is what a refusal looks like — wait a while, raise the pause between pages, and try again.')
     } else if (res.error) {
-      this._setState('ready', `Stopped walking the search after ${res.pagesRead} pages: ${res.error}. ${this.properties.length} properties collected — start the run, or walk it again to pick up the rest.`)
-    } else if (res.partial) {
-      this._setState('ready', `Stopped after ${res.pagesRead} of ${res.totalPages} pages. ${this.properties.length} properties collected.`)
+      this._setState('ready', `Stopped at page ${this.crawl.through}${this.crawl.totalPages ? ` of ${this.crawl.totalPages}` : ''}: ${res.error}. ${this.properties.length} properties collected — walk it again to pick up the rest, or start the run on what there is.`)
+    } else if (this.crawl.partial) {
+      this._setState('ready', `Stopped at page ${this.crawl.through} of ${this.crawl.totalPages}. ${this.properties.length} properties collected — that is part of the search, not all of it. Walk it again to pick up the rest.`)
     } else {
-      this._setState('ready', `${this.properties.length} properties found across ${res.pagesRead} pages.`)
+      this._setState('ready', `${this.properties.length} properties found across ${this.crawl.through} page${this.crawl.through === 1 ? '' : 's'} — the whole search.`)
     }
     this._emit('crawled', { ...this.status(), properties: this.properties.length })
     return this.status()

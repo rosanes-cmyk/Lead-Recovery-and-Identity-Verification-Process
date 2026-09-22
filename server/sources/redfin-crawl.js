@@ -143,14 +143,16 @@ async function getPage(url, { signal, timeoutMs = 30000, fetchImpl = fetch } = {
  * `refused` distinguishes "we reached the end" from "we were turned away on the
  * first page", and the caller is told which.
  */
-export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, signal, onPage, fetchImpl = fetch, timeoutMs } = {}) {
+export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, startPage = 1, signal, onPage, fetchImpl = fetch, timeoutMs } = {}) {
   const properties = []
   const seen = new Set()
+  const first = Math.max(1, startPage)
   let totalPages = 0
   let pagesRead = 0
+  let through = first - 1 // the highest page actually read
   let error = ''
 
-  for (let page = 1; page <= maxPages; page++) {
+  for (let page = first; page < first + maxPages; page++) {
     if (signal?.aborted) break
     const url = pageUrl(baseUrl, page)
     let got
@@ -161,15 +163,18 @@ export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, sig
       break
     }
     if (got.error) { error = got.error; break }
-    if (page === 1) totalPages = parseTotalPages(got.html)
+    // Every page carries the counter, not just the first — which matters when
+    // resuming part-way, where page 1 is never fetched.
+    if (!totalPages) totalPages = parseTotalPages(got.html)
     const found = parsePropertyCards(got.html)
     const fresh = found.filter((p) => !seen.has(p.url))
     for (const p of fresh) { seen.add(p.url); properties.push(p) }
     pagesRead++
+    through = page
     onPage?.({ page, totalPages, found: found.length, fresh: fresh.length, collected: properties.length })
     if (!found.length) break // the end, or a refusal — the caller is told which
     if (totalPages && page >= totalPages) break
-    if (page < maxPages) await new Promise((r) => setTimeout(r, delayMs + Math.round(Math.random() * delayMs * 0.4)))
+    await new Promise((r) => setTimeout(r, delayMs + Math.round(Math.random() * delayMs * 0.4)))
   }
 
   return {
@@ -177,11 +182,15 @@ export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, sig
     properties,
     urls: properties.map((p) => p.url),
     pagesRead,
+    startPage: first,
+    // How far into the search this pass got. With a resume, that is not the
+    // same as how many pages it read, and it is coverage the caller needs.
+    through,
     totalPages,
     // Nothing at all on the first page means we were turned away, not that the
     // city has no sales.
     refused: pagesRead > 0 && properties.length === 0,
-    partial: Boolean(totalPages) && pagesRead < totalPages,
+    partial: Boolean(totalPages) && through < totalPages,
     error,
   }
 }

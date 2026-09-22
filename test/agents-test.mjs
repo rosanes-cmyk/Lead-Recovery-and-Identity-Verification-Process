@@ -191,7 +191,7 @@ try {
   try {
     sr.setOptions({ crawlDelayMs: 250 })
     const crawled = await sr.findProperties()
-    check('the search was walked', sr.crawl.pagesRead === 2, String(sr.crawl.pagesRead))
+    check('the search was walked', sr.crawl.through === 2, String(sr.crawl.through))
     check('and its properties collected', sr.properties.length === 4, String(sr.properties.length))
     check('the address came off the search card', /Test St/.test(sr.properties[0].address), sr.properties[0].address)
     check('so did the price', sr.properties[0].price === 100000, String(sr.properties[0].price))
@@ -202,6 +202,41 @@ try {
     // Walking the same search twice must not double the list.
     await sr.findProperties()
     check('walking it again does not duplicate the properties', sr.properties.length === 4, String(sr.properties.length))
+    check('a finished crawl is not partial', sr.crawl.partial === false)
+  } finally {
+    globalThis.fetch = origFetch
+  }
+
+  // A crawl cut short is the failure that looks most like a success, so it has
+  // to be recorded as partial and has to pick up where it stopped.
+  const cut = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(cut)
+  let allow = 3
+  globalThis.fetch = async (url) => {
+    const m = String(url).match(/\/page-(\d+)$/)
+    const n = m ? Number(m[1]) : 1
+    if (n > allow) return { ok: false, status: 429, text: async () => '' }
+    return { ok: true, status: 200, text: async () => page(n, 8) }
+  }
+  const walkedPages = []
+  try {
+    cut.setOptions({ crawlDelayMs: 250 })
+    await cut.findProperties()
+    check('a cut-short crawl records how far it got', cut.crawl.through === 3, String(cut.crawl.through))
+    check('and how far it should have got', cut.crawl.totalPages === 8, String(cut.crawl.totalPages))
+    check('and flags itself partial', cut.crawl.partial === true)
+    check('and says it was refused', /429/.test(cut.crawl.error), cut.crawl.error)
+    check('but keeps what it collected', cut.properties.length === 6, String(cut.properties.length))
+
+    // Now let it through and walk again.
+    allow = 8
+    const realFetch = globalThis.fetch
+    globalThis.fetch = async (url) => { walkedPages.push(String(url)); return realFetch(url) }
+    await cut.findProperties()
+    check('walking again picks up where it stopped', !walkedPages.some((u) => /page-1$/.test(u)), walkedPages[0])
+    check('with a page of overlap against shifting results', /page-2$/.test(walkedPages[0]), walkedPages[0])
+    check('and finishes the search', cut.crawl.through === 8 && cut.crawl.partial === false, String(cut.crawl.through))
+    check('collecting the rest', cut.properties.length === 16, String(cut.properties.length))
   } finally {
     globalThis.fetch = origFetch
   }
