@@ -151,6 +151,95 @@ try {
   let threw = ''
   try { AgentList.create({ files: [{ name: 'junk.csv', text: 'A,B\n1,2\n' }] }) } catch (err) { threw = err.message }
   check('a file with no Redfin links is refused', /Redfin/.test(threw), threw)
+
+  // --- a run that starts from a search rather than from files ---------------
+  console.log('\n[Agents] Starting from a Redfin search')
+  const SEARCH_URL = 'https://www.redfin.com/city/17151/CA/San-Francisco/filter/include=sold-2yr,property-type=house'
+  const sr = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(sr)
+  check('the run is created with no properties yet', sr.properties.length === 0)
+  check('and knows where they will come from', sr.search.url === SEARCH_URL, sr.search.url)
+  check('the status says it came from a search', sr.status().source === 'search')
+  check('a sold search raises no warning', sr.status().warnings.length === 0)
+  // "0 minutes left" before anything has been walked reads as nearly done.
+  check('there is no estimate before the search is walked', sr.status().etaMinutes === null, String(sr.status().etaMinutes))
+
+  const loose = AgentList.createFromSearch({ searchUrl: 'https://www.redfin.com/city/17151/CA/San-Francisco' })
+  made.push(loose)
+  check('a search that is not limited to sold homes is flagged', /sold/i.test(loose.status().warnings[0] || ''), loose.status().warnings[0])
+
+  const standard = AgentList.createFromSearch({})
+  made.push(standard)
+  check('no URL falls back to the standard San Francisco search', /include=sold-2yr/.test(standard.search.url), standard.search.url)
+
+  let badSearch = ''
+  try { AgentList.createFromSearch({ searchUrl: 'https://www.zillow.com/san-francisco-ca/' }) } catch (err) { badSearch = err.message }
+  check('a non-Redfin URL is refused', /Redfin/.test(badSearch), badSearch)
+
+  // The crawl itself, against a stand-in Redfin.
+  const page = (n, total) => `<html>Viewing page ${n} of ${total}` +
+    Array.from({ length: 2 }, (_, i) => {
+      const id = n * 10 + i
+      return `<div class="bp-Homecard__Price"><span class="bp-Homecard__Price--value">$${id}0,000</span></div><a class="bp-Homecard__Address" href="/CA/San-Francisco/${id}-Test-St-94110/home/${id}" target="_blank">${id} Test St, San Francisco, CA 94110</a>`
+    }).join('') + '</html>'
+  const origFetch = globalThis.fetch
+  globalThis.fetch = async (url) => {
+    const m = String(url).match(/\/page-(\d+)$/)
+    const n = m ? Number(m[1]) : 1
+    return { ok: true, status: 200, text: async () => (n > 2 ? '<html>nothing</html>' : page(n, 2)) }
+  }
+  try {
+    sr.setOptions({ crawlDelayMs: 250 })
+    const crawled = await sr.findProperties()
+    check('the search was walked', sr.crawl.pagesRead === 2, String(sr.crawl.pagesRead))
+    check('and its properties collected', sr.properties.length === 4, String(sr.properties.length))
+    check('the address came off the search card', /Test St/.test(sr.properties[0].address), sr.properties[0].address)
+    check('so did the price', sr.properties[0].price === 100000, String(sr.properties[0].price))
+    check('the run is ready to read them', crawled.state === 'ready', crawled.state)
+    check('and now has an estimate', crawled.etaMinutes !== null)
+    check('the crawl is saved, so a restart does not walk it again', AgentList.load(sr.id).properties.length === 4)
+
+    // Walking the same search twice must not double the list.
+    await sr.findProperties()
+    check('walking it again does not duplicate the properties', sr.properties.length === 4, String(sr.properties.length))
+  } finally {
+    globalThis.fetch = origFetch
+  }
+
+  let noSearch = ''
+  try { await b.findProperties() } catch (err) { noSearch = err.message }
+  check('a file-built run has no search to walk', /files/.test(noSearch), noSearch)
+
+  // Pressing Start without pressing "Find the properties first" has to do both,
+  // because that is what most operators will do.
+  const oneGo = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(oneGo)
+  const escaped = (obj) => JSON.stringify(JSON.stringify(obj)).slice(1, -1)
+  globalThis.fetch = async (url) => {
+    const s = String(url)
+    if (/\/home\/\d+$/.test(s)) {
+      const body = `<html>\\"listingAgents\\":${escaped([{ agentInfo: { agentName: 'Dana Fixer' }, brokerName: 'Smoke Realty' }])}` +
+        ',\\"marketingRemarks\\":[{\\"marketingRemark\\":\\"Contractor special, sold as-is.\\"}]</html>'
+      return { ok: true, status: 200, text: async () => body }
+    }
+    const m = s.match(/\/page-(\d+)$/)
+    const n = m ? Number(m[1]) : 1
+    return { ok: true, status: 200, text: async () => (n > 1 ? '<html>nothing</html>' : page(1, 1)) }
+  }
+  try {
+    oneGo.setOptions({ crawlDelayMs: 250, delayMs: 250 })
+    await oneGo.start()
+    check('Start walks the search first', oneGo.crawl?.pagesRead === 1, String(oneGo.crawl?.pagesRead))
+    check('and then reads what it found', oneGo.counts().read === 2, String(oneGo.counts().read))
+    check('the listing agent came off the property page', oneGo.counts().withAgent === 2)
+    check('and the deal signals off its remarks', oneGo.counts().ourKind === 2)
+    check('the run finished', oneGo.state === 'done', oneGo.state)
+    check('an agent made the list', oneGo.agents().some((x) => x.name === 'Dana Fixer'), JSON.stringify(oneGo.agents().map((x) => x.name)))
+    // The crawl card had no sold date; the property page's own history does.
+    check('the address came from the search card', /10 Test St/.test(oneGo.propertiesCsv()), oneGo.propertiesCsv().split('\n')[1])
+  } finally {
+    globalThis.fetch = origFetch
+  }
 } finally {
   for (const j of made) { try { fs.rmSync(j.dir, { recursive: true, force: true }) } catch { /* already gone */ } }
 }

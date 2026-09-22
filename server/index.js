@@ -356,6 +356,40 @@ app.post('/api/agents/upload', express.json({ limit: '60mb' }), (req, res) => {
   }
 })
 
+// Or no files at all: hand it a Redfin search and let it walk the pages itself.
+app.post('/api/agents/search', express.json(), (req, res) => {
+  try {
+    const a = AgentList.createFromSearch({
+      searchUrl: req.body?.searchUrl,
+      months: req.body?.months,
+      propertyTypes: req.body?.propertyTypes,
+    })
+    a.on('event', (ev) => broadcast(ev))
+    agentJobs.set(a.id, a)
+    res.json(a.status())
+  } catch (err) {
+    res.status(400).json({ error: String(err?.message || err) })
+  }
+})
+
+// Walk the search without starting the reading pass, so the size of the job is
+// visible before anyone commits to it.
+app.post('/api/agents/:id/crawl', express.json(), (req, res) => {
+  const a = loadAgents(req.params.id)
+  if (!a) return res.status(404).json({ error: 'Run not found.' })
+  const other = activeAgents()
+  if (other && other.id !== a.id) return res.status(409).json({ error: 'Another agent-list run is going. Stop it first.' })
+  if (a.isActive()) return res.status(409).json({ error: 'This run is already going.' })
+  if (!a.search?.url) return res.status(400).json({ error: 'This run was built from files, not a search.' })
+  try {
+    if (req.body && Object.keys(req.body).length) a.setOptions(req.body)
+  } catch (err) {
+    return res.status(400).json({ error: String(err?.message || err) })
+  }
+  res.json(a.status())
+  a.findProperties().catch((err) => a._log(`Walking the search failed: ${String(err?.message || err)}`, 'error'))
+})
+
 app.get('/api/agents', (req, res) => res.json(AgentList.list()))
 
 app.get('/api/agents/:id', (req, res) => {

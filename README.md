@@ -468,60 +468,67 @@ checkbox in the tab.
 The enrichment engine run backwards: instead of one address in, the whole city,
 to produce the ranked list of listing agents that replaces mass outreach.
 
-### Let Redfin do the filtering
+### The app walks the search itself
 
-San Francisco has about 13,000 sales in a 24-month window, and the download
-link caps at 350 per search. Downloading the lot would be forty-odd files and
-then seven hours of reading pages, most of them properties we do not care
-about.
+San Francisco has about 13,000 sales in a 24-month window, and Redfin's
+**Download All** link caps at 350 rows a file. Covering the city that way is
+roughly forty downloads by hand. So the app walks the result pages instead:
+paste a search URL, and it collects every property in it.
 
-Redfin's own filters avoid nearly all of that. Two of them matter:
+**Redfin's keyword box cannot do the filtering for us.** This was worth
+checking, because using it would have cut the job by an order of magnitude — so
+it was checked, live, on 22 Sep 2026. It does not survive into the URL: a
+search for `keyword=probate` and one for `keyword=fixer` returned the identical
+41 properties. Neither can the results page stand in for the property page —
+only 5 of its 41 cards carried any listing text. The fixer / probate / trust /
+as-is filter therefore happens where it always did, on each property's own
+listing remarks, and the crawl's job is to enumerate the universe.
 
-- **Home features → Fixer-upper**, a checkbox.
-- **Keyword search**, which searches the listing text — the same words our
-  deal signals look for.
+What the URL genuinely does filter, confirmed the same way:
 
-So instead of the whole city, run one search per signal and download each:
+| Filter | In the URL | Pages of results |
+| --- | --- | --- |
+| Sold, last 2 years | `include=sold-2yr` | 328 |
+| ...houses only | `,property-type=house` | 138 |
+| ...plus multi-family | `,property-type=house+multifamily` | — |
 
-| Search | Set |
-| --- | --- |
-| Fixer-uppers | tick **Fixer-upper** |
-| As-is sales | keyword `as-is` |
-| Probate | keyword `probate` |
-| Trust sales | keyword `trust sale` |
-| Estate sales | keyword `estate sale` |
-| Contractor specials | keyword `contractor` |
-| Needs work | keyword `TLC` |
-| Tear-downs | keyword `tear down` |
-
-With **Home type** set to House and Multi-family, **Sold within** set to Last 2
-years, each of those comes back in the hundreds rather than the thousands, so
-one download covers it. If a search still exceeds 350, split it by price.
-
-That turns a seven-hour job into about forty minutes, and every property read
-is one we actually want.
-
-**What it costs.** The `Share %` column needs an agent's *total* sales as a
-denominator, and a pre-filtered run has none. Rather than report 100% for
-everyone, the tool detects that every property carried a signal and leaves
-that column blank. Everything else — the count, recency, days on market,
-signals, contact details — is unaffected. If you later want share, that is the
-full 13,000-property run.
+Houses and multi-family is the default the tab uses: about 5,600 properties
+rather than 13,000, and the ones dropped are condos and co-ops, which are not
+what we buy.
 
 ### How to run it
 
-1. **In Redfin**, set the filters above and use the **Download** link in the
-   "Viewing page 1 of N (Download top 350)" line above the results. It is
-   inline text, not a button.
-2. **In the Agent List tab**, add all of those files at once. Duplicates across
-   files are removed, so overlapping searches are harmless; only rows carrying
-   a Redfin property link are kept.
-3. **Start.** Each property page is read for its listing agent and its listing
-   text, about 2.4 seconds each at the default pace.
-4. **Download the list** when it finishes, or at any point along the way.
+1. **In Redfin**, search San Francisco and set the filters you want — Sold,
+   Last 2 years, Home type House and Multi-family. Copy the URL out of the
+   address bar.
+2. **In the Agent List tab**, paste it and press **Use this search**. Leave the
+   box empty to use that standard search.
+3. **Find the properties first** walks the result pages and tells you how many
+   there are before you commit to reading them. **Start** does both in one go.
+4. Each property page is then read for its listing agent and its listing text,
+   about 2.4 seconds each at the default pace. 5,600 properties is around four
+   hours.
+5. **Download the list** when it finishes, or at any point along the way.
 
 It saves after every property. Stop it, close the app, come back tomorrow and
-Resume: nothing is read twice.
+Resume: nothing is read twice. The crawl is saved too, so resuming does not
+re-walk the search.
+
+**If Redfin starts refusing.** Five blocked properties in a row pauses the run
+with a banner rather than burning through the list collecting nothing. Wait,
+raise the pause between properties, and Resume. A refusal during the crawl
+looks like a results page with no properties on it, and is reported as a
+refusal rather than as an empty city — the distinction matters, because the
+second would silently produce a list of nobody.
+
+**Uploading exports still works.** The file box is still there, folded under
+"Or upload Redfin exports instead", for a search the crawler cannot reach.
+
+**Pre-filtered runs.** The `Share %` column needs an agent's *total* sales as a
+denominator. If every property in a run carried a deal signal — which happens
+when the search itself was already narrowed — there is no denominator, so
+rather than report 100% for everyone the tool detects that and leaves the
+column blank. Everything else is unaffected.
 
 ### What comes out
 
@@ -553,9 +560,13 @@ separate. Splitting one agent over two rows is an annoyance, merging two people
 is a wrong number on a call list.
 
 **A block is not a miss.** If Redfin refuses a page it is recorded as blocked
-rather than as a property with no agent, and five refusals in a row pause the
-run with a message rather than burning through the rest of the city being told
-no. Wait, raise the pause between properties, and Resume.
+rather than as a property with no agent, so a later pass can pick those up
+instead of them looking like properties with no agent on them.
+
+**A partial crawl says so.** If walking the search stops early — a refusal, a
+timeout, the page cap — whatever was collected is kept and the run reports how
+many of how many pages it read, rather than presenting a quarter of the city as
+if it were all of it.
 
 ## Calibrating the SF recorder search (liens)
 
@@ -630,7 +641,8 @@ server/
   share.js         one shared password in front of everything, for temporary sharing
   sources/         one module per source (reiblackbook, propertyradar,
                    dealmachine, county, google, peoplesearch, websearch,
-                   zillow, redfin) + selectors.js
+                   zillow, redfin, redfin-search, redfin-crawl, permits,
+                   recorder) + selectors.js
 public/            the operator UI: Investigation tab (input → progress → evidence →
                    approval) and Property Enrichment tab (enrich.js)
 scripts/share.js   `npm run share`: temporary public link via a Cloudflare tunnel

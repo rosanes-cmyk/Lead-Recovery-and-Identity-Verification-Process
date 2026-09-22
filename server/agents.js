@@ -213,6 +213,7 @@ import { config } from './config.js'
 import { toCsv } from './csv.js'
 import { lookupRedfin } from './sources/redfin.js'
 import { mergeSearchExports } from './sources/redfin-search.js'
+import { crawlSearch, normaliseSearchUrl, soldSearchUrl } from './sources/redfin-crawl.js'
 
 const jobDir = (id) => path.join(config.runsDir, id)
 // Redfin serves these pages to anyone, but ten thousand of them in a night is
@@ -220,6 +221,9 @@ const jobDir = (id) => path.join(config.runsDir, id)
 const DEFAULT_DELAY_MS = 1500
 // Consecutive blocks that mean "stop asking" rather than "try again".
 const BLOCK_PAUSE_AFTER = 5
+// Walking the search is lighter than reading properties — one page hands back
+// forty of them — but it is still Redfin, so it gets its own gentler pace.
+const DEFAULT_CRAWL_DELAY_MS = 1200
 
 export class AgentList extends EventEmitter {
   constructor(job) {
@@ -228,7 +232,9 @@ export class AgentList extends EventEmitter {
     this.dir = jobDir(this.id)
     this.results = new Map()
     this.state = job.state || 'ready'
-    this.options = { delayMs: DEFAULT_DELAY_MS, minDeals: 1, ...(job.options || {}) }
+    this.options = { delayMs: DEFAULT_DELAY_MS, minDeals: 1, crawlDelayMs: DEFAULT_CRAWL_DELAY_MS, maxPages: 400, ...(job.options || {}) }
+    this.search = job.search || null
+    this.crawl = job.crawl || null
     this._abort = new AbortController()
     this._pauseGate = null
     this._resume = null
@@ -246,6 +252,37 @@ export class AgentList extends EventEmitter {
       filenames: files.map((f) => String(f.name || 'export.csv').slice(0, 80)),
       properties: merged.rows,
       warnings: merged.errors,
+      options: {},
+      state: 'ready',
+    }
+    const a = new AgentList(job)
+    fs.mkdirSync(a.dir, { recursive: true })
+    a._saveJob()
+    return a
+  }
+
+  /**
+   * Start from a Redfin search instead of downloaded files.
+   *
+   * Redfin's own "Download All" caps at 350 rows a file, so covering the city
+   * that way is roughly forty downloads by hand. This walks the same pages
+   * instead. Nothing is fetched here — the job is created empty and the crawl
+   * runs when the operator starts it, so a mistyped URL costs nothing.
+   */
+  static createFromSearch({ searchUrl, months, propertyTypes } = {}) {
+    const wanted = searchUrl ? normaliseSearchUrl(searchUrl) : { ok: true, url: soldSearchUrl({ months, propertyTypes }), sold: true }
+    if (!wanted.ok) throw new Error(wanted.error)
+    const id = `agents_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+    const job = {
+      id,
+      createdAt: new Date().toISOString(),
+      filenames: [],
+      search: { url: wanted.url, sold: wanted.sold },
+      properties: [],
+      // A search that is not restricted to sold homes will hand back listings
+      // that are still for sale, which have no selling agent yet. Say so rather
+      // than letting it show up later as a column of blanks.
+      warnings: wanted.sold ? [] : ['This search is not limited to sold homes, so some properties will have no sale and no agent to group by. Add the "Sold" filter on Redfin and paste the URL again if that is not what you meant.'],
       options: {},
       state: 'ready',
     }
@@ -284,6 +321,8 @@ export class AgentList extends EventEmitter {
       id: this.id,
       createdAt: this.createdAt,
       filenames: this.filenames,
+      search: this.search,
+      crawl: this.crawl,
       properties: this.properties,
       warnings: this.warnings,
       options: this.options,
@@ -316,7 +355,7 @@ export class AgentList extends EventEmitter {
     if (message) this._log(message, 'state')
   }
 
-  isActive() { return ['running', 'paused'].includes(this.state) }
+  isActive() { return ['running', 'paused', 'crawling'].includes(this.state) }
 
   setOptions(opts = {}) {
     if (this.isActive()) throw new Error('Options cannot change while the run is going.')
@@ -327,6 +366,14 @@ export class AgentList extends EventEmitter {
     if (opts.minDeals != null) {
       const n = parseInt(opts.minDeals, 10)
       if (!Number.isNaN(n)) this.options.minDeals = Math.min(Math.max(n, 1), 50)
+    }
+    if (opts.crawlDelayMs != null) {
+      const n = parseInt(opts.crawlDelayMs, 10)
+      if (!Number.isNaN(n)) this.options.crawlDelayMs = Math.min(Math.max(n, 250), 60000)
+    }
+    if (opts.maxPages != null) {
+      const n = parseInt(opts.maxPages, 10)
+      if (!Number.isNaN(n)) this.options.maxPages = Math.min(Math.max(n, 1), 1000)
     }
     this._saveJob()
   }
@@ -369,6 +416,9 @@ export class AgentList extends EventEmitter {
       id: this.id,
       createdAt: this.createdAt,
       filenames: this.filenames,
+      source: this.search?.url ? 'search' : 'files',
+      searchUrl: this.search?.url || '',
+      crawl: this.crawl || null,
       warnings: this.warnings || [],
       state: this.state,
       options: this.options,
@@ -379,6 +429,9 @@ export class AgentList extends EventEmitter {
   }
 
   _eta() {
+    // Before the search has been walked there is nothing to estimate from, and
+    // "0 minutes" would read as "nearly done".
+    if (!this.properties.length && this.search?.url) return null
     const left = this.properties.length - this.results.size
     if (left <= 0) return 0
     return Math.round((left * (this.options.delayMs + 900)) / 60000)
@@ -393,8 +446,67 @@ export class AgentList extends EventEmitter {
 
   async _waitIfPaused() { if (this._pauseGate) await this._pauseGate }
 
+  /**
+   * Walk the search and collect the properties to read.
+   *
+   * Kept separate from the reading pass so an operator can see how big the job
+   * is before committing to hours of it, and so a run that was stopped during
+   * the crawl resumes from the pages it already has rather than starting over.
+   */
+  async findProperties() {
+    if (!this.search?.url) throw new Error('This run was built from files, not a search.')
+    if (this.isActive()) throw new Error('This run is already going.')
+    this._abort = new AbortController()
+    this._setState('crawling', `Walking ${this.search.url}`)
+
+    const res = await crawlSearch(this.search.url, {
+      maxPages: this.options.maxPages,
+      delayMs: this.options.crawlDelayMs,
+      signal: this._abort.signal,
+      onPage: (p) => {
+        this._emit('crawl', p)
+        if (p.page === 1 || p.page % 10 === 0) this._log(`Page ${p.page}${p.totalPages ? ` of ${p.totalPages}` : ''} — ${p.collected} properties so far.`)
+      },
+    })
+
+    // Keep whatever was collected even on a partial or failed crawl: a stopped
+    // run with 2,000 properties is worth more than nothing, and the operator
+    // can crawl again to top it up.
+    const known = new Set(this.properties.map((p) => p.url))
+    for (const p of res.properties) {
+      if (!known.has(p.url)) { known.add(p.url); this.properties.push({ url: p.url, address: p.address, price: p.price, soldDate: '', dom: null, propertyType: '' }) }
+    }
+    this.crawl = {
+      at: new Date().toISOString(),
+      pagesRead: res.pagesRead,
+      totalPages: res.totalPages,
+      partial: res.partial,
+      refused: res.refused,
+      error: res.error,
+    }
+    this._saveJob()
+
+    if (res.refused) {
+      this._setState('ready', 'Redfin returned a page with no properties on it. That is what a refusal looks like — wait a while, raise the pause between pages, and try again.')
+    } else if (res.error) {
+      this._setState('ready', `Stopped walking the search after ${res.pagesRead} pages: ${res.error}. ${this.properties.length} properties collected — start the run, or walk it again to pick up the rest.`)
+    } else if (res.partial) {
+      this._setState('ready', `Stopped after ${res.pagesRead} of ${res.totalPages} pages. ${this.properties.length} properties collected.`)
+    } else {
+      this._setState('ready', `${this.properties.length} properties found across ${res.pagesRead} pages.`)
+    }
+    this._emit('crawled', { ...this.status(), properties: this.properties.length })
+    return this.status()
+  }
+
   async start() {
     if (this.isActive()) throw new Error('This run is already going.')
+    // A run started straight from a search walks it first; a run that already
+    // has its properties goes straight to reading them.
+    if (!this.properties.length && this.search?.url) {
+      await this.findProperties()
+      if (this.state === 'stopped' || !this.properties.length) return this.status()
+    }
     this._abort = new AbortController()
     this.startedAt = new Date().toISOString()
     this.error = ''
@@ -442,9 +554,12 @@ export class AgentList extends EventEmitter {
   _record(prop, res, ms) {
     const row = {
       url: prop.url,
-      address: prop.address,
-      soldDate: prop.soldDate,
-      price: prop.price,
+      // A crawl gives us the address and price off the search card and no sale
+      // date; the property page gives us all three. Prefer what the crawl or
+      // the export said, and fill the gaps from the page we just read.
+      address: prop.address || '',
+      soldDate: prop.soldDate || res?.latestSale?.date || '',
+      price: prop.price ?? res?.latestSale?.price ?? null,
       dom: prop.dom,
       propertyType: prop.propertyType,
       listingAgent: res?.listingAgent || null,

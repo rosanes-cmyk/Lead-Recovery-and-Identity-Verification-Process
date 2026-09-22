@@ -64,18 +64,37 @@ whole city at once, to produce the target list that replaces mass outreach.
 5. Carries enough **contact detail to act on**: phone, email, brokerage, office
    address, DRE licence, website, LinkedIn or Instagram.
 
-**Where it stands:** the Redfin route was chosen on 22 Sep 2026. The two pure
-pieces are built and tested: reading Redfin's own search export, and rolling
-properties up into ranked agents. What remains is the batch runner that reads
-each property page, and a tab to drive it.
+**Where it stands (22 Sep 2026):** built end to end and ready to run. Paste a
+Redfin search URL into the Agent List tab and it walks the result pages,
+collects the properties, reads each one for its listing agent and listing text,
+and ranks the agents. What remains is to run it for real on San Francisco and
+see how many of the 150-250 names come back.
 
-**How the universe is gathered.** Not by scraping a search page. Redfin's
-sold-home search has a "Download All" link that hands the operator a CSV of
-the results, a few hundred rows at a time, so a city is a handful of downloads
-split by neighbourhood or price band. Each row carries the property's Redfin
-URL, which is all the per-property reader needs. The header names in that file
-are long and have changed over the years, so the link column is found by its
-values rather than its name.
+**How the universe is gathered.** By walking Redfin's own search pages. The
+operator sets the filters they want on Redfin, copies the URL, and the app
+pages through the results itself. This replaced an earlier plan to use the
+"Download All" link, which caps at 350 rows a file and so meant about forty
+downloads by hand for one city; that path is still available in the tab for a
+search the crawler cannot reach, and the link column in those files is found by
+its values rather than its name, because the header names are long and have
+changed over the years.
+
+**Corrected (22 Sep 2026): Redfin's keyword filter cannot narrow the crawl.**
+An earlier version of this plan had the operator run eight keyword searches —
+`probate`, `fixer`, `as-is` and so on — and read only those few hundred
+properties instead of the whole city. Checked live: the keyword box does not
+survive into the URL. `keyword=probate` and `keyword=fixer` returned the
+identical 41 properties. Nor can the results page stand in for the property
+page — only 5 of its 41 cards carried any listing text. So the deal-signal
+filter stays where it always was, on each property's own remarks, and the crawl
+enumerates the universe. What the URL genuinely filters, confirmed the same
+way: `include=sold-2yr` (328 pages) and `property-type=house` (138 pages).
+Houses and multi-family is the default, which is about 5,600 properties rather
+than 13,000, and drops condos and co-ops, which we do not buy.
+
+**Rate limiting is real.** It was hit while probing those URLs. The crawl and
+the reading pass both pace themselves, an empty first page is reported as a
+refusal rather than as an empty city, and five refusals in a row pause the run.
 
 **The ranking.** The brief says "groups by listing agent and counts", and count
 is the primary sort. Four more measures ride alongside as columns rather than

@@ -1,5 +1,5 @@
-// Agent List tab — goal 2. Feed it Redfin search exports, it reads each
-// property and groups the results by listing agent.
+// Agent List tab — goal 2. Give it a Redfin search, it walks the result pages,
+// reads each property and groups them by listing agent.
 //
 // SSE events arrive via window.agentsHandle, forwarded by app.js. No build step.
 ;(function () {
@@ -19,6 +19,8 @@
     if (!$('ag-files')) return
     window.agentsHandle = handleEvent
     $('ag-files').onchange = uploadFiles
+    $('ag-search-go').onclick = useSearch
+    $('ag-crawl').onclick = crawl
     $('ag-start').onclick = start
     $('ag-pause').onclick = () => control('pause')
     $('ag-resume').onclick = () => control('resume')
@@ -54,13 +56,77 @@
     }
   }
 
+  // A search URL instead of files: the app walks the pages itself.
+  async function useSearch() {
+    hide('ag-search-error')
+    const btn = $('ag-search-go')
+    btn.disabled = true
+    try {
+      const r = await fetch('/api/agents/search', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ searchUrl: $('ag-search-url').value.trim(), propertyTypes: ['house', 'multifamily'] }),
+      })
+      const data = await r.json()
+      if (!r.ok) return showErr('ag-search-error', data.error || `Could not use that search (HTTP ${r.status}).`)
+      job = data
+      showSetup(data)
+      render(data)
+      loadRuns()
+    } catch (err) {
+      showErr('ag-search-error', 'Could not reach the server. (' + (err?.message || err) + ')')
+    } finally {
+      btn.disabled = false
+    }
+  }
+
+  // Walk the search without starting the reading pass, so the size of the job
+  // is visible before committing hours to it.
+  async function crawl() {
+    if (!job) return
+    hide('ag-start-error')
+    const btn = $('ag-crawl')
+    btn.disabled = true
+    try {
+      const r = await fetch(`/api/agents/${job.id}/crawl`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ maxPages: parseInt($('ag-pages').value || '400', 10) }),
+      })
+      const data = await r.json()
+      if (!r.ok) return showErr('ag-start-error', data.error || `Could not walk that search (HTTP ${r.status}).`)
+      render(data)
+    } catch (err) {
+      showErr('ag-start-error', 'Could not reach the server. (' + (err?.message || err) + ')')
+    } finally {
+      btn.disabled = false
+    }
+  }
+
   function showSetup(s) {
     $('ag-setup-card').hidden = false
-    $('ag-setup-title').textContent = `${s.total.toLocaleString()} properties to read`
-    const already = s.read ? ` ${s.read.toLocaleString()} already read.` : ''
-    const mins = Math.round((s.total - s.read) * 2.4 / 60)
-    $('ag-setup-sub').textContent =
-      `From ${s.filenames.length} file${s.filenames.length === 1 ? '' : 's'}, duplicates removed.${already} At the default pace that is roughly ${mins} minute${mins === 1 ? '' : 's'}. It saves after every property, so you can stop and pick up later.`
+    const fromSearch = s.source === 'search'
+    $('ag-pages-row').hidden = !fromSearch
+    $('ag-crawl').hidden = !fromSearch || s.total > 0
+    const saves = 'It saves after every property, so you can stop and pick up later.'
+
+    if (fromSearch && !s.total) {
+      // Nothing walked yet, so the count is not knowable — say what happens
+      // next instead of guessing at a number.
+      $('ag-setup-title').textContent = 'Ready to walk the search'
+      $('ag-setup-sub').textContent =
+        `Start walks the result pages, collects every property in that search, then reads them one by one. San Francisco sold in 24 months is around 13,000 properties, or about 5,600 with house and multi-family only — the page count shows up as soon as it starts. ${saves}`
+    } else {
+      $('ag-setup-title').textContent = `${s.total.toLocaleString()} properties to read`
+      const already = s.read ? ` ${s.read.toLocaleString()} already read.` : ''
+      const mins = Math.round((s.total - s.read) * 2.4 / 60)
+      const hrs = mins >= 90 ? ` (about ${(mins / 60).toFixed(1)} hours)` : ''
+      const from = fromSearch
+        ? `From the search, ${s.crawl?.pagesRead ? `${s.crawl.pagesRead} pages walked` : 'duplicates removed'}.`
+        : `From ${s.filenames.length} file${s.filenames.length === 1 ? '' : 's'}, duplicates removed.`
+      $('ag-setup-sub').textContent =
+        `${from}${already} At the default pace that is roughly ${mins} minute${mins === 1 ? '' : 's'}${hrs}. ${saves}`
+    }
     for (const w of s.warnings || []) addLog(w, 'warn')
   }
 
@@ -109,14 +175,14 @@
   function render(s) {
     if (!s) return
     job = { ...(job || {}), ...s }
-    const active = s.state === 'running' || s.state === 'paused'
-    $('ag-chip').textContent = s.state
+    const active = s.state === 'running' || s.state === 'paused' || s.state === 'crawling'
+    $('ag-chip').textContent = s.state === 'crawling' ? 'walking the search' : s.state
     $('ag-count-read').textContent = `${(s.read || 0).toLocaleString()} / ${(s.total || 0).toLocaleString()}`
     $('ag-eta').textContent = active && s.etaMinutes ? `about ${s.etaMinutes} min left` : ''
     $('ag-progress').textContent = s.read
       ? `${s.withAgent || 0} with an agent · ${s.ourKind || 0} of our kind${s.blocked ? ` · ${s.blocked} blocked` : ''}`
       : ''
-    $('ag-spinner').hidden = s.state !== 'running'
+    $('ag-spinner').hidden = s.state !== 'running' && s.state !== 'crawling'
     $('ag-pause').hidden = s.state !== 'running'
     $('ag-resume').hidden = s.state !== 'paused'
     $('ag-stop').hidden = !active
@@ -179,6 +245,17 @@
         if (ev.state === 'running') hide('ag-banner')
         if (ev.message) addLog(ev.message, 'state')
         break
+      case 'crawl':
+        // The crawl has its own measure — pages, not properties — so it drives
+        // the same bar off the page count while it runs.
+        $('ag-count-read').textContent = `${ev.collected.toLocaleString()} properties`
+        $('ag-progress').textContent = `page ${ev.page}${ev.totalPages ? ` of ${ev.totalPages}` : ''}`
+        $('ag-bar').style.width = ev.totalPages ? `${Math.round((ev.page / ev.totalPages) * 100)}%` : '0%'
+        break
+      case 'crawled':
+        render(ev)
+        showSetup(ev)
+        break
       case 'row': {
         render({ ...(job || {}), ...ev })
         // The table is a roll-up of everything so far, so refresh it on a timer
@@ -208,7 +285,7 @@
       if (!runs.length) { box.append(el('p', 'muted', 'No runs yet.')); return }
       for (const run of runs.slice(0, 8)) {
         const row = el('div', 'run')
-        row.append(el('div', null, `${run.read.toLocaleString()} / ${run.total.toLocaleString()} read · ${run.state}`))
+        row.append(el('div', null, `${run.read.toLocaleString()} / ${run.total.toLocaleString()} read · ${run.state}${run.source === 'search' ? ' · from a search' : ''}`))
         row.append(el('div', 'muted', new Date(run.createdAt).toLocaleString()))
         const open = el('button', 'btn', run.state === 'done' ? 'Open' : 'Resume')
         open.onclick = async () => {

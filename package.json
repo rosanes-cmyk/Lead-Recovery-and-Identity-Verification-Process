@@ -23,8 +23,9 @@
     "test:recorder": "node test/recorder-test.mjs",
     "test:permits": "node test/permits-test.mjs",
     "test:agents": "node test/agents-test.mjs",
+    "test:redfin-crawl": "node test/redfin-crawl-test.mjs",
     "test:recorder-browser": "node test/recorder-browser-test.mjs",
-    "test": "node test/agents-test.mjs && node test/permits-test.mjs && node test/recorder-test.mjs && node test/recorder-browser-test.mjs && node test/calibrate-test.mjs && node test/redfin-test.mjs && node test/share-test.mjs && node test/enrich-test.mjs && node test/fixture-live-test.mjs && node test/peoplesearch-test.mjs && node test/propertyradar-test.mjs && node test/propertyradar-search-test.mjs && node test/propertyradar-profile-test.mjs",
+    "test": "node test/agents-test.mjs && node test/redfin-crawl-test.mjs && node test/permits-test.mjs && node test/recorder-test.mjs && node test/recorder-browser-test.mjs && node test/calibrate-test.mjs && node test/redfin-test.mjs && node test/share-test.mjs && node test/enrich-test.mjs && node test/fixture-live-test.mjs && node test/peoplesearch-test.mjs && node test/propertyradar-test.mjs && node test/propertyradar-search-test.mjs && node test/propertyradar-profile-test.mjs",
     "install-browser": "npx playwright install chromium"
   },
   "dependencies": {

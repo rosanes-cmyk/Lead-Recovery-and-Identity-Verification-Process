@@ -238,9 +238,17 @@
         <aside class="side">
           <section class="card">
             <h2>Agent list</h2>
-            <p class="muted">The enrichment engine run backwards. Feed it Redfin's own search exports for San Francisco sales, and it reads each property for the listing agent and the listing text, keeps the ones that read fixer, probate, trust sale or as-is, and groups them by agent.</p>
-            <p class="autofill-hint">In Redfin: search San Francisco, filter to Sold in the last 24 months, then use <strong>Download All</strong> at the bottom of the results. It gives a few hundred rows at a time, so split by neighbourhood or price band and add all the files here.</p>
-            <label class="f"><span>Redfin search exports (several at once)</span><input type="file" id="ag-files" accept=".csv,text/csv" multiple /></label>
+            <p class="muted">The enrichment engine run backwards. Instead of one address in, the whole city: every San Francisco sale for 24 months, read for the listing agent and the listing text, kept where it reads fixer, probate, trust sale or as-is, and grouped by agent.</p>
+            <label class="f"><span>Redfin search to walk</span><input type="url" id="ag-search-url" placeholder="https://www.redfin.com/city/17151/CA/San-Francisco/filter/include=sold-2yr,property-type=house" /></label>
+            <p class="autofill-hint">On Redfin, search San Francisco and set the filters you want — <strong>Sold</strong>, <strong>last 2 years</strong>, house and multi-family. Then copy the URL out of the address bar and paste it here. The app walks the result pages itself, so there is nothing to download. Leave it empty to use the standard search: San Francisco, sold in 24 months, houses and multi-family.</p>
+            <p class="autofill-hint"><strong>Redfin's keyword box does not help here.</strong> It never reaches the URL — a search for "probate" returns exactly the same properties as one for "fixer" — so the fixer, probate, trust-sale and as-is filter happens here instead, on each property's own listing text.</p>
+            <button class="btn btn-primary" id="ag-search-go">Use this search</button>
+            <div id="ag-search-error" class="error" hidden></div>
+            <details class="mt">
+              <summary>Or upload Redfin exports instead</summary>
+              <p class="autofill-hint">Redfin's own <strong>Download All</strong> link caps at 350 rows a file, so covering the city this way is about forty downloads by hand. It is here for a search the crawler cannot reach.</p>
+              <label class="f"><span>Redfin search exports (several at once)</span><input type="file" id="ag-files" accept=".csv,text/csv" multiple /></label>
+            </details>
             <div id="ag-upload-error" class="error" hidden></div>
           </section>
 
@@ -249,6 +257,8 @@
             <p class="muted" id="ag-setup-sub"></p>
             <label class="f"><span>Pause between properties (seconds)</span><input type="number" id="ag-delay" min="0.25" max="60" step="0.25" value="1.5" /></label>
             <label class="f"><span>Only list agents with at least this many of our deals</span><input type="number" id="ag-min" min="1" max="50" step="1" value="1" /></label>
+            <label class="f" id="ag-pages-row" hidden><span>Most result pages to walk</span><input type="number" id="ag-pages" min="1" max="1000" step="1" value="400" /></label>
+            <button class="btn" id="ag-crawl" hidden>Find the properties first</button>
             <button class="btn btn-primary" id="ag-start">Start</button>
             <div id="ag-start-error" class="error" hidden></div>
           </section>

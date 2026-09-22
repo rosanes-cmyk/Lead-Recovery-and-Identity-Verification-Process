@@ -363,3 +363,8 @@ input.autofilled { border-color: var(--accent); box-shadow: 0 0 0 3px var(--acce
 .btn-small { margin-left: 12px; padding: 5px 12px; font-size: 12px; border-radius: 999px;
   background: var(--surface-3); color: var(--text); border: 1px solid var(--border); cursor: pointer; }
 .btn-small:hover { border-color: var(--muted); }
+
+/* "Or upload exports instead" — the fallback path, folded away. */
+details.mt { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 12px; }
+details.mt > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+details.mt > summary:hover { color: inherit; }
