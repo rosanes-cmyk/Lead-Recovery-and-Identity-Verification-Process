@@ -153,10 +153,11 @@
   async function start() {
     if (!job) return
     hide('ag-start-error')
-    const body = {
-      delayMs: Math.round(parseFloat($('ag-delay').value || '1.5') * 1000),
-      minDeals: parseInt($('ag-min').value || '1', 10),
-    }
+    // No minimum-deals option here on purpose. The list comes out ranked, so
+    // the cut to a callable size is made after seeing it, not guessed at before
+    // a four-hour run. rollupAgents still takes the threshold for any caller
+    // that wants it.
+    const body = { delayMs: Math.round(parseFloat($('ag-delay').value || '1.5') * 1000) }
     const btn = $('ag-start')
     btn.disabled = true
     try {

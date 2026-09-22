@@ -82,13 +82,20 @@ const firstFilled = (rows, pick) => rows.map(pick).map((v) => String(v || '').tr
  */
 /**
  * @param {object} opts
- * @param {number} [opts.minDeals]   drop the long tail
+ * @param {number} [opts.minDeals]
+ *   Drop agents below this many of our deals. Deliberately not offered in the
+ *   tab: the list comes out ranked, so the cut to a callable size is better
+ *   made after seeing it than guessed at before a four-hour run. A raw count
+ *   is also the crudest measure here — share of their business says more about
+ *   who works our kind of property than the count alone does.
  * @param {boolean} [opts.prefiltered]
- *   True when the search itself only returned our kind of deal — Redfin's own
- *   Fixer-upper checkbox and keyword search do that, which turns a 13,000-page
- *   job into about a thousand. The cost is the denominator: with nothing but
- *   our kind in the run, "share of their business" would read 100% for
- *   everyone, which is worse than useless. So it is left blank instead.
+ *   True when the search itself only returned our kind of deal. Redfin's
+ *   Fixer-upper checkbox does that; its keyword box does NOT, whatever the
+ *   filter panel suggests — the keyword never reaches the URL, so it cannot
+ *   narrow a crawl. The cost of a genuinely pre-filtered run is the
+ *   denominator: with nothing but our kind in it, "share of their business"
+ *   would read 100% for everyone, which is worse than useless. So it is left
+ *   blank instead.
  */
 export function rollupAgents(rows = [], { minDeals = 1, prefiltered = false } = {}) {
   const first = new Map()
