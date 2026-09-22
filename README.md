@@ -514,6 +514,23 @@ It saves after every property. Stop it, close the app, come back tomorrow and
 Resume: nothing is read twice. The crawl is saved too, so resuming does not
 re-walk the search.
 
+**The browser is the fallback, not the default.** Plain fetch is what makes
+eight thousand properties practical — nothing to log into, nothing to kick —
+and Redfin soft-blocks it after a handful of requests: a 202 with an empty
+body, or a results page carrying no results. When that happens the same page is
+read in the browser instead, on the persistent profile, where cookies exist and
+their JavaScript runs. A run only pays the browser's cost on the properties
+that were actually refused. If the browser is challenged too, the run pauses
+and says so: clear the check in the window (press and hold) and press Resume.
+
+This is the same fallback the enrichment run has always used, which is how it
+got agent names on 18 of 19 rows in a live run while plain fetch alone was
+being turned away.
+
+Turn it off with `useBrowser: false` if you would rather a run fail than open a
+window. It will then record the refused properties as blocked, which is honest
+but empty.
+
 **If Redfin starts refusing.** Five consecutive failures of any kind pause the
 run with a banner rather than burning through the list collecting nothing.
 Wait, raise the pause between properties, and Resume.

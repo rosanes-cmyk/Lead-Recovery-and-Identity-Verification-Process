@@ -333,6 +333,57 @@ try {
     globalThis.fetch = origFetch
   }
 
+  // --- the browser fallback ------------------------------------------------
+  console.log('\n[Agents] Falling back to the browser when plain requests are refused')
+  const rescued = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(rescued)
+  rescued.properties = [
+    { url: 'https://www.redfin.com/CA/San-Francisco/1-R-St-94110/home/1', address: '1 R St', price: null, soldDate: '', dom: null, propertyType: '' },
+    { url: 'https://www.redfin.com/CA/San-Francisco/2-R-St-94110/home/2', address: '2 R St', price: null, soldDate: '', dom: null, propertyType: '' },
+  ]
+  rescued._saveJob()
+  // Plain fetch is refused for everything, exactly as the live run was.
+  globalThis.fetch = async () => ({ ok: true, status: 202, text: async () => '' })
+  const agentJson = JSON.stringify(JSON.stringify([{ agentInfo: { agentName: 'Rescued Agent' }, brokerName: 'Browser Realty' }])).slice(1, -1)
+  const goodPage = `<html>\\"listingAgents\\":${agentJson},\\"marketingRemarks\\":[{\\"marketingRemark\\":\\"Probate sale, sold as-is.\\"}]</html>`
+  let browserReads = 0
+  rescued._browserPage = async () => ({
+    goto: async () => { browserReads++ },
+    waitForTimeout: async () => {},
+    content: async () => goodPage,
+  })
+  try {
+    rescued.setOptions({ delayMs: 250 })
+    await rescued.start()
+    check('the browser is used once plain requests are refused', browserReads === 2, String(browserReads))
+    check('and the properties are read after all', rescued.counts().read === 2 && rescued.counts().withAgent === 2, JSON.stringify(rescued.counts()))
+    check('nothing is left marked blocked', rescued.counts().blocked === 0)
+    check('the agent makes the list', rescued.agents().some((a) => a.name === 'Rescued Agent'), JSON.stringify(rescued.agents().map((a) => a.name)))
+    check('the run finished rather than pausing', rescued.state === 'done', rescued.state)
+    // A rescued property is no longer a miss, so nothing should be diagnosed.
+    check('no diagnosis on a rescued run', rescued.diagnosis() === '', rescued.diagnosis())
+  } finally {
+    globalThis.fetch = origFetch
+  }
+
+  // With the browser turned off, the same run has to fail rather than pretend.
+  const noBrowser = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(noBrowser)
+  noBrowser.properties = [...rescued.properties]
+  noBrowser._saveJob()
+  noBrowser.setOptions({ delayMs: 250, useBrowser: false })
+  check('the browser can be turned off', noBrowser.options.useBrowser === false)
+  let opened = 0
+  noBrowser._browserPage = async () => { opened++; return null }
+  globalThis.fetch = async () => ({ ok: true, status: 202, text: async () => '' })
+  try {
+    await noBrowser.start()
+    check('and then it is never opened', opened === 0, String(opened))
+    check('and the properties are recorded as blocked', noBrowser.counts().blocked === 2, String(noBrowser.counts().blocked))
+  } finally {
+    globalThis.fetch = origFetch
+  }
+
   let noSearch = ''
   try { await b.findProperties() } catch (err) { noSearch = err.message }
   check('a file-built run has no search to walk', /files/.test(noSearch), noSearch)

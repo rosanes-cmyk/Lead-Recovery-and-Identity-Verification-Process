@@ -14,6 +14,7 @@ import {
   soldSearchUrl,
   normaliseSearchUrl,
   crawlSearch,
+  readSearchInBrowser,
 } from '../server/sources/redfin-crawl.js'
 
 let pass = 0, fail = 0
@@ -186,6 +187,43 @@ check('reaching the real end is not a refusal', trueEnd.refused === false)
 // invent a refusal out of an ordinary finish.
 const noCounter = await crawlSearch(base, { fetchImpl: fakeRedfin({ pages: 2, total: 0 }).impl, delayMs: 0 })
 check('with no counter an empty page is still just the end', noCounter.refused === false)
+
+console.log('\n[Crawl] Falling back to the browser')
+// Redfin answers a throttled plain request with 202 and an empty body. Taking
+// that 2xx at face value turned it into "this page has no properties", which
+// then read as the end of the search.
+const emptyTwoOhTwo = { impl: async () => ({ ok: true, status: 202, text: async () => '' }) }
+const soft = await crawlSearch(base, { fetchImpl: emptyTwoOhTwo.impl, delayMs: 0 })
+check('a 202 with an empty body is a refusal, not an empty page', /refusal/.test(soft.error), soft.error)
+check('and names the status', /202/.test(soft.error))
+
+// The fallback gets a chance before the crawl gives up.
+let handed = []
+const viaBrowser = await crawlSearch(base, {
+  fetchImpl: emptyTwoOhTwo.impl,
+  delayMs: 0,
+  onRefused: async ({ url, page }) => {
+    handed.push(page)
+    if (page > 2) return null
+    return { properties: [{ url: `https://www.redfin.com/CA/San-Francisco/${page}-B-St/home/${page}`, address: `${page} B St`, price: 1 }], totalPages: 3 }
+  },
+})
+check('a refused page is handed to the fallback', handed[0] === 1, JSON.stringify(handed))
+check('and what it returns is collected', viaBrowser.properties.length === 2, String(viaBrowser.properties.length))
+check('the crawl carries on through the refusals', viaBrowser.through === 2, String(viaBrowser.through))
+check('and stops when the fallback cannot help either', viaBrowser.pagesRead === 2, String(viaBrowser.pagesRead))
+
+// The browser reader itself, against a stand-in page object.
+const fakePage = (html) => ({ goto: async () => {}, waitForTimeout: async () => {}, content: async () => html })
+const fx2 = fs.readFileSync(path.join(here, 'fixtures', 'redfin-search-sold.html'), 'utf-8')
+const read = await readSearchInBrowser(fakePage(fx2), base)
+check('the browser reader parses a real search page', read.ok && read.properties.length === 4, String(read.properties.length))
+check('and reads its page count', read.totalPages === 328)
+const challenged = await readSearchInBrowser(fakePage('<html>Just a moment...</html>'), base)
+check('a challenge in the browser is reported as blocked', challenged.blocked === true && challenged.ok === false)
+const bust = await readSearchInBrowser({ goto: async () => { throw new Error('net::ERR_ABORTED') } }, base)
+check('a browser crash is caught, not thrown', /ERR_ABORTED/.test(bust.error), bust.error)
+check('no page means no crash', (await readSearchInBrowser(null, base)).ok === false)
 
 console.log('\n[Crawl] Resuming part-way')
 const resumed = fakeRedfin({ pages: 6, perPage: 2, total: 6 })

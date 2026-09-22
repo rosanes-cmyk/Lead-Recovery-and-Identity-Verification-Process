@@ -216,11 +216,12 @@ export function rollupSummary(rows = [], agents = []) {
 import fs from 'node:fs'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
-import { config } from './config.js'
 import { toCsv } from './csv.js'
-import { lookupRedfin, describePage } from './sources/redfin.js'
+import { lookupRedfin, describePage, readRedfinInBrowser } from './sources/redfin.js'
 import { mergeSearchExports } from './sources/redfin-search.js'
-import { crawlSearch, normaliseSearchUrl, soldSearchUrl } from './sources/redfin-crawl.js'
+import { crawlSearch, normaliseSearchUrl, soldSearchUrl, readSearchInBrowser } from './sources/redfin-crawl.js'
+import { getPage } from './browser.js'
+import { config } from './config.js'
 
 const jobDir = (id) => path.join(config.runsDir, id)
 // Redfin serves these pages to anyone, but ten thousand of them in a night is
@@ -241,7 +242,7 @@ export class AgentList extends EventEmitter {
     this.dir = jobDir(this.id)
     this.results = new Map()
     this.state = job.state || 'ready'
-    this.options = { delayMs: DEFAULT_DELAY_MS, minDeals: 1, crawlDelayMs: DEFAULT_CRAWL_DELAY_MS, maxPages: 400, ...(job.options || {}) }
+    this.options = { delayMs: DEFAULT_DELAY_MS, minDeals: 1, crawlDelayMs: DEFAULT_CRAWL_DELAY_MS, maxPages: 400, useBrowser: true, ...(job.options || {}) }
     this.search = job.search || null
     this.crawl = job.crawl || null
     this._abort = new AbortController()
@@ -381,6 +382,7 @@ export class AgentList extends EventEmitter {
       const n = parseInt(opts.crawlDelayMs, 10)
       if (!Number.isNaN(n)) this.options.crawlDelayMs = Math.min(Math.max(n, 250), 60000)
     }
+    if (opts.useBrowser != null) this.options.useBrowser = Boolean(opts.useBrowser) && opts.useBrowser !== 'false'
     if (opts.maxPages != null) {
       const n = parseInt(opts.maxPages, 10)
       if (!Number.isNaN(n)) this.options.maxPages = Math.min(Math.max(n, 1), 1000)
@@ -482,6 +484,17 @@ export class AgentList extends EventEmitter {
       delayMs: this.options.crawlDelayMs,
       startPage,
       signal: this._abort.signal,
+      onRefused: async ({ url, page }) => {
+        const bp = await this._browserPage()
+        if (!bp || this.state === 'stopped') return null
+        this._log(`Redfin refused page ${page}. Reading it in the browser instead.`, 'warn')
+        const via = await readSearchInBrowser(bp, url)
+        if (via.ok) return via
+        // The browser was challenged too. A person can clear it in the window,
+        // which is why the browser is visible by default.
+        this._crawlChallenged = true
+        return null
+      },
       onPage: (p) => {
         this._emit('crawl', p)
         if (p.page === 1 || p.page % 10 === 0) this._log(`Page ${p.page}${p.totalPages ? ` of ${p.totalPages}` : ''} — ${p.collected} properties so far.`)
@@ -559,6 +572,18 @@ export class AgentList extends EventEmitter {
         res = { ok: false, error: String(err?.message || err).slice(0, 160) }
       }
 
+      // Refused by plain fetch — a bot check, a refusal status, or a page that
+      // came back with nothing on it. Try the same page in the browser before
+      // writing the property off.
+      if (!res?.ok && this.options.useBrowser && this.state !== 'stopped') {
+        const bp = await this._browserPage()
+        if (bp) {
+          const via = await readRedfinInBrowser(bp, prop.url)
+          if (via?.ok) { res = via; miss = null }
+          else if (via?.blocked) res = { ...res, blocked: true, error: 'Redfin is showing a check in the browser window.' }
+        }
+      }
+
       // A block is not a miss: the page exists, we were told to go away. Record
       // it as such so a later pass can pick these up rather than treating them
       // as properties with no agent.
@@ -572,7 +597,9 @@ export class AgentList extends EventEmitter {
       } else {
         this._blockStreak++
         if (this._blockStreak >= BLOCK_PAUSE_AFTER) {
-          const why = res?.blocked
+          const why = res?.blocked && this._page
+            ? `Redfin is showing a check in the browser window. Clear it there (press and hold), then Resume — the run carries on by itself.`
+            : res?.blocked
             ? `Redfin has refused ${this._blockStreak} properties in a row.`
             : `${this._blockStreak} properties in a row failed to read. The last said: ${String(res?.error || 'no reason given').slice(0, 120)}. ${this.missSummary()}`.trim()
           this._setState('paused', `${why} Paused rather than working through the rest of the list getting nothing. Wait a while, raise the pause between properties, then Resume. Everything read so far is saved.`)
@@ -590,6 +617,29 @@ export class AgentList extends EventEmitter {
       }
     }
     return this._finalize(this.state === 'stopped' ? 'stopped' : 'done')
+  }
+
+  /**
+   * A browser page on the persistent profile, opened once and kept.
+   *
+   * Plain fetch is what makes eight thousand properties practical, and Redfin
+   * soft-blocks it after a handful — 202 with an empty body, or a results page
+   * with no results. The browser has cookies, runs their JS, and is served the
+   * real page. It is slower, so it is the fallback rather than the default,
+   * and a run only pays for it on the properties that were refused.
+   */
+  async _browserPage() {
+    if (!this.options.useBrowser) return null
+    if (this._page) return this._page
+    try {
+      this._page = await getPage()
+      this._log('Opened the browser to get past Redfin refusing plain requests.', 'state')
+      return this._page
+    } catch (err) {
+      this._log(`Could not start the browser: ${String(err?.message || err)}. Carrying on with plain requests only.`, 'error')
+      this.options.useBrowser = false
+      return null
+    }
   }
 
   // Keep at most a handful of whole pages: enough to diagnose, not enough to
@@ -679,6 +729,10 @@ export class AgentList extends EventEmitter {
   }
 
   _finalize(state) {
+    // Let go of the page but leave the window open: the browser context is
+    // shared with the enrichment run, and closing it here would shut a window
+    // that run is in the middle of using.
+    this._page = null
     this.finishedAt = new Date().toISOString()
     const c = this.counts()
     this._setState(state)

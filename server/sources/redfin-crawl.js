@@ -24,6 +24,9 @@ const PAGE_COUNT = /Viewing page \d+ of ([\d,]+)/i
 // anchor. Both were present on all 41 cards of the page this was built from.
 const CARD_PRICE = /bp-Homecard__Price--value">([^<]{2,20})</g
 const CARD_ADDRESS = /class="bp-Homecard__Address[^"]*"\s+href="(\/[A-Z]{2}\/[^"]+?\/home\/\d+)"[^>]*>([^<]{4,120})</g
+// Redfin's refusals, by status. 202 with an empty body is one of them, which is
+// why a 2xx cannot be taken at face value here.
+const isRefusal = (status) => [202, 403, 429, 503].includes(Number(status))
 
 export function parsePropertyLinks(html = '', origin = 'https://www.redfin.com') {
   const out = new Set()
@@ -127,10 +130,44 @@ async function getPage(url, { signal, timeoutMs = 30000, fetchImpl = fetch } = {
       headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'en-US,en;q=0.9' },
     })
     if (!res.ok) return { html: '', status: res.status, error: `HTTP ${res.status}` }
-    return { html: await res.text(), status: res.status, error: '' }
+    const html = await res.text()
+    // Redfin answers a throttled request with 202 and an empty body. Taking a
+    // 2xx at face value turns that into "this page has no properties", which
+    // then reads as the end of the search.
+    if (!html.trim()) return { html: '', status: res.status, error: `Redfin answered HTTP ${res.status} with an empty page, which is a refusal.` }
+    return { html, status: res.status, error: '' }
   } finally {
     clearTimeout(timer)
     if (signal) signal.removeEventListener('abort', onAbort)
+  }
+}
+
+/**
+ * The same search page, read in the browser instead.
+ *
+ * Plain fetch is what makes a 190-page crawl cheap, but Redfin soft-blocks it:
+ * a 202 with an empty body, or a 200 carrying no results. A real browser on the
+ * persistent profile has cookies and runs their JS, so it is served the actual
+ * page — and when it is challenged, a person can clear the challenge in the
+ * window and the run carries on.
+ */
+export async function readSearchInBrowser(page, url, { timeoutMs = 45000, settleMs = 1500 } = {}) {
+  if (!page || !url) return { ok: false, properties: [], totalPages: 0, error: 'No search page to read.' }
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
+    await page.waitForTimeout(settleMs)
+    const html = await page.content()
+    const properties = parsePropertyCards(html)
+    return {
+      ok: properties.length > 0,
+      properties,
+      totalPages: parseTotalPages(html),
+      // A browser page with no results on it is the challenge, not the end.
+      blocked: properties.length === 0,
+      error: properties.length ? '' : 'The browser was served a search page with no properties on it.',
+    }
+  } catch (err) {
+    return { ok: false, properties: [], totalPages: 0, error: String(err?.message || err).slice(0, 160) }
   }
 }
 
@@ -143,7 +180,7 @@ async function getPage(url, { signal, timeoutMs = 30000, fetchImpl = fetch } = {
  * `refused` distinguishes "we reached the end" from "we were turned away on the
  * first page", and the caller is told which.
  */
-export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, startPage = 1, signal, onPage, fetchImpl = fetch, timeoutMs } = {}) {
+export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, startPage = 1, signal, onPage, onRefused, fetchImpl = fetch, timeoutMs } = {}) {
   const properties = []
   const seen = new Set()
   const first = Math.max(1, startPage)
@@ -163,11 +200,24 @@ export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, sta
       error = String(err?.message || err).slice(0, 160)
       break
     }
-    if (got.error) { error = got.error; break }
+    if (got.error && !isRefusal(got.status)) { error = got.error; break }
     // Every page carries the counter, not just the first — which matters when
     // resuming part-way, where page 1 is never fetched.
     if (!totalPages) totalPages = parseTotalPages(got.html)
-    const found = parsePropertyCards(got.html)
+    let found = parsePropertyCards(got.html)
+
+    // Refused, by status or by an empty page where the counter says there is
+    // more. Give the caller a chance to fetch it another way before treating
+    // this as the end of the road.
+    const refusedHere = Boolean(got.error) || (!found.length && totalPages && page < totalPages)
+    if (refusedHere && onRefused) {
+      const via = await onRefused({ url, page, totalPages })
+      if (via?.properties?.length) {
+        found = via.properties
+        if (!totalPages && via.totalPages) totalPages = via.totalPages
+      }
+    }
+    if (got.error && !found.length) { error = got.error; break }
     const fresh = found.filter((p) => !seen.has(p.url))
     for (const p of fresh) { seen.add(p.url); properties.push(p) }
     pagesRead++
