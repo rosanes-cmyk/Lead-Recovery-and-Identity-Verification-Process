@@ -14,6 +14,7 @@ import { config, safetySummary, canWrite, ROOT } from './config.js'
 import { Investigation } from './orchestrator.js'
 import { loadReport, listRuns, runDir, saveReport } from './store.js'
 import { Enrichment } from './enrich.js'
+import { AgentList } from './agents.js'
 import { createShare } from './share.js'
 import os from 'node:os'
 
@@ -329,6 +330,73 @@ app.get('/api/enrich/:id/download', (req, res) => {
   res.set('Content-Type', 'text/csv; charset=utf-8')
   res.set('Content-Disposition', `attachment; filename="${e.outputFilename().replace(/"/g, '')}"`)
   res.send(e.outputCsv())
+})
+
+// --- goal 2: the ranked listing-agent list ------------------------------------
+const agentJobs = new Map()
+function loadAgents(id) {
+  if (agentJobs.has(id)) return agentJobs.get(id)
+  const a = AgentList.load(id)
+  if (a) { a.on('event', (ev) => broadcast(ev)); agentJobs.set(id, a) }
+  return a
+}
+const activeAgents = () => [...agentJobs.values()].find((a) => a.isActive())
+
+// Several Redfin search exports at once: a city comes down in batches.
+app.post('/api/agents/upload', express.json({ limit: '60mb' }), (req, res) => {
+  try {
+    const files = Array.isArray(req.body?.files) ? req.body.files : []
+    if (!files.length) return res.status(400).json({ error: 'No files sent.' })
+    const a = AgentList.create({ files })
+    a.on('event', (ev) => broadcast(ev))
+    agentJobs.set(a.id, a)
+    res.json(a.status())
+  } catch (err) {
+    res.status(400).json({ error: String(err?.message || err) })
+  }
+})
+
+app.get('/api/agents', (req, res) => res.json(AgentList.list()))
+
+app.get('/api/agents/:id', (req, res) => {
+  const a = loadAgents(req.params.id)
+  if (!a) return res.status(404).json({ error: 'Run not found.' })
+  res.json({ ...a.status(), summary: a.summary(), top: a.agents().slice(0, 50) })
+})
+
+app.post('/api/agents/:id/start', (req, res) => {
+  const a = loadAgents(req.params.id)
+  if (!a) return res.status(404).json({ error: 'Run not found.' })
+  const other = activeAgents()
+  if (other && other.id !== a.id) return res.status(409).json({ error: 'Another agent-list run is going. Stop it first.' })
+  if (a.isActive()) return res.status(409).json({ error: 'This run is already going.' })
+  try {
+    if (req.body && Object.keys(req.body).length) a.setOptions(req.body)
+  } catch (err) {
+    return res.status(400).json({ error: String(err?.message || err) })
+  }
+  res.json(a.status())
+  a.start().catch((err) => a._log(`Run failed: ${String(err?.message || err)}`, 'error'))
+})
+
+app.post('/api/agents/:id/control/:action', (req, res) => {
+  const a = loadAgents(req.params.id)
+  if (!a) return res.status(404).json({ error: 'Run not found.' })
+  const { action } = req.params
+  if (action === 'pause') a.pause()
+  else if (action === 'resume') a.resume()
+  else if (action === 'stop') a.stop()
+  else return res.status(400).json({ error: `Unknown action: ${action}` })
+  res.json({ state: a.state })
+})
+
+app.get('/api/agents/:id/download', (req, res) => {
+  const a = loadAgents(req.params.id)
+  if (!a) return res.status(404).json({ error: 'Run not found.' })
+  const properties = req.query.what === 'properties'
+  res.set('Content-Type', 'text/csv; charset=utf-8')
+  res.set('Content-Disposition', `attachment; filename="${properties ? 'sf-properties-read.csv' : a.outputFilename()}"`)
+  res.send(properties ? a.propertiesCsv() : a.outputCsv())
 })
 
 // --- evidence screenshots ----------------------------------------------------

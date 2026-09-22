@@ -22,6 +22,7 @@
       <nav class="tabs" role="tablist" aria-label="Tools">
         <button class="tab active" data-tab="investigate" role="tab">Investigation</button>
         <button class="tab" data-tab="enrich" role="tab">Property Enrichment<span class="tab-dot" id="tab-dot-enrich" hidden></span></button>
+        <button class="tab" data-tab="agents" role="tab">Agent List<span class="tab-dot" id="tab-dot-agents" hidden></span></button>
       </nav>
       <div id="safety" class="safety">checking mode…</div>
       <a id="signout" class="signout" href="/logout" hidden>Sign out</a>
@@ -233,6 +234,64 @@
           </div>
         </section>
       </div>
+      <div id="tab-agents" class="layout tabpanel" hidden>
+        <aside class="side">
+          <section class="card">
+            <h2>Agent list</h2>
+            <p class="muted">The enrichment engine run backwards. Feed it Redfin's own search exports for San Francisco sales, and it reads each property for the listing agent and the listing text, keeps the ones that read fixer, probate, trust sale or as-is, and groups them by agent.</p>
+            <p class="autofill-hint">In Redfin: search San Francisco, filter to Sold in the last 24 months, then use <strong>Download All</strong> at the bottom of the results. It gives a few hundred rows at a time, so split by neighbourhood or price band and add all the files here.</p>
+            <label class="f"><span>Redfin search exports (several at once)</span><input type="file" id="ag-files" accept=".csv,text/csv" multiple /></label>
+            <div id="ag-upload-error" class="error" hidden></div>
+          </section>
+
+          <section class="card" id="ag-setup-card" hidden>
+            <h2 id="ag-setup-title">Ready</h2>
+            <p class="muted" id="ag-setup-sub"></p>
+            <label class="f"><span>Pause between properties (seconds)</span><input type="number" id="ag-delay" min="0.25" max="60" step="0.25" value="1.5" /></label>
+            <label class="f"><span>Only list agents with at least this many of our deals</span><input type="number" id="ag-min" min="1" max="50" step="1" value="1" /></label>
+            <button class="btn btn-primary" id="ag-start">Start</button>
+            <div id="ag-start-error" class="error" hidden></div>
+          </section>
+
+          <section class="card" id="ag-runs-card">
+            <h2>Earlier runs</h2>
+            <div id="ag-runs" class="runs"></div>
+          </section>
+        </aside>
+
+        <section class="main">
+          <div class="card">
+            <div class="statusbar">
+              <div class="status-left">
+                <span id="ag-spinner" class="spinner" hidden></span>
+                <span id="ag-chip" class="chip">ready</span>
+                <span id="ag-count-read" class="timer">0 / 0</span>
+                <span id="ag-eta" class="muted"></span>
+                <span id="ag-progress" class="muted"></span>
+              </div>
+              <div class="controls">
+                <button class="btn" id="ag-pause" hidden>Pause</button>
+                <button class="btn" id="ag-resume" hidden>Resume</button>
+                <button class="btn btn-danger" id="ag-stop" hidden>Stop</button>
+                <button class="btn btn-secondary" id="ag-download">Download the list</button>
+                <button class="btn" id="ag-download-props">Download the working</button>
+              </div>
+            </div>
+            <div class="progress"><div id="ag-bar" class="progress-bar"></div></div>
+            <div id="ag-banner" class="banner banner-warn" hidden></div>
+          </div>
+
+          <div class="card">
+            <h2>Top agents <span class="muted" id="ag-count"></span></h2>
+            <div id="ag-table" class="table-wrap"></div>
+          </div>
+
+          <div class="card">
+            <h2>Log</h2>
+            <div id="ag-log" class="log"></div>
+          </div>
+        </section>
+      </div>
     </main>
 
     <footer class="footer">
@@ -241,5 +300,6 @@
 
     <script src="app.js"></script>
     <script src="enrich.js"></script>
+    <script src="agents.js"></script>
   </body>
 </html>

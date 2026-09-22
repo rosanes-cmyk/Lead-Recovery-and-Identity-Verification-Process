@@ -187,3 +187,306 @@ export function rollupSummary(rows = [], agents = []) {
     namedSignals: AGENT_DEAL_SIGNALS,
   }
 }
+
+// ---------------------------------------------------------------------------------
+// The runner.
+//
+// No browser. Every property is a plain fetch of a page Redfin serves, which is
+// what makes a ten-thousand-row job practical at all: nothing to log into,
+// nothing to kick, and a stopped run picks up where it left off.
+// ---------------------------------------------------------------------------------
+
+import fs from 'node:fs'
+import path from 'node:path'
+import { EventEmitter } from 'node:events'
+import { config } from './config.js'
+import { toCsv } from './csv.js'
+import { lookupRedfin } from './sources/redfin.js'
+import { mergeSearchExports } from './sources/redfin-search.js'
+
+const jobDir = (id) => path.join(config.runsDir, id)
+// Redfin serves these pages to anyone, but ten thousand of them in a night is
+// not nothing. Default to a pace a person could plausibly browse at.
+const DEFAULT_DELAY_MS = 1500
+// Consecutive blocks that mean "stop asking" rather than "try again".
+const BLOCK_PAUSE_AFTER = 5
+
+export class AgentList extends EventEmitter {
+  constructor(job) {
+    super()
+    Object.assign(this, job)
+    this.dir = jobDir(this.id)
+    this.results = new Map()
+    this.state = job.state || 'ready'
+    this.options = { delayMs: DEFAULT_DELAY_MS, minDeals: 1, ...(job.options || {}) }
+    this._abort = new AbortController()
+    this._pauseGate = null
+    this._resume = null
+    this._blockStreak = 0
+    this._loadResults()
+  }
+
+  static create({ files = [] }) {
+    const merged = mergeSearchExports(files.map((f) => f.text))
+    if (!merged.ok) throw new Error(merged.errors[0] || 'No Redfin property links in those files.')
+    const id = `agents_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+    const job = {
+      id,
+      createdAt: new Date().toISOString(),
+      filenames: files.map((f) => String(f.name || 'export.csv').slice(0, 80)),
+      properties: merged.rows,
+      warnings: merged.errors,
+      options: {},
+      state: 'ready',
+    }
+    const a = new AgentList(job)
+    fs.mkdirSync(a.dir, { recursive: true })
+    a._saveJob()
+    return a
+  }
+
+  static load(id) {
+    try {
+      const job = JSON.parse(fs.readFileSync(path.join(jobDir(id), 'job.json'), 'utf-8'))
+      return new AgentList(job)
+    } catch {
+      return null
+    }
+  }
+
+  static list() {
+    try {
+      return fs
+        .readdirSync(config.runsDir)
+        .filter((d) => d.startsWith('agents_'))
+        .map((d) => AgentList.load(d))
+        .filter(Boolean)
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+        .map((a) => a.status())
+    } catch {
+      return []
+    }
+  }
+
+  _saveJob() {
+    fs.mkdirSync(this.dir, { recursive: true })
+    const job = {
+      id: this.id,
+      createdAt: this.createdAt,
+      filenames: this.filenames,
+      properties: this.properties,
+      warnings: this.warnings,
+      options: this.options,
+      state: this.state,
+      startedAt: this.startedAt,
+      finishedAt: this.finishedAt,
+      error: this.error,
+    }
+    fs.writeFileSync(path.join(this.dir, 'job.json'), JSON.stringify(job))
+  }
+
+  // Every property already read, so a restart costs nothing.
+  _loadResults() {
+    try {
+      for (const line of fs.readFileSync(path.join(this.dir, 'results.jsonl'), 'utf-8').split('\n')) {
+        if (!line.trim()) continue
+        const row = JSON.parse(line)
+        if (row?.url) this.results.set(row.url, row)
+      }
+    } catch { /* nothing read yet */ }
+  }
+
+  _emit(sub, data) { this.emit('event', { type: 'agents', id: this.id, sub, ...data }) }
+  _log(message, level = 'info') { this._emit('log', { message, level }) }
+
+  _setState(state, message) {
+    this.state = state
+    this._saveJob()
+    this._emit('state', { state, message })
+    if (message) this._log(message, 'state')
+  }
+
+  isActive() { return ['running', 'paused'].includes(this.state) }
+
+  setOptions(opts = {}) {
+    if (this.isActive()) throw new Error('Options cannot change while the run is going.')
+    if (opts.delayMs != null) {
+      const n = parseInt(opts.delayMs, 10)
+      if (!Number.isNaN(n)) this.options.delayMs = Math.min(Math.max(n, 250), 60000)
+    }
+    if (opts.minDeals != null) {
+      const n = parseInt(opts.minDeals, 10)
+      if (!Number.isNaN(n)) this.options.minDeals = Math.min(Math.max(n, 1), 50)
+    }
+    this._saveJob()
+  }
+
+  pause() {
+    if (this.state !== 'running') return
+    this._pauseGate = new Promise((res) => (this._resume = res))
+    this._setState('paused', 'Paused.')
+  }
+
+  resume() {
+    if (this.state !== 'paused') return
+    this._setState('running', 'Resumed.')
+    this._resume?.()
+    this._pauseGate = null
+    this._resume = null
+    this._blockStreak = 0
+  }
+
+  stop() {
+    if (!this.isActive()) return
+    this._abort.abort()
+    this._resume?.()
+    this._setState('stopped', 'Stopped.')
+  }
+
+  counts() {
+    const read = [...this.results.values()]
+    return {
+      total: this.properties.length,
+      read: read.length,
+      withAgent: read.filter((r) => r.listingAgent?.name).length,
+      ourKind: read.filter((r) => (r.signals || []).length).length,
+      blocked: read.filter((r) => r.blocked).length,
+    }
+  }
+
+  status() {
+    return {
+      id: this.id,
+      createdAt: this.createdAt,
+      filenames: this.filenames,
+      warnings: this.warnings || [],
+      state: this.state,
+      options: this.options,
+      error: this.error,
+      ...this.counts(),
+      etaMinutes: this._eta(),
+    }
+  }
+
+  _eta() {
+    const left = this.properties.length - this.results.size
+    if (left <= 0) return 0
+    return Math.round((left * (this.options.delayMs + 900)) / 60000)
+  }
+
+  async _sleep(ms) {
+    await new Promise((r) => {
+      const t = setTimeout(r, ms)
+      this._abort.signal.addEventListener('abort', () => { clearTimeout(t); r() }, { once: true })
+    })
+  }
+
+  async _waitIfPaused() { if (this._pauseGate) await this._pauseGate }
+
+  async start() {
+    if (this.isActive()) throw new Error('This run is already going.')
+    this._abort = new AbortController()
+    this.startedAt = new Date().toISOString()
+    this.error = ''
+    this._setState('running', `Reading ${this.properties.length - this.results.size} properties.`)
+
+    const pending = this.properties.filter((p) => !this.results.has(p.url))
+    for (const [k, prop] of pending.entries()) {
+      if (this.state === 'stopped') break
+      await this._waitIfPaused()
+      if (this.state === 'stopped') break
+
+      const t0 = Date.now()
+      let res
+      try {
+        res = await lookupRedfin(prop.url, { signal: this._abort.signal, retries: 1 })
+      } catch (err) {
+        res = { ok: false, error: String(err?.message || err).slice(0, 160) }
+      }
+
+      // A block is not a miss: the page exists, we were told to go away. Record
+      // it as such so a later pass can pick these up rather than treating them
+      // as properties with no agent.
+      if (res?.blocked) {
+        this._blockStreak++
+        if (this._blockStreak >= BLOCK_PAUSE_AFTER) {
+          this._setState('paused', `Redfin has refused ${this._blockStreak} pages in a row. Paused — wait a while, raise the pause between properties, then Resume. Everything read so far is saved.`)
+          this._pauseGate = new Promise((r) => (this._resume = r))
+          await this._waitIfPaused()
+          if (this.state === 'stopped') break
+        }
+      } else if (res?.ok) {
+        this._blockStreak = 0
+      }
+
+      this._record(prop, res, Date.now() - t0)
+
+      if (k < pending.length - 1 && this.state !== 'stopped') {
+        const base = this.options.delayMs
+        await this._sleep(base + Math.round(Math.random() * base * 0.4))
+      }
+    }
+    return this._finalize(this.state === 'stopped' ? 'stopped' : 'done')
+  }
+
+  _record(prop, res, ms) {
+    const row = {
+      url: prop.url,
+      address: prop.address,
+      soldDate: prop.soldDate,
+      price: prop.price,
+      dom: prop.dom,
+      propertyType: prop.propertyType,
+      listingAgent: res?.listingAgent || null,
+      buyerAgent: res?.buyerAgent || null,
+      signals: res?.signals || [],
+      remarks: String(res?.remarks || '').slice(0, 300),
+      blocked: Boolean(res?.blocked),
+      error: res?.ok ? '' : String(res?.error || '').slice(0, 160),
+      at: new Date().toISOString(),
+      ms,
+    }
+    this.results.set(row.url, row)
+    try { fs.appendFileSync(path.join(this.dir, 'results.jsonl'), JSON.stringify(row) + '\n') } catch (err) { this._log(`Could not save ${row.url}: ${err.message}`, 'error') }
+    this._emit('row', { row, ...this.counts(), etaMinutes: this._eta() })
+  }
+
+  _finalize(state) {
+    this.finishedAt = new Date().toISOString()
+    const c = this.counts()
+    this._setState(state)
+    const agents = this.agents()
+    this._emit('done', { state, ...c, agents: agents.length, message: state === 'stopped' ? `Stopped — ${c.read} of ${c.total} properties read, ${agents.length} agents so far.` : `Done — ${c.read} properties, ${c.ourKind} of our kind, ${agents.length} agents.` })
+    return this.status()
+  }
+
+  agents() { return rollupAgents([...this.results.values()], { minDeals: this.options.minDeals }) }
+
+  summary() { return rollupSummary([...this.results.values()], this.agents()) }
+
+  // The deliverable: the ranked list.
+  outputCsv() { return toCsv(AGENT_COLUMNS, agentsToRows(this.agents())) }
+
+  // The working behind it, so any name on the list can be checked.
+  propertiesCsv() {
+    const cols = ['Address', 'Sold Date', 'Price', 'DOM', 'Listing Agent', 'Brokerage', 'DRE', 'Phone', 'Email', 'Signals', 'Remarks', 'Status', 'URL']
+    const rows = [...this.results.values()].map((r) => ({
+      Address: r.address,
+      'Sold Date': r.soldDate,
+      Price: r.price == null ? '' : `$${Number(r.price).toLocaleString('en-US')}`,
+      DOM: r.dom == null ? '' : String(r.dom),
+      'Listing Agent': r.listingAgent?.name || '',
+      Brokerage: r.listingAgent?.brokerage || '',
+      DRE: r.listingAgent?.license || '',
+      Phone: r.listingAgent?.phone || r.listingAgent?.brokerPhone || '',
+      Email: r.listingAgent?.email || '',
+      Signals: (r.signals || []).join(', '),
+      Remarks: r.remarks,
+      Status: r.blocked ? 'blocked by Redfin' : r.listingAgent?.name ? 'read' : r.error || 'no agent on the page',
+      URL: r.url,
+    }))
+    return toCsv(cols, rows)
+  }
+
+  outputFilename() { return `sf-listing-agents-${String(this.createdAt).slice(0, 10)}.csv` }
+}

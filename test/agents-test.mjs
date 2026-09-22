@@ -84,5 +84,68 @@ check('summary counts the run', sum.properties === 6 && sum.withAgent === 5 && s
 check('summary names the filter', sum.namedSignals.includes('probate') && sum.namedSignals.includes('fixer'))
 check('an empty run summarises without dividing by zero', rollupSummary([], []).ourKindPercent === 0)
 
+// ---- the runner ------------------------------------------------------------------
+console.log('\n[Agents] The runner')
+const fs = await import('node:fs')
+const { AgentList } = await import('../server/agents.js')
+const { dealSignals } = await import('../server/sources/redfin.js')
+const made = []
+try {
+  const a = AgentList.create({ files: [{ name: 'sf-1.csv', text: EXPORT }, { name: 'sf-2.csv', text: EXPORT }] })
+  made.push(a)
+  check('the same export twice is de-duplicated', a.properties.length === 3, String(a.properties.length))
+  check('a run starts ready', a.state === 'ready' && a.counts().read === 0)
+  // Three properties really is under a minute; what matters is that the estimate
+  // scales, because the real job is ten thousand of them.
+  check('a tiny job estimates under a minute', a.status().etaMinutes === 0, String(a.status().etaMinutes))
+  const big = { ...a, properties: new Array(10000).fill(a.properties[0]), results: new Map(), options: a.options }
+  const bigEta = AgentList.prototype._eta.call(big)
+  check('ten thousand properties estimates in hours, not minutes', bigEta > 200 && bigEta < 1000, `${bigEta} min`)
+
+  const PAGES = {
+    '2014378': { agent: { name: 'Kenneth Kohlmyer', brokerage: 'City Real Estate', phone: '415-672-1354' }, remarks: 'This fixer-upper home presents an incredible opportunity.' },
+    '760710': { agent: { name: 'Craig Ackerman', brokerage: 'Proof Real Estate' }, remarks: 'The property needs some TLC, so bring your contractor!' },
+    '1094197': { agent: { name: 'Alexander Clark', brokerage: 'The Front Steps' }, remarks: 'Sophisticated luxury throughout.' },
+  }
+  for (const p of a.properties) {
+    const page = PAGES[p.url.split('/home/')[1]]
+    a._record(p, { ok: true, listingAgent: page.agent, signals: dealSignals(page.remarks), remarks: page.remarks }, 10)
+  }
+  const c = a.counts()
+  check('every property recorded', c.read === 3 && c.withAgent === 3)
+  check('only our kind counted as ours', c.ourKind === 2, String(c.ourKind))
+  const list = a.agents()
+  check('the luxury listing agent is left off the list', !list.some((x) => /Alexander Clark/.test(x.name)))
+  check('two agents make the list', list.length === 2)
+
+  // A stopped run must not redo work.
+  const again = AgentList.load(a.id)
+  made.push(again)
+  check('results survive a reload', again.counts().read === 3, String(again.counts().read))
+  check('a reloaded run offers no work left', again.properties.filter((p) => !again.results.has(p.url)).length === 0)
+
+  const csv = a.outputCsv()
+  check('the list downloads with a header', /Agent,Brokerage,DRE/.test(csv))
+  check('the list holds the ranked agents', /Kenneth Kohlmyer/.test(csv) && /Craig Ackerman/.test(csv))
+  check('the luxury agent is not in the download', !/Alexander Clark/.test(csv))
+  const work = a.propertiesCsv()
+  check('the working downloads too, all three properties', (work.match(/redfin\.com/g) || []).length === 3)
+  check('the working keeps the luxury property, marked read', /Alexander Clark/.test(work))
+  check('the filename says what it is', /^sf-listing-agents-\d{4}-\d{2}-\d{2}\.csv$/.test(a.outputFilename()), a.outputFilename())
+
+  // A blocked page is not a property with no agent.
+  const b = AgentList.create({ files: [{ name: 'x.csv', text: EXPORT }] })
+  made.push(b)
+  b._record(b.properties[0], { ok: false, blocked: true, error: 'Redfin returned a bot check.' }, 5)
+  check('a block is recorded as a block', b.counts().blocked === 1 && b.counts().withAgent === 0)
+  check('a blocked property is not counted as read-and-empty', /blocked by Redfin/.test(b.propertiesCsv()))
+
+  let threw = ''
+  try { AgentList.create({ files: [{ name: 'junk.csv', text: 'A,B\n1,2\n' }] }) } catch (err) { threw = err.message }
+  check('a file with no Redfin links is refused', /Redfin/.test(threw), threw)
+} finally {
+  for (const j of made) { try { fs.rmSync(j.dir, { recursive: true, force: true }) } catch { /* already gone */ } }
+}
+
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : fail + ' CHECK(S) FAILED'} (${pass} passed, ${fail} failed)`)
 process.exit(fail === 0 ? 0 : 1)

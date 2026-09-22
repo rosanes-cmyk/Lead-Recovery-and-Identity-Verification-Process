@@ -167,6 +167,7 @@ const seenEvidence = new Set()
 function handleEvent(ev) {
   // Property Enrichment events are handled by enrich.js; nothing here should render them.
   if (ev.type === 'enrich') { window.enrichHandle?.(ev); return }
+  if (ev.type === 'agents') { window.agentsHandle?.(ev); return }
   if (ev.runId && ev.runId !== currentRunId && ev.type === 'hello') {
     // Adopt an in-progress (or just-finished) run if the page was reloaded.
     currentRunId = ev.runId

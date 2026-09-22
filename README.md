@@ -463,6 +463,61 @@ San Francisco only, and only documents recorded from 28 Dec 1989. Earlier ones
 are on paper at City Hall. Turn it off with `ENRICH_LIENS=false` or the
 checkbox in the tab.
 
+## Agent List tab (goal 2)
+
+The enrichment engine run backwards: instead of one address in, the whole city,
+to produce the ranked list of listing agents that replaces mass outreach.
+
+### How to run it
+
+1. **In Redfin**, search San Francisco, filter to *Sold* in the last 24 months,
+   and use the **Download All** link under the results. It hands over a few
+   hundred rows at a time, so split the city by neighbourhood or price band and
+   save several files.
+2. **In the Agent List tab**, add all of those files at once. Duplicates across
+   files are removed; only rows carrying a Redfin property link are kept.
+3. **Start.** Each property page is read for its listing agent and its listing
+   text. Roughly 2.4 seconds each at the default pace, so ten thousand
+   properties is about seven hours — an overnight job.
+4. **Download the list** when it finishes, or at any point along the way.
+
+It saves after every property. Stop it, close the app, come back tomorrow and
+Resume: nothing is read twice.
+
+### What comes out
+
+`Download the list` gives the deliverable, ranked by how many of our kind of
+deal each agent listed:
+
+| Column | Why it is there |
+| --- | --- |
+| Agent, Brokerage, DRE, Phone, Email | Enough to make the call |
+| Our Deals | The ranking. How many fixer / probate / trust / as-is listings |
+| Total Sales | Their whole volume in the window |
+| Share % | Three of five matters far more than three of ninety |
+| Last Deal | A name that went quiet two years ago sinks |
+| Median DOM | An agent whose as-is listings sit is the one a cash buyer helps |
+| Signals | Which of the thirteen markers they actually see |
+| Example Properties | Three addresses, so any name can be checked |
+
+`Download the working` gives every property read, with its agent, signals,
+remarks and status — including the ones that produced nothing, so the list can
+always be audited back to source.
+
+### Two things it is careful about
+
+**One person, however their name is written.** Middle initials and suffixes are
+ignored, and brokerage is not part of the identity, because agents move firms.
+"K. Kohlmyer" folds into "Kenneth Kohlmyer" only when Kohlmyer is the one full
+name with that surname; with two Kohlmyers listing, the abbreviated one stays
+separate. Splitting one agent over two rows is an annoyance, merging two people
+is a wrong number on a call list.
+
+**A block is not a miss.** If Redfin refuses a page it is recorded as blocked
+rather than as a property with no agent, and five refusals in a row pause the
+run with a message rather than burning through the rest of the city being told
+no. Wait, raise the pause between properties, and Resume.
+
 ## Calibrating the SF recorder search (liens)
 
 `recorder.sfgov.org` holds every document recorded in San Francisco since 1990,
@@ -532,6 +587,7 @@ server/
   store.js         saves each run (report.json + evidence screenshots) under runs/
   enrich.js        Property Enrichment engine: CSV queue, checkpoint/resume, output
   csv.js           CSV parse/write, address-column detection, address matching
+  agents.js        goal 2: the agent-list runner and the ranked roll-up
   share.js         one shared password in front of everything, for temporary sharing
   sources/         one module per source (reiblackbook, propertyradar,
                    dealmachine, county, google, peoplesearch, websearch,
