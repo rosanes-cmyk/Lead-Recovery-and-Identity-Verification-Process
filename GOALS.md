@@ -64,7 +64,33 @@ whole city at once, to produce the target list that replaces mass outreach.
 5. Carries enough **contact detail to act on**: phone, email, brokerage, office
    address, DRE licence, website, LinkedIn or Instagram.
 
-**Where it stands:** not started. The 234-name list we have today came from an
+**Where it stands:** the Redfin route was chosen on 22 Sep 2026. The two pure
+pieces are built and tested: reading Redfin's own search export, and rolling
+properties up into ranked agents. What remains is the batch runner that reads
+each property page, and a tab to drive it.
+
+**How the universe is gathered.** Not by scraping a search page. Redfin's
+sold-home search has a "Download All" link that hands the operator a CSV of
+the results, a few hundred rows at a time, so a city is a handful of downloads
+split by neighbourhood or price band. Each row carries the property's Redfin
+URL, which is all the per-property reader needs. The header names in that file
+are long and have changed over the years, so the link column is found by its
+values rather than its name.
+
+**The ranking.** The brief says "groups by listing agent and counts", and count
+is the primary sort. Four more measures ride alongside as columns rather than
+being folded into a score, because a score hides its reasoning and whoever
+works the call list should be able to sort on what they care about:
+
+- **Share** — what fraction of that agent's sales are our kind. Three of five
+  matters far more than three of ninety.
+- **Last deal** — recency, so a name that went quiet two years ago sinks.
+- **Median days on market** on our kind of deal. An agent whose as-is listings
+  sit is the one a cash buyer helps, and that is the opening line of the call.
+- **Signals** — which of fixer, probate, trust sale and the rest they actually
+  see.
+
+**Previously:** The 234-name list we have today came from an
 MLS export someone else ran. Those are buyer's agents, unfiltered and
 unranked, so that file is an input, not this deliverable.
 

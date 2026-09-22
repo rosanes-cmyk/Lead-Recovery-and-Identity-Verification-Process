@@ -16,6 +16,13 @@ const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
 // Words that mark the kind of property we buy. Order matters only for display.
+// The names of the signals, for anything that needs to explain the filter.
+export const AGENT_DEAL_SIGNALS = [
+  'fixer', 'as-is', 'probate', 'trust sale', 'estate sale', 'conservatorship',
+  'court confirmation', 'needs work', 'contractor special', 'tear down',
+  'deferred maintenance', 'investor', 'vacant',
+]
+
 const SIGNALS = [
   ['fixer', /\bfixer(?:[- ]upper)?\b/i],
   ['as-is', /\bas[- ]is\b/i],
