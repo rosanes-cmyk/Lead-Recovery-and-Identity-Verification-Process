@@ -156,6 +156,7 @@ try {
   check('output filename', e.outputFilename() === 'SF test-enriched.csv')
   check('agent columns present', ENRICH_COLUMNS.includes('Redfin Listing Agent') && ENRICH_COLUMNS.includes('Redfin Buyer Agent'))
   check('agent contact columns present', ['Redfin Listing Brokerage', 'Redfin Listing Agent DRE', 'Redfin Listing Agent Phone', 'Redfin Listing Agent Email'].every((c) => ENRICH_COLUMNS.includes(c)))
+  check('special assessments get their own column', ENRICH_COLUMNS.includes('Liens Special Assessment'))
   check('deal-signal column present', ENRICH_COLUMNS.includes('Redfin Deal Signals'))
   check('Redfin read per row', /Demo Listing Agent/.test(f(0)['Redfin Listing Agent']) && f(0)['Redfin Status'] === 'found', f(0)['Redfin Status'])
   check('skipped row has no Redfin agent', f(3)['Redfin Listing Agent'] === '')

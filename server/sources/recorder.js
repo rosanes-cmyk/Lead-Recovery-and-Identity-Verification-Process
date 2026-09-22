@@ -33,7 +33,13 @@ const KINDS = [
   ['release', /\b(RECONVEY|RELEAS|SATISF|CANCELLATION|WITHDRAWAL OF|TERMINATION)/i],
   ['default', /\b(NOTICE OF DEFAULT|NOD\b|NOTICE OF TRUSTEE|NOTICE OF SALE|TRUSTEES? SALE)/i],
   ['judgment', /\b(ABSTRACT OF JUDG|JUDGMENT|JUDGEMENT)/i],
-  ['tax-lien', /\b(TAX LIEN|FEDERAL TAX|STATE TAX|NOTICE OF LIEN|SPECIAL TAX)/i],
+  // A Notice of Special Tax Lien is a Mello-Roos community facilities district
+  // recorded against EVERY parcel in the district, not a debt of this owner. It
+  // appeared on 15 of 15 San Francisco parcels in a live run, so counting it as
+  // an unreleased lien makes the column pure noise. Matched before tax-lien so
+  // a genuine federal or state tax lien is still caught.
+  ['special-assessment', /\b(SPECIAL TAX|SPCL TAX|SPEC TAX|MELLO[- ]?ROOS|COMMUNITY FACILITIES)/i],
+  ['tax-lien', /\b(TAX LIEN|FEDERAL TAX|STATE TAX|NOTICE OF LIEN)/i],
   ['mechanics-lien', /\b(MECHANIC|CLAIM OF LIEN|STOP NOTICE)/i],
   ['assessment-lien', /\b(ASSESSMENT (DISTRICT|LIEN)|HOA\b|HOMEOWNER.{0,3}ASSOC)/i],
   ['loan-assignment', /\b(ASSGN|ASGT|ASSIGNMENT)\b/i],
@@ -126,6 +132,9 @@ export function samePartyName(a, b) {
  * later release naming the same party.
  */
 export function summariseEncumbrances(rows = []) {
+  // Kept out of the encumbrance list on purpose; reported on its own so it is
+  // visible without being mistaken for a judgment against the owner.
+  const assessments = rows.filter((r) => r.kind === 'special-assessment')
   const sorted = [...rows].filter((r) => r.when).sort((a, b) => b.when - a.when)
   const lastTransfer = sorted.find((r) => r.kind === 'transfer') || null
   const since = lastTransfer ? lastTransfer.when : null
@@ -152,6 +161,7 @@ export function summariseEncumbrances(rows = []) {
 
   const defaults = sorted.filter((r) => r.kind === 'default')
   return {
+    specialAssessments: assessments,
     lastTransfer,
     loansSinceTransfer: loans.length,
     releasesSinceTransfer: releases.length,

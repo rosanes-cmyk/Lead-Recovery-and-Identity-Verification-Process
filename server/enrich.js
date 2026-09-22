@@ -87,6 +87,7 @@ export const ENRICH_COLUMNS = [
   'Liens Open Loans',
   'Liens Unreleased',
   'Liens Notice of Default',
+  'Liens Special Assessment',
   'Liens Last Transfer',
   'Liens Documents',
   'Liens Summary',
@@ -975,6 +976,8 @@ export class Enrichment extends EventEmitter {
     fields['Liens Open Loans'] = String(s.likelyOpenLoans)
     fields['Liens Unreleased'] = s.unreleasedEncumbrances.map((r) => `${r.titles.join(' + ')} ${r.date}`).join('; ')
     fields['Liens Notice of Default'] = s.noticesOfDefault.map((r) => r.date).join('; ')
+    // District-wide, not this owner's debt — kept out of the lien list above.
+    fields['Liens Special Assessment'] = (s.specialAssessments || []).map((r) => r.date).join('; ')
     fields['Liens Last Transfer'] = s.lastTransfer ? `${s.lastTransfer.date} ${s.lastTransfer.parties.map((p) => p.name).join(' -> ')}` : ''
     fields['Liens Documents'] = String(res.total || s.total)
     fields['Liens Summary'] = encumbranceSummary(s)

@@ -411,6 +411,13 @@ the property:
 | Liens Documents | How many documents are recorded against the parcel |
 | Liens Summary | The one-line version, for the sheet |
 
+**A district assessment is not a lien.** A Notice of Special Tax Lien is a
+Mello-Roos community facilities district recorded against every parcel in the
+district, not a debt of this owner. A live 19-row run found one on 15 of 15
+parcels, so counting it would have made the column pure noise. It is
+classified apart and reported in `Liens Special Assessment`. Genuine federal
+and state tax liens are unaffected.
+
 Three rules this follows, and they matter:
 
 - **By parcel, never by name.** The recorder indexes by party, and a name

@@ -22,7 +22,14 @@ check('full-word stem, not a boundary miss', classifyTitle('FULL RECONVEYANCES')
 check('assignment is not a new loan', classifyTitle('ASSGN DEED OF TRUST') === 'loan-assignment', classifyTitle('ASSGN DEED OF TRUST'))
 check('assignment of rents is not a new loan', classifyTitle('ASGT RENTS/LEASES') === 'loan-assignment')
 check('abstract of judgment is a judgment', classifyTitle('ABSTRACT OF JUDGMENT') === 'judgment')
-check('special tax lien', classifyTitle('303 - SPECIAL TAX LIEN A') === 'tax-lien')
+// A Notice of Special Tax Lien is a district-wide assessment recorded against
+// every parcel, not a debt of this owner. A live 19-row run found it on 15 of
+// 15 parcels, which is the whole reason it is separated out.
+check('special tax lien is an assessment, not an owner lien', classifyTitle('303 - SPECIAL TAX LIEN A') === 'special-assessment', classifyTitle('303 - SPECIAL TAX LIEN A'))
+check('the abbreviated form too', classifyTitle('AMDMT NTC SPCL TAX LIEN') === 'special-assessment')
+check('Mello-Roos named directly', classifyTitle('NOTICE OF MELLO-ROOS LIEN') === 'special-assessment')
+check('a federal tax lien is still a real lien', classifyTitle('FEDERAL TAX LIEN') === 'tax-lien')
+check('a state tax lien is still a real lien', classifyTitle('STATE TAX LIEN') === 'tax-lien')
 check('mechanics lien', classifyTitle('MECHANICS LIEN') === 'mechanics-lien')
 check('notice of default', classifyTitle('NOTICE OF DEFAULT') === 'default')
 check('deed is a transfer', classifyTitle('DEED') === 'transfer')
@@ -76,6 +83,24 @@ check('three abstracts of judgment', judgments.length === 3)
 check('they name MICHAEL A and MICHAEL P, not our owner', judgments.every((j) => /MICHAEL [AP]\b/.test(j.parties[0].name)))
 check('none of them appear in the parcel search', !parcel.rows.some((r) => r.kind === 'judgment'))
 check('so the parcel result carries no judgment', ps.unreleasedEncumbrances.length === 0)
+
+// ---- district assessments are reported apart from liens -----------------------------
+console.log('\n[Recorder] District assessments versus real liens')
+const mixed = parseSearchResults({
+  ResultCount: 4,
+  SearchResults: [
+    { PrimaryDocNumber: '1', DocumentDate: '9/20/2010', FilingCode: 'AMDMT NTC SPCL TAX LIEN', Names: '(R) CITY AND COUNTY' },
+    { PrimaryDocNumber: '2', DocumentDate: '8/25/2011', FilingCode: 'NTC OF TRUSTEE SALE', Names: '(R) OWNER ONE' },
+    { PrimaryDocNumber: '3', DocumentDate: '1/5/2020', FilingCode: 'ABSTRACT OF JUDGMENT', Names: '(R) OWNER ONE<br/>(E) A CREDITOR' },
+    { PrimaryDocNumber: '4', DocumentDate: '6/1/2015', FilingCode: 'DEED', Names: '(R) SELLER<br/>(E) OWNER ONE' },
+  ],
+}).rows
+const ms = summariseEncumbrances(mixed)
+check('the assessment is not counted as an unreleased lien', !ms.unreleasedEncumbrances.some((r) => r.kind === 'special-assessment'))
+check('the real judgment still is', ms.unreleasedEncumbrances.some((r) => r.kind === 'judgment'))
+check('the assessment is still reported, separately', ms.specialAssessments.length === 1 && ms.specialAssessments[0].date === '9/20/2010')
+check('the trustee sale is still reported', ms.noticesOfDefault.length === 1)
+check('the summary line names the judgment, not the assessment', /ABSTRACT OF JUDGMENT/.test(encumbranceSummary(ms)) && !/SPCL TAX/.test(encumbranceSummary(ms)), encumbranceSummary(ms))
 
 // ---- request shape -----------------------------------------------------------------
 console.log('\n[Recorder] The request the site makes')
