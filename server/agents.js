@@ -349,6 +349,7 @@ export class AgentList extends EventEmitter {
   _log(message, level = 'info') { this._emit('log', { message, level }) }
 
   _setState(state, message) {
+    if (state === 'paused' && message) this._lastPauseMessage = message
     this.state = state
     this._saveJob()
     this._emit('state', { state, message })
@@ -542,16 +543,24 @@ export class AgentList extends EventEmitter {
       // A block is not a miss: the page exists, we were told to go away. Record
       // it as such so a later pass can pick these up rather than treating them
       // as properties with no agent.
-      if (res?.blocked) {
+      //
+      // The streak counts every consecutive failure, not only the refusals we
+      // recognise. A run that cannot read anything must stop and say so —
+      // whatever the reason — rather than spend three hours proving it. Only a
+      // property actually read clears it.
+      if (res?.ok) {
+        this._blockStreak = 0
+      } else {
         this._blockStreak++
         if (this._blockStreak >= BLOCK_PAUSE_AFTER) {
-          this._setState('paused', `Redfin has refused ${this._blockStreak} pages in a row. Paused — wait a while, raise the pause between properties, then Resume. Everything read so far is saved.`)
+          const why = res?.blocked
+            ? `Redfin has refused ${this._blockStreak} properties in a row.`
+            : `${this._blockStreak} properties in a row failed to read. The last said: ${String(res?.error || 'no reason given').slice(0, 120)}`
+          this._setState('paused', `${why} Paused rather than working through the rest of the list getting nothing. Wait a while, raise the pause between properties, then Resume. Everything read so far is saved.`)
           this._pauseGate = new Promise((r) => (this._resume = r))
           await this._waitIfPaused()
           if (this.state === 'stopped') break
         }
-      } else if (res?.ok) {
-        this._blockStreak = 0
       }
 
       this._record(prop, res, Date.now() - t0)
@@ -589,12 +598,39 @@ export class AgentList extends EventEmitter {
     this._emit('row', { row, ...this.counts(), etaMinutes: this._eta() })
   }
 
+  /**
+   * Why a run produced no agents.
+   *
+   * "0 agents" on its own is indistinguishable between Redfin refusing every
+   * page, a layout change that broke the agent parser, and a search that
+   * genuinely holds none of our kind of property. Those need three different
+   * responses from the operator, so the run has to say which it was.
+   */
+  diagnosis() {
+    const c = this.counts()
+    if (!c.read) return ''
+    if (c.blocked >= c.read * 0.5) {
+      return `Redfin refused ${c.blocked} of ${c.read} properties, so this is about being blocked, not about the search. Wait a few hours, raise the pause between properties to 4 or 5 seconds, and Resume — the ones already read are kept.`
+    }
+    if (!c.withAgent) {
+      return `${c.read} properties were read but not one carried a listing agent. That is not what a real search looks like, so treat it as the reader being broken rather than the properties being empty. Download the working to see what came back.`
+    }
+    if (!c.ourKind) {
+      return `${c.withAgent} listing agents were found, but none of the ${c.read} properties read as fixer, probate, trust sale or as-is, so there is nothing to rank. Either the search is pointed at the wrong kind of property, or it is too small a slice to contain any.`
+    }
+    return ''
+  }
+
   _finalize(state) {
     this.finishedAt = new Date().toISOString()
     const c = this.counts()
     this._setState(state)
     const agents = this.agents()
-    this._emit('done', { state, ...c, agents: agents.length, message: state === 'stopped' ? `Stopped — ${c.read} of ${c.total} properties read, ${agents.length} agents so far.` : `Done — ${c.read} properties, ${c.ourKind} of our kind, ${agents.length} agents.` })
+    const why = agents.length ? '' : this.diagnosis()
+    const headline = state === 'stopped'
+      ? `Stopped — ${c.read} of ${c.total} properties read, ${agents.length} agents so far.`
+      : `Done — ${c.read} properties, ${c.ourKind} of our kind, ${agents.length} agents.`
+    this._emit('done', { state, ...c, agents: agents.length, diagnosis: why, message: why ? `${headline} ${why}` : headline })
     return this.status()
   }
 

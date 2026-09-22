@@ -241,6 +241,65 @@ try {
     globalThis.fetch = origFetch
   }
 
+  // --- a run that reads nothing must stop and say why ----------------------
+  console.log('\n[Agents] When nothing can be read')
+  const { isRefusalStatus } = await import('../server/sources/redfin.js')
+  check('403 is a refusal', isRefusalStatus(403) === true)
+  check('429 is a refusal', isRefusalStatus(429) === true)
+  check('503 is a refusal', isRefusalStatus(503) === true)
+  // A 404 is about that one page. Pausing the whole run on it would stop a
+  // good run dead on one dead link.
+  check('404 is not a refusal', isRefusalStatus(404) === false)
+  check('500 is not a refusal', isRefusalStatus(500) === false)
+
+  const blocked = AgentList.create({ files: [{ name: 'x.csv', text: EXPORT }] })
+  made.push(blocked)
+  for (const p of blocked.properties) blocked._record(p, { ok: false, blocked: true, error: 'Redfin returned HTTP 403.' }, 5)
+  check('a wholly blocked run is diagnosed as blocked', /refused/.test(blocked.diagnosis()), blocked.diagnosis())
+  check('and says to wait and raise the pause', /Resume/.test(blocked.diagnosis()))
+
+  const noAgents = AgentList.create({ files: [{ name: 'x.csv', text: EXPORT }] })
+  made.push(noAgents)
+  for (const p of noAgents.properties) noAgents._record(p, { ok: true, listingAgent: null, signals: [], remarks: 'A home.' }, 5)
+  check('pages that read but carry no agent point at the reader', /reader being broken/.test(noAgents.diagnosis()), noAgents.diagnosis())
+
+  const noDeals = AgentList.create({ files: [{ name: 'x.csv', text: EXPORT }] })
+  made.push(noDeals)
+  for (const p of noDeals.properties) noDeals._record(p, { ok: true, listingAgent: { name: 'Jane Luxury', brokerage: 'Nice Homes' }, signals: [], remarks: 'Sophisticated luxury throughout.' }, 5)
+  check('agents but no deals points at the search', /wrong kind of property/.test(noDeals.diagnosis()), noDeals.diagnosis())
+
+  const fine = AgentList.create({ files: [{ name: 'x.csv', text: EXPORT }] })
+  made.push(fine)
+  for (const p of fine.properties) fine._record(p, { ok: true, listingAgent: { name: 'Kenneth Kohlmyer' }, signals: ['fixer'], remarks: 'Fixer-upper.' }, 5)
+  check('a run that worked is not diagnosed at all', fine.diagnosis() === '', fine.diagnosis())
+
+  // The streak must count every consecutive failure, not only the refusals we
+  // recognise — that gap is what let a run grind through 238 properties
+  // collecting nothing and report "done".
+  const stall = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(stall)
+  stall.properties = Array.from({ length: 30 }, (_, i) => ({ url: `https://www.redfin.com/CA/San-Francisco/${i}-X-St-94110/home/${i}`, address: `${i} X St`, price: null, soldDate: '', dom: null, propertyType: '' }))
+  stall._saveJob()
+  let asked = 0
+  globalThis.fetch = async () => { asked++; return { ok: false, status: 403, text: async () => '' } }
+  try {
+    stall.setOptions({ delayMs: 250 })
+    // start() parks on the pause gate waiting for an operator, which is the
+    // whole point, so drive it from outside rather than awaiting it.
+    const running = stall.start()
+    const until = Date.now() + 8000
+    while (stall.state !== 'paused' && Date.now() < until) await new Promise((r) => setTimeout(r, 50))
+    check('a run that cannot read anything pauses instead of grinding on', stall.state === 'paused', stall.state)
+    check('and stops after a handful, not all thirty', stall.counts().read <= 6, String(stall.counts().read))
+    check('a refusal is not retried, which would only ask faster', asked <= 6, String(asked))
+    check('the refusals are recorded as blocks, not as empty properties', stall.counts().blocked === stall.counts().read, `${stall.counts().blocked}/${stall.counts().read}`)
+    check('the pause says it is Redfin refusing, not a broken search', /refused/.test(stall._lastPauseMessage || ''), stall._lastPauseMessage)
+    stall.stop()
+    await running
+  } finally {
+    globalThis.fetch = origFetch
+  }
+
   let noSearch = ''
   try { await b.findProperties() } catch (err) { noSearch = err.message }
   check('a file-built run has no search to walk', /files/.test(noSearch), noSearch)

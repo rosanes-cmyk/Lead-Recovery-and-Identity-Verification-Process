@@ -287,6 +287,9 @@
       case 'done':
         render({ ...(job || {}), state: ev.state, read: ev.read, total: ev.total })
         addLog(ev.message, 'state')
+        // A run that finished with nothing needs its reason on screen, not
+        // buried in the log where it scrolls away.
+        if (ev.diagnosis) { $('ag-banner').hidden = false; $('ag-banner').textContent = ev.diagnosis }
         refreshTop()
         loadRuns()
         break

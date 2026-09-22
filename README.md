@@ -514,9 +514,24 @@ It saves after every property. Stop it, close the app, come back tomorrow and
 Resume: nothing is read twice. The crawl is saved too, so resuming does not
 re-walk the search.
 
-**If Redfin starts refusing.** Five blocked properties in a row pauses the run
-with a banner rather than burning through the list collecting nothing. Wait,
-raise the pause between properties, and Resume. A refusal during the crawl
+**If Redfin starts refusing.** Five consecutive failures of any kind pause the
+run with a banner rather than burning through the list collecting nothing.
+Wait, raise the pause between properties, and Resume.
+
+Redfin refuses in two ways, and only one of them used to count. It either
+serves a bot-check page, or it answers with a status code and no page at all.
+The second was treated as an ordinary per-property error, so a run could be
+refused several hundred times in a row without the counter moving, and finish
+"done" holding nothing. 403, 429 and 503 are now refusals; 404 and 500 stay
+ordinary errors, because pausing a good run on one dead link would be worse. A
+refusal is not retried either — asking again immediately only asks faster while
+being told no.
+
+**A run that ends with no agents says why.** "0 agents" is the same output
+whether Redfin refused every page, the agent reader broke, or the search
+genuinely holds none of our kind of property — and those need three different
+responses. The run reports which: how many were refused, how many read but
+carried no agent, and how many read fine but carried no deal signal. A refusal during the crawl
 looks like a results page with no properties on it, and is reported as a
 refusal rather than as an empty city — the distinction matters, because the
 second would silently produce a list of nobody.

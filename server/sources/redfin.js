@@ -216,6 +216,19 @@ export function parseRedfinHtml(html = '') {
   }
 }
 
+// Redfin refuses in two ways: it serves a bot-check page, or it answers with a
+// status and no page at all. The second was being treated as an ordinary
+// error, so a run could be refused several hundred times in a row without the
+// block counter ever moving, and finish "done" with nothing in it.
+//
+// 403 and 429 are the refusals. 503 is Cloudflare in front of the site, which
+// is the same thing from here. A 404 or a 500 is a genuine error about that
+// one page and must not pause the run.
+const REFUSAL_STATUS = new Set([403, 429, 503])
+export function isRefusalStatus(status) {
+  return REFUSAL_STATUS.has(Number(status))
+}
+
 export async function fetchRedfin(url, { signal, timeoutMs = 20000, fetchImpl = fetch } = {}) {
   const ctl = new AbortController()
   const onAbort = () => ctl.abort()
@@ -234,8 +247,8 @@ export async function fetchRedfin(url, { signal, timeoutMs = 20000, fetchImpl = 
         'Accept-Language': 'en-US,en;q=0.9',
       },
     })
-    if (!res.ok) return { html: '', status: res.status, error: `Redfin returned HTTP ${res.status}.` }
-    return { html: await res.text(), status: res.status, error: '' }
+    if (!res.ok) return { html: '', status: res.status, blocked: isRefusalStatus(res.status), error: `Redfin returned HTTP ${res.status}.` }
+    return { html: await res.text(), status: res.status, blocked: false, error: '' }
   } finally {
     clearTimeout(timer)
     if (signal) signal.removeEventListener('abort', onAbort)
@@ -258,6 +271,9 @@ export async function lookupRedfin(url, opts = {}) {
       return { ok: false, url, error: /abort/i.test(msg) ? 'Redfin lookup timed out.' : `Redfin: ${msg}` }
     }
     if (got.error) {
+      // Retrying a refusal just asks again, faster, while being told no. Hand
+      // it straight back so the caller can slow down or stop.
+      if (got.blocked) return { ok: false, blocked: true, url, error: got.error, status: got.status }
       if (attempt < retries) { await sleep(retryDelayMs, opts.signal); continue }
       return { ok: false, url, error: got.error, status: got.status }
     }
