@@ -180,7 +180,7 @@ export async function readSearchInBrowser(page, url, { timeoutMs = 45000, settle
  * `refused` distinguishes "we reached the end" from "we were turned away on the
  * first page", and the caller is told which.
  */
-export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, startPage = 1, signal, onPage, onRefused, fetchImpl = fetch, timeoutMs } = {}) {
+export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, startPage = 1, signal, onPage, onRefused, fetchFirst, fetchImpl = fetch, timeoutMs } = {}) {
   const properties = []
   const seen = new Set()
   const first = Math.max(1, startPage)
@@ -194,13 +194,20 @@ export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, sta
     if (signal?.aborted) break
     const url = pageUrl(baseUrl, page)
     let got
-    try {
-      got = await getPage(url, { signal, fetchImpl, timeoutMs })
-    } catch (err) {
-      error = String(err?.message || err).slice(0, 160)
-      break
+    // Once Redfin is reliably refusing plain requests, trying one first is a
+    // wasted round trip on every page. The caller decides when to stop
+    // bothering, and when to try again in case the refusal has lifted.
+    if (fetchFirst && !fetchFirst(page)) {
+      got = { html: '', status: 0, error: 'Skipped the plain request: Redfin is refusing them.' }
+    } else {
+      try {
+        got = await getPage(url, { signal, fetchImpl, timeoutMs })
+      } catch (err) {
+        error = String(err?.message || err).slice(0, 160)
+        break
+      }
     }
-    if (got.error && !isRefusal(got.status)) { error = got.error; break }
+    if (got.error && got.status && !isRefusal(got.status)) { error = got.error; break }
     // Every page carries the counter, not just the first — which matters when
     // resuming part-way, where page 1 is never fetched.
     if (!totalPages) totalPages = parseTotalPages(got.html)

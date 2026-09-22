@@ -527,6 +527,15 @@ This is the same fallback the enrichment run has always used, which is how it
 got agent names on 18 of 19 rows in a live run while plain fetch alone was
 being turned away.
 
+Once Redfin has refused five plain requests in a row the run stops trying one
+first and goes straight to the browser, retrying a plain one every fiftieth
+property in case the refusal has lifted. That saved round trip matters: on a
+first live crawl of San Francisco, every page from the seventh onward was
+refused, so on six thousand properties the doomed request would have been
+hours of waiting to be told no. For the same reason a refusal is never
+retried — a bot check does not become a page by asking again — while an
+ordinary error, a 500 or a timeout, still is.
+
 Turn it off with `useBrowser: false` if you would rather a run fail than open a
 window. It will then record the refused properties as blocked, which is honest
 but empty.

@@ -272,7 +272,13 @@ export async function fetchRedfin(url, { signal, timeoutMs = 20000, fetchImpl = 
       },
     })
     if (!res.ok) return { html: '', status: res.status, blocked: isRefusalStatus(res.status), error: `Redfin returned HTTP ${res.status}.` }
-    return { html: await res.text(), status: res.status, blocked: false, error: '' }
+    const html = await res.text()
+    // Redfin answers a throttled request with 202 and an empty body. A 2xx is
+    // not a page, so an empty body is a refusal whatever the status says.
+    if (!html.trim()) {
+      return { html: '', status: res.status, blocked: true, error: `Redfin answered HTTP ${res.status} with an empty page, which is a refusal.` }
+    }
+    return { html, status: res.status, blocked: false, error: '' }
   } finally {
     clearTimeout(timer)
     if (signal) signal.removeEventListener('abort', onAbort)
@@ -303,6 +309,10 @@ export async function lookupRedfin(url, opts = {}) {
     }
     const parsed = parseRedfinHtml(got.html)
     if (parsed.ok) return { ...parsed, url, error: '' }
+    // A bot check does not become a page by asking again. Retrying it costs a
+    // round trip and a sleep per property, and on a city-sized run those add
+    // up to hours of waiting to be refused twice.
+    if (parsed.blocked) return { ...parsed, url, error: parsed.error || 'Redfin returned a bot check.' }
     // A page that loads but carries no agent is the failure worth explaining:
     // it could be a challenge we do not recognise, or a layout change. Hand the
     // body to the caller so the run leaves evidence instead of a shrug.

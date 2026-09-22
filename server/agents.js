@@ -231,6 +231,11 @@ const DEFAULT_DELAY_MS = 1500
 const BLOCK_PAUSE_AFTER = 5
 // Whole pages kept when a property reads but yields nothing.
 const MISS_PAGES_KEPT = 3
+// Consecutive browser rescues after which we stop trying a plain request
+// first. On a city-sized run that wasted round trip costs hours.
+const FETCH_GIVE_UP_AFTER = 5
+// ...and how often to try one anyway, in case the refusal has lifted.
+const FETCH_RETRY_EVERY = 50
 // Walking the search is lighter than reading properties — one page hands back
 // forty of them — but it is still Redfin, so it gets its own gentler pace.
 const DEFAULT_CRAWL_DELAY_MS = 1200
@@ -249,6 +254,7 @@ export class AgentList extends EventEmitter {
     this._pauseGate = null
     this._resume = null
     this._blockStreak = 0
+    this._rescues = 0
     this._loadResults()
   }
 
@@ -484,10 +490,14 @@ export class AgentList extends EventEmitter {
       delayMs: this.options.crawlDelayMs,
       startPage,
       signal: this._abort.signal,
+      fetchFirst: (page) => this._shouldFetch(page),
       onRefused: async ({ url, page }) => {
         const bp = await this._browserPage()
         if (!bp || this.state === 'stopped') return null
-        this._log(`Redfin refused page ${page}. Reading it in the browser instead.`, 'warn')
+        // Said once when the run switches over, not once per page: on a
+        // 190-page crawl that line was the whole log.
+        if (this._rescues < FETCH_GIVE_UP_AFTER) this._log(`Redfin refused page ${page}. Reading it in the browser instead.`, 'warn')
+        this._noteRescue()
         const via = await readSearchInBrowser(bp, url)
         if (via.ok) return via
         // The browser was challenged too. A person can clear it in the window,
@@ -558,7 +568,9 @@ export class AgentList extends EventEmitter {
       const t0 = Date.now()
       let res
       let miss = null
-      try {
+      // Skip the plain request entirely once it is reliably being refused.
+      if (!this._shouldFetch(k + 1)) res = { ok: false, blocked: true, error: 'Skipped the plain request: Redfin is refusing them.' }
+      else try {
         res = await lookupRedfin(prop.url, {
           signal: this._abort.signal,
           retries: 1,
@@ -579,7 +591,7 @@ export class AgentList extends EventEmitter {
         const bp = await this._browserPage()
         if (bp) {
           const via = await readRedfinInBrowser(bp, prop.url)
-          if (via?.ok) { res = via; miss = null }
+          if (via?.ok) { res = via; miss = null; this._noteRescue() }
           else if (via?.blocked) res = { ...res, blocked: true, error: 'Redfin is showing a check in the browser window.' }
         }
       }
@@ -617,6 +629,28 @@ export class AgentList extends EventEmitter {
       }
     }
     return this._finalize(this.state === 'stopped' ? 'stopped' : 'done')
+  }
+
+  /**
+   * Whether to bother with a plain request for this item.
+   *
+   * Plain fetch is much cheaper than the browser, so it stays the default —
+   * but once Redfin has refused several in a row, trying one first is a wasted
+   * round trip on every single property, which on six thousand of them is
+   * hours. Give up after a few, and try again occasionally in case the
+   * refusal has lifted.
+   */
+  _shouldFetch(n = 0) {
+    if (this._rescues < FETCH_GIVE_UP_AFTER) return true
+    return n > 0 && n % FETCH_RETRY_EVERY === 0
+  }
+
+  // Counted so the log can say it once rather than once per page.
+  _noteRescue() {
+    this._rescues = (this._rescues || 0) + 1
+    if (this._rescues === FETCH_GIVE_UP_AFTER) {
+      this._log(`Redfin has refused ${FETCH_GIVE_UP_AFTER} plain requests in a row. Going straight to the browser from here, and trying a plain one again every ${FETCH_RETRY_EVERY} in case that changes.`, 'state')
+    }
   }
 
   /**

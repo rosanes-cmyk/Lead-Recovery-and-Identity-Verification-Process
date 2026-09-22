@@ -87,5 +87,24 @@ check('no url -> clear reason', noUrl.ok === false && /No Redfin page/.test(noUr
 const wrongSite = await lookupRedfin('https://www.zillow.com/x')
 check('non-Redfin url refused', wrongSite.ok === false)
 
+console.log('\n[Redfin] Refusals are not pages, and are not worth asking twice')
+// Redfin throttles with a 202 and an empty body. A 2xx is not a page, and
+// treating it as one is what let a city-sized run report "done" holding
+// nothing.
+let calls = 0
+const refusing = async () => { calls++; return { ok: true, status: 202, text: async () => '' } }
+const refused = await lookupRedfin('https://www.redfin.com/CA/San-Francisco/1-A-St/home/1', { fetchImpl: refusing, retries: 2, retryDelayMs: 1 })
+check('an empty 202 is a refusal, not an empty page', refused.blocked === true, JSON.stringify(refused))
+check('and is not reported as ok', refused.ok === false)
+// A bot check does not become a page by asking again, and the retry costs a
+// round trip plus a sleep on every property.
+check('a refusal is asked for exactly once', calls === 1, `${calls} attempts`)
+
+calls = 0
+const flaky = async () => { calls++; return { ok: false, status: 500, text: async () => '' } }
+await lookupRedfin('https://www.redfin.com/CA/San-Francisco/1-A-St/home/1', { fetchImpl: flaky, retries: 2, retryDelayMs: 1 })
+// A 500 is a genuine error about that one page, so it is still worth retrying.
+check('an ordinary error is still retried', calls === 3, `${calls} attempts`)
+
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : fail + ' CHECK(S) FAILED'} (${pass} passed, ${fail} failed)`)
 process.exit(fail === 0 ? 0 : 1)

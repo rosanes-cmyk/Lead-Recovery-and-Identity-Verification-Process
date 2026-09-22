@@ -366,6 +366,34 @@ try {
     globalThis.fetch = origFetch
   }
 
+  // Once plain requests are reliably refused, trying one first is a wasted
+  // round trip on every property. On six thousand of them that is hours.
+  const thrifty = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(thrifty)
+  thrifty.properties = Array.from({ length: 12 }, (_, i) => ({ url: `https://www.redfin.com/CA/San-Francisco/${i}-T-St-94110/home/${i}`, address: `${i} T St`, price: null, soldDate: '', dom: null, propertyType: '' }))
+  thrifty._saveJob()
+  let plainTries = 0
+  globalThis.fetch = async () => { plainTries++; return { ok: true, status: 202, text: async () => '' } }
+  thrifty._browserPage = async () => ({ goto: async () => {}, waitForTimeout: async () => {}, content: async () => goodPage })
+  try {
+    thrifty.setOptions({ delayMs: 250 })
+    await thrifty.start()
+    check('all twelve are read through the browser', thrifty.counts().read === 12 && thrifty.counts().withAgent === 12, JSON.stringify(thrifty.counts()))
+    // Five to establish the refusal, then it stops asking.
+    check('it stops trying plain requests once they are hopeless', plainTries <= 6, `${plainTries} plain attempts for 12 properties`)
+  } finally {
+    globalThis.fetch = origFetch
+  }
+
+  // ...but it must try again eventually, or a refusal that lifts is never noticed.
+  const patient = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(patient)
+  patient._rescues = 99
+  check('a run that has given up skips the plain request', patient._shouldFetch(7) === false)
+  check('and tries one again on the interval', patient._shouldFetch(50) === true)
+  patient._rescues = 0
+  check('a fresh run always tries the cheap way first', patient._shouldFetch(7) === true)
+
   // With the browser turned off, the same run has to fail rather than pretend.
   const noBrowser = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
   made.push(noBrowser)
