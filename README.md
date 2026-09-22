@@ -417,6 +417,13 @@ excluded from the total, since the city's own data uses them as placeholders.
 An active building violation is the most direct motivation signal in the whole
 sheet. San Francisco only. Turn it off with `ENRICH_PERMITS=false`.
 
+### One address, not a file
+
+The tab also takes a single typed address. It makes a one-row job and runs the
+identical pipeline, so there is no thinner second path to fall out of step with
+the batch one. Type it, press Enter, and the usual progress and results panels
+take over.
+
 ### Liens, from the recorded chain of title
 
 Every enrichment row also searches the San Francisco Assessor-Recorder by the

@@ -254,6 +254,18 @@ app.post('/api/enrich/upload', express.text({ type: () => true, limit: '25mb' })
   }
 })
 
+// One typed address: same pipeline, one row.
+app.post('/api/enrich/address', (req, res) => {
+  try {
+    const e = Enrichment.createFromAddress(req.body?.address)
+    e.on('event', (ev) => broadcast(ev))
+    enrichJobs.set(e.id, e)
+    res.json(e.status())
+  } catch (err) {
+    res.status(400).json({ error: String(err?.message || err) })
+  }
+})
+
 app.get('/api/enrich', (req, res) => {
   res.json(Enrichment.list().map((s) => (enrichJobs.has(s.id) ? enrichJobs.get(s.id).status() : s)))
 })

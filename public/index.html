@@ -136,6 +136,10 @@
             <p class="muted">Upload a CSV of property addresses (Google Sheets → File → Download → CSV). Each row is looked up in PropertyRadar and on the web, and the findings are added as new columns you can import straight back into the sheet.</p>
             <label class="f"><span>CSV file</span><input type="file" id="en-file" accept=".csv,text/csv" /></label>
             <div id="en-upload-error" class="error" hidden></div>
+            <p class="autofill-hint" style="margin-top:14px">Or look up a single address:</p>
+            <label class="f"><span>One address</span><input id="en-one-address" placeholder="547 Missouri St, San Francisco, CA 94107" /></label>
+            <button class="btn" id="en-one-go">Look up this address</button>
+            <div id="en-one-error" class="error" hidden></div>
           </section>
 
           <section class="card" id="en-setup-card" hidden>

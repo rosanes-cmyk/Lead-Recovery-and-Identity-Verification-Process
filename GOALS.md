@@ -30,14 +30,22 @@ and all of the following hold:
 - **Verifies it read the right property.** Address match is reported per row.
 - **Auditable.** Screenshot and source link per property.
 - **Under a minute per property**, unattended. Today: ~40 seconds.
-- **Takes one typed address** as well as a CSV. Today: CSV only.
+- **Takes one typed address** as well as a CSV. Done — the address box makes a
+  one-row job and runs the same engine, so there is no second code path to
+  drift.
 - **Returns a CSV** that pastes straight back into Google Sheets. Done.
 
 **Where it stands:** all six fields are done. Ownership and money are
 verified against live screenshots, the MLS sheet and internal arithmetic;
 agents come from Redfin, liens from the recorded chain of title, and permits
-from the city's open data. **One thing remains: the single-address box**, which
-is a matter of shape rather than data. Nothing else in this file is goal 1.
+from the city's open data. **Goal 1 is complete.** Nothing else in this file is
+goal 1.
+
+Measured on a 19-row live run (22 Sep 2026): 19 of 19 rows processed in 22
+minutes, PropertyRadar found 17, liens read on 17, permits on 17, agents on 18.
+Zillow was blocked 7 times and the run continued every time. Where Redfin
+showed the same sale as the sheet, its buyer agent matched the sheet's on 13 of
+14, the exception being a row where Redfin records no buyer agent at all.
 
 ---
 
@@ -159,9 +167,9 @@ included, which would satisfy most of goal 2 with no scraping at all.
    Inspection notices of violation, by parcel, from the city's open data.
 3. ~~**Liens.**~~ Done. Read per property from the SF recorder by parcel
    number, with liens paired against their releases.
-4. **Single-address box**, so goal 1 matches how it was described.
+4. ~~**Single-address box.**~~ Done.
 
-Goal 1 is finished at step 4. Everything after it is goal 2.
+**Goal 1 is finished.** Everything after this is goal 2.
 
 *Bonus, not part of goal 1, do it only if it is free along the way:*
 PropertyRadar's Listings tab (status, date, days on market, list price,

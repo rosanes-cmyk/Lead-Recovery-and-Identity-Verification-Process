@@ -154,6 +154,21 @@ try {
   check('rows aligned with originals', out.records[1]["Buyer's Agent Full Name"] === 'Shinbori, James' && out.records[1]['PR Entity Owner'] === 'Yes')
   check('blank row stays in place', out.records[3]["Buyer's Agent Full Name"] === 'Blank Row Agent' && out.records[3]['PR Status'] === 'skipped')
   check('output filename', e.outputFilename() === 'SF test-enriched.csv')
+
+  // Goal 1 was described as "you type in an address". One typed address runs
+  // through the same engine as a sheet rather than a second, thinner path.
+  const one = Enrichment.createFromAddress('  547 Missouri St,  San Francisco, CA 94107 ')
+  made.push(one)
+  check('one address makes a one-row job', one.records.length === 1)
+  check('whitespace tidied', one.addressFor(0) === '547 Missouri St, San Francisco, CA 94107', one.addressFor(0))
+  check('mapped to the single column', one.addressMap.mode === 'full' && one.addressMap.full === 'Address')
+  check('a comma in the address does not split the row', Enrichment.createFromAddress('1 A St, B, CA 94107').records.length === 1)
+  const rejects = (v) => { try { Enrichment.createFromAddress(v); return '' } catch (err) { return err.message } }
+  check('empty address refused', /Type an address/i.test(rejects('   ')))
+  check('an address with no street number refused', /street number/i.test(rejects('San Francisco, CA')), rejects('San Francisco, CA'))
+  check('a wall of text refused', /does not look like/i.test(rejects('9 ' + 'x'.repeat(300))))
+  const oneOut = csvToRecords(one.outputCsv())
+  check('single-address output has the enrichment columns', oneOut.headers.includes('Liens Status') && oneOut.headers.includes('Permits Status'))
   check('agent columns present', ENRICH_COLUMNS.includes('Redfin Listing Agent') && ENRICH_COLUMNS.includes('Redfin Buyer Agent'))
   check('agent contact columns present', ['Redfin Listing Brokerage', 'Redfin Listing Agent DRE', 'Redfin Listing Agent Phone', 'Redfin Listing Agent Email'].every((c) => ENRICH_COLUMNS.includes(c)))
   check('permit columns present', ['Permits Count', 'Permits Open', 'Permits Last Work', 'Violations Active', 'Permits Status'].every((c) => ENRICH_COLUMNS.includes(c)))

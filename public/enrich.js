@@ -23,6 +23,9 @@
     ;['en-col-street', 'en-col-city', 'en-col-state', 'en-col-zip', 'en-col-full'].forEach((id) => $(id).addEventListener('change', pushMapping))
     $('en-start').onclick = start
     $('en-pause').onclick = () => control('pause')
+    $('en-one-go').onclick = lookupOneAddress
+    // Enter in the address box runs it, like any search field.
+    $('en-one-address').onkeydown = (ev) => { if (ev.key === 'Enter') lookupOneAddress() }
     $('en-resume').onclick = () => control('resume')
     $('en-stop').onclick = () => control('stop')
     $('en-download').onclick = download
@@ -317,6 +320,41 @@
   }
 
   // ---- controls ------------------------------------------------------------------
+  // One typed address goes through the same engine as a sheet: the server makes
+  // a one-row job, and the usual progress and results panels take over.
+  async function lookupOneAddress() {
+    const address = $('en-one-address').value.trim()
+    hide('en-one-error')
+    if (!address) return showErr('en-one-error', 'Type an address first.')
+    const btn = $('en-one-go')
+    btn.disabled = true
+    try {
+      const r = await fetch('/api/enrich/address', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ address }),
+      })
+      const data = await readJson(r)
+      if (!r.ok) return showErr('en-one-error', data.error || `Could not start (HTTP ${r.status}).`)
+      // The server already mapped the single column, so go straight to running
+      // it with whatever sources are ticked.
+      await startJob(data.id, {
+        webSearch: $('en-web').checked,
+        screenshots: $('en-shots').checked,
+        zillowCheck: $('en-zillow').checked,
+        redfin: $('en-redfin').checked,
+        liens: $('en-liens').checked,
+        permits: $('en-permits').checked,
+        headless: $('en-headless').checked,
+        delayMs: Math.round(parseFloat($('en-delay').value || '0') * 1000),
+      }, 'en-one-error')
+    } catch (err) {
+      showErr('en-one-error', 'Could not reach the server. (' + (err?.message || err) + ')')
+    } finally {
+      btn.disabled = false
+    }
+  }
+
   async function control(action) {
     if (!job) return
     await fetch(`/api/enrich/${job.id}/control/${action}`, { method: 'POST' })

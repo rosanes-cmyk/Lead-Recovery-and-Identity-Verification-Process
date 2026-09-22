@@ -164,6 +164,19 @@ export class Enrichment extends EventEmitter {
 
   // ---- creation / persistence ------------------------------------------------
 
+  // One typed address, run through exactly the same pipeline as a sheet. Goal 1
+  // was described as "you type in an address", and a one-row job keeps a single
+  // code path rather than a second, thinner one that would drift.
+  static createFromAddress(address) {
+    const one = String(address || '').replace(/\s+/g, ' ').trim()
+    if (!one) throw new Error('Type an address first.')
+    if (one.length > 200) throw new Error('That does not look like an address.')
+    if (!/\d/.test(one)) throw new Error('An address needs a street number — try "547 Missouri St, San Francisco, CA 94107".')
+    const e = Enrichment.create({ csvText: `${toCsv(['Address'], [{ Address: one }])}`, filename: `${one.slice(0, 60)}.csv` })
+    e.setAddressMap({ mode: 'full', full: 'Address' })
+    return e
+  }
+
   static create({ csvText, filename }) {
     const { headers, records } = csvToRecords(csvText)
     if (!headers.length) throw new Error('The file has no header row.')
