@@ -359,3 +359,7 @@ input.autofilled { border-color: var(--accent); box-shadow: 0 0 0 3px var(--acce
   .topbar { flex-wrap: wrap; }
   .tabs { order: 3; width: 100%; justify-content: center; margin-top: 8px; }
 }
+
+.btn-small { margin-left: 12px; padding: 5px 12px; font-size: 12px; border-radius: 999px;
+  background: var(--surface-3); color: var(--text); border: 1px solid var(--border); cursor: pointer; }
+.btn-small:hover { border-color: var(--muted); }

@@ -205,7 +205,17 @@
       case 'login-required':
         setState('login')
         $('en-login-banner').hidden = false
-        $('en-login-banner').textContent = ev.message
+        $('en-login-text').textContent = ev.message
+        {
+          // A captcha that will not clear should not hold up the whole sheet:
+          // offer to carry on without that one source.
+          const skip = $('en-skip-site')
+          skip.hidden = !ev.site
+          if (ev.site) {
+            skip.textContent = `Skip ${ev.label || ev.site} for this run`
+            skip.onclick = () => { skip.hidden = true; control(`skip-${ev.site}`) }
+          }
+        }
         addLog(ev.message, 'warn')
         break
       case 'done': {
@@ -308,7 +318,7 @@
   async function control(action) {
     if (!job) return
     await fetch(`/api/enrich/${job.id}/control/${action}`, { method: 'POST' })
-    if (action === 'resume') hide('en-login-banner')
+    if (action === 'resume' || action.startsWith('skip-')) { hide('en-login-banner'); $('en-skip-site').hidden = true }
   }
 
   function download() {

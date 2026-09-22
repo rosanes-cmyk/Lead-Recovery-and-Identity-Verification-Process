@@ -113,9 +113,16 @@ function tidyPhone(v) {
 }
 
 // One "Listed by" / "Bought with" block into a person.
+//
+// A block can name a co-listing agent as well:
+//   "Peter Iskandar DRE #01481566 415-297-5185, Trident Real Estate ,
+//    Yulia Iskandar DRE #02034288 , Trident Real Estate"
+// Only the first agent is wanted. The brokerage therefore stops before the
+// co-agent, at the last comma ahead of their licence — cutting at every comma
+// instead would truncate honest names like "eXp Realty of California, Inc."
 export function parseAgentBlock(block = '') {
   const raw = String(block || '').replace(/\s+/g, ' ').trim()
-  if (!raw || raw.length > 300) return null
+  if (!raw || raw.length > 400) return null
   const phones = (raw.match(PHONE_RE) || []).map(tidyPhone).filter(Boolean)
   const withoutPhones = raw.replace(PHONE_RE, ' ')
   const dre = withoutPhones.match(DRE_RE)
@@ -125,13 +132,19 @@ export function parseAgentBlock(block = '') {
     const at = withoutPhones.search(DRE_RE)
     name = withoutPhones.slice(0, at)
     brokerage = withoutPhones.slice(at + dre[0].length)
+    // A second licence means a second agent: keep only what is before them.
+    const next = brokerage.search(DRE_RE)
+    if (next >= 0) {
+      const comma = brokerage.lastIndexOf(',', next)
+      brokerage = comma >= 0 ? brokerage.slice(0, comma) : brokerage.slice(0, next)
+    }
   } else {
     // No licence shown: take the first comma as the split.
     const c = withoutPhones.indexOf(',')
     name = c > 0 ? withoutPhones.slice(0, c) : withoutPhones
     brokerage = c > 0 ? withoutPhones.slice(c + 1) : ''
   }
-  const clean = (v) => String(v).replace(/\s+/g, ' ').replace(/^[\s,;:–-]+|[\s,;:–-]+$/g, '').trim()
+  const clean = (v) => String(v).replace(/\s+/g, ' ').replace(/^[\s,;:\u2013-]+|[\s,;:\u2013-]+$/g, '').trim()
   name = clean(name)
   brokerage = clean(brokerage)
   // A name with digits or a "no agent" placeholder is not a person.

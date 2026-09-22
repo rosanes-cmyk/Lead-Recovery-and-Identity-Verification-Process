@@ -302,6 +302,10 @@ app.post('/api/enrich/:id/control/:action', (req, res) => {
   if (action === 'pause') e.pause()
   else if (action === 'resume') e.resume()
   else if (action === 'stop') e.stop()
+  // Skip a source that is stuck behind a captcha, for the rest of this run.
+  else if (action.startsWith('skip-')) {
+    if (!e.skipSite(action.slice(5))) return res.status(400).json({ error: `Nothing to skip: ${action.slice(5)}` })
+  }
   else return res.status(400).json({ error: `Unknown action: ${action}` })
   res.json({ state: e.state })
 })

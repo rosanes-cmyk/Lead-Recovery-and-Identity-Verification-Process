@@ -100,7 +100,9 @@ export const ENRICH_COLUMNS = [
 // loans, purchase date), Transactions (deed, prior owner, likely-to-list).
 const BATCH_TABS = ['Contacts', 'Property', 'Value & Equity', 'Transactions']
 const NETWORK_SAMPLE_ROWS = 3 // rows whose PropertyRadar JSON responses are logged for calibration
-const PR_FAIL_PAUSE_AFTER = 3 // consecutive PropertyRadar misses before pausing to ask the operator
+const PR_FAIL_PAUSE_AFTER = 3
+// How long to wait on a captcha before giving up on that site for the run.
+const CAPTCHA_WAIT_MS = 4 * 60 * 1000 // consecutive PropertyRadar misses before pausing to ask the operator
 const LOG_KEEP = 300 // events replayed to a reconnecting UI
 const ACTIVE = ['running', 'paused', 'login']
 
@@ -381,13 +383,14 @@ export class Enrichment extends EventEmitter {
   // A captcha is not a dead row. Bring the tab to the front, ask the operator to
   // clear it (they press and hold), and carry on by itself once it is gone —
   // the same shape as the PropertyRadar login pause.
-  async _requireOperator(page, { message, isClear, label = 'site' }) {
+  async _requireOperator(page, { message, isClear, label = 'site', site = '' }) {
     if (this.state === 'stopped' || this._headlessNow()) return false
     try { await page?.bringToFront?.() } catch { /* best effort */ }
     this._pauseGate = new Promise((res) => (this._resume = res))
+    this._skipSite = site // what "Skip" on the banner turns off
     this.state = 'login'
     this._saveJob()
-    this._emit('login-required', { message, reason: 'captcha' })
+    this._emit('login-required', { message, reason: 'captcha', site, label })
     const gate = this._pauseGate
     const started = Date.now()
     ;(async () => {
@@ -397,11 +400,31 @@ export class Enrichment extends EventEmitter {
         let clear = false
         try { clear = await isClear() } catch { clear = false }
         if (clear) { this._log(`${label} check cleared — continuing.`, 'state'); this.resume(); break }
-        if (Date.now() - started > 10 * 60 * 1000) break
+        // Never hang on a check that will not clear. Carry on without that site
+        // rather than leaving the rest of the sheet unprocessed.
+        if (Date.now() - started > CAPTCHA_WAIT_MS) {
+          this._log(`${label} is still asking for a captcha after ${Math.round(CAPTCHA_WAIT_MS / 60000)} minutes — carrying on without it for the rest of this run.`, 'warn')
+          this.skipSite(site)
+          break
+        }
       }
     })()
     await gate
+    this._skipSite = ''
     return this.state !== 'stopped'
+  }
+
+  // Turn one blocked source off for the remainder of the run and carry on. The
+  // other sources still answer, so a row keeps most of its value.
+  skipSite(site) {
+    const which = site || this._skipSite
+    if (which === 'zillow') { this.options.zillowCheck = false; this._log('Zillow turned off for the rest of this run.', 'state') }
+    else if (which === 'redfin') { this.options.redfin = false; this._log('Redfin turned off for the rest of this run.', 'state') }
+    else if (which === 'liens') { this.options.liens = false; this._log('The recorder lookup is off for the rest of this run.', 'state') }
+    else return false
+    this._saveJob()
+    if (this.state === 'login' || this.state === 'paused') this.resume()
+    return true
   }
 
   async _requireLogin(page, reason) {
@@ -659,7 +682,10 @@ export class Enrichment extends EventEmitter {
       else if (viaBrowser?.blocked) {
         const ok = await this._requireOperator(this._zpage, {
           label: 'Redfin',
-          message: 'Redfin is showing a captcha. Clear it in the browser window (press and hold the button), and I will carry on by myself.',
+          site: 'redfin',
+          message:
+            'Redfin is showing a captcha. Clear it in the browser window (press and hold), and I will carry on by myself. ' +
+            'If it will not clear, click "Skip Redfin" and the run continues with Zillow and the rest.',
           isClear: async () => {
             const again = await this._redfinInBrowser(fields['Web Redfin'])
             if (again?.ok) { rf = again; return true }
@@ -673,10 +699,16 @@ export class Enrichment extends EventEmitter {
     if (rf && !rf.ok && rf.error) notes.push(`Redfin: ${rf.error}`)
 
     let z = await zillowPromise
-    if (z?.blocked && !this._headlessNow() && this.state !== 'stopped') {
+    // Zillow is the second opinion on agents. If Redfin already named them there
+    // is nothing worth stopping the operator for, so a block is just a note.
+    const zillowStillNeeded = !fields['Redfin Listing Agent'] && !fields['Redfin Buyer Agent']
+    if (z?.blocked && zillowStillNeeded && !this._headlessNow() && this.state !== 'stopped') {
       const ok = await this._requireOperator(this._zpage, {
         label: 'Zillow',
-        message: 'Zillow is showing a captcha. Clear it in the browser window (press and hold the button), and I will carry on by myself.',
+        site: 'zillow',
+        message:
+          'Zillow is showing a captcha and Redfin did not name the agents for this one. Clear it in the browser window (press and hold), and I will carry on by myself. ' +
+          'If it will not clear, click "Skip Zillow" and the run continues with the other sources.',
         isClear: async () => {
           const again = await this._zillow(address)
           if (again && !again.blocked) { z = again; return true }
@@ -990,10 +1022,23 @@ export class Enrichment extends EventEmitter {
   // Do the two sites name the same agents? A disagreement is worth seeing: it
   // usually means one of them is showing a different listing.
   _crossCheckAgents(fields) {
+    // "Alexander T. Clark" and "Alexander Clark" are one person. Compare first
+    // and last name only, dropping middle initials and suffixes, so a middle
+    // initial is not reported as the two sites disagreeing.
+    const parts = (v) => {
+      const words = String(v || '')
+        .toLowerCase()
+        .replace(/[.,]/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean)
+        .filter((w) => !/^(jr|sr|ii|iii|iv|md|esq)$/.test(w))
+        .filter((w) => w.length > 1)
+      return words.length ? { first: words[0], last: words[words.length - 1] } : null
+    }
     const same = (a, b) => {
-      const x = String(a || '').trim().toLowerCase()
-      const y = String(b || '').trim().toLowerCase()
-      return Boolean(x) && x === y
+      const x = parts(a)
+      const y = parts(b)
+      return Boolean(x && y) && x.first === y.first && x.last === y.last
     }
     const r = fields['Redfin Listing Agent']
     const z = fields['Zillow Listing Agent']

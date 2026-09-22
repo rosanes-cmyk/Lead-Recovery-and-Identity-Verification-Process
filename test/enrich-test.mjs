@@ -58,6 +58,13 @@ check('empty text is safe', !parseZillowAgents('').listingAgent)
 check('a name with digits is rejected', parseAgentBlock('12345 DRE #01943235') === null)
 check('placeholder name rejected', parseAgentBlock('N/A, DRE #01943235') === null)
 check('agent with no licence still read', parseAgentBlock('Jane Doe, Compass')?.name === 'Jane Doe')
+// A "Listed by" block can name a co-listing agent; only the first is wanted, and
+// the second must not end up inside the first one's brokerage.
+const co = parseAgentBlock('Peter Iskandar DRE #01481566 415-297-5185, Trident Real Estate , Yulia Iskandar DRE #02034288 , Trident Real Estate')
+check('co-listing agent ignored', co?.name === 'Peter Iskandar', co?.name)
+check('brokerage stops before the co-agent', co?.brokerage === 'Trident Real Estate', co?.brokerage)
+check('a comma inside a brokerage name survives', parseAgentBlock('Donna Chan, DRE #01774693 eXp Realty of California, Inc.')?.brokerage === 'eXp Realty of California, Inc.')
+check('agent with no brokerage', parseAgentBlock('Robert R. Callan Jr. DRE #01469224 415-748-1481')?.name === 'Robert R. Callan Jr.')
 
 // ---- address columns ------------------------------------------------------------
 console.log('\n[Enrich] Address column detection')
@@ -154,6 +161,38 @@ try {
   check('skipped row has no Redfin agent', f(3)['Redfin Listing Agent'] === '')
   check('Zillow agent columns present', ['Zillow Listing Agent', 'Zillow Listing Brokerage', 'Zillow Buyer Agent', 'Agents Agree'].every((c) => ENRICH_COLUMNS.includes(c)))
   check('agents cross-checked between the two sites', f(0)['Agents Agree'] === 'yes', f(0)['Agents Agree'])
+  check('a middle initial is not a disagreement', (() => {
+    const j = Enrichment.create({ csvText: csv, filename: 'names.csv' })
+    made.push(j)
+    const row = { 'Redfin Listing Agent': 'Alexander Clark', 'Zillow Listing Agent': 'Alexander T. Clark' }
+    j._crossCheckAgents(row)
+    return row['Agents Agree'] === 'yes'
+  })())
+  check('a suffix is not a disagreement', (() => {
+    const j = made[made.length - 1]
+    const row = { 'Redfin Listing Agent': 'Robert Callan', 'Zillow Listing Agent': 'Robert R. Callan Jr.' }
+    j._crossCheckAgents(row)
+    return row['Agents Agree'] === 'yes'
+  })())
+  check('genuinely different agents still flagged', (() => {
+    const j = made[made.length - 1]
+    const row = { 'Redfin Listing Agent': 'Alexander Clark', 'Zillow Listing Agent': 'Claudia Goytia' }
+    j._crossCheckAgents(row)
+    return /^no —/.test(row['Agents Agree'])
+  })())
+  check('one site only is said so', (() => {
+    const j = made[made.length - 1]
+    const row = { 'Redfin Listing Agent': 'Alexander Clark', 'Zillow Listing Agent': '' }
+    j._crossCheckAgents(row)
+    return row['Agents Agree'] === 'Redfin only'
+  })())
+  check('a stuck site can be skipped for the run', (() => {
+    const j = made[made.length - 1]
+    j.options.zillowCheck = true
+    const done = j.skipSite('zillow')
+    return done === true && j.options.zillowCheck === false
+  })())
+  check('an unknown site is not skippable', made[made.length - 1].skipSite('nonsense') === false)
   check('lien columns present', ['Liens Open Loans', 'Liens Unreleased', 'Liens Notice of Default', 'Liens Summary', 'Liens Status'].every((c) => ENRICH_COLUMNS.includes(c)))
   check('liens read per row', f(0)['Liens Status'] === 'found' && /loan/.test(f(0)['Liens Summary']), f(0)['Liens Summary'])
   check('skipped row has no lien data', f(3)['Liens Status'] !== 'found')

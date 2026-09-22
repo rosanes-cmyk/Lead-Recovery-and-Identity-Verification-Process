@@ -262,7 +262,21 @@ No browser is involved. It is a plain fetch of the Redfin URL the web-search
 step already found, so it adds about a second per row rather than a tab. Turn
 it off with `ENRICH_REDFIN=false` or the checkbox in the tab.
 
-### Captchas stop the run, they do not skip the row
+### A captcha never holds up the whole sheet
+
+Three rules, in order:
+
+1. **It only stops when the answer is actually missing.** Zillow is the second
+   opinion on agents, so if Redfin already named them a Zillow block is noted
+   and the run carries straight on.
+2. **When it does stop**, the job pauses, brings the tab to the front and names
+   the site. Clear it by hand and the run continues on its own.
+3. **If it will not clear**, the banner has a "Skip Zillow for this run" button
+   that turns that one source off and continues. After four minutes with no
+   progress it does that by itself rather than leaving the rest of the sheet
+   unprocessed.
+
+### What a pause looks like
 
 Redfin and Zillow both put up a "press and hold" check from time to time. When
 one appears the job pauses, brings that tab to the front and says so, exactly
