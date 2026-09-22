@@ -213,16 +213,23 @@ export async function crawlSearch(baseUrl, { maxPages = 400, delayMs = 1200, sta
     if (!totalPages) totalPages = parseTotalPages(got.html)
     let found = parsePropertyCards(got.html)
 
-    // Refused, by status or by an empty page where the counter says there is
-    // more. Give the caller a chance to fetch it another way before treating
-    // this as the end of the road.
-    const refusedHere = Boolean(got.error) || (!found.length && totalPages && page < totalPages)
+    // Any page with nothing on it gets offered to the fallback before we treat
+    // it as the end of the road.
+    //
+    // Being choosier than that was a bug. The test used to be "an error, or an
+    // empty page where the counter says there is more" — but a soft-blocked
+    // page 1 has neither: it arrives as a 200 with content and no results, so
+    // there is no error, and the counter it would have carried is exactly what
+    // it is missing. The crawl gave up on page 1 without ever opening the
+    // browser. At a genuine end this costs one extra read.
+    const refusedHere = Boolean(got.error) || !found.length
     if (refusedHere && onRefused) {
       const via = await onRefused({ url, page, totalPages })
-      if (via?.properties?.length) {
-        found = via.properties
-        if (!totalPages && via.totalPages) totalPages = via.totalPages
-      }
+      if (via?.properties?.length) found = via.properties
+      // Take the count from wherever we first see it: on a crawl that was
+      // blocked from page 1, the browser is the only thing that ever sees it,
+      // and without it every later page looks like the end of the search.
+      if (!totalPages && via?.totalPages) totalPages = via.totalPages
     }
     if (got.error && !found.length) { error = got.error; break }
     const fresh = found.filter((p) => !seen.has(p.url))

@@ -613,6 +613,15 @@ is a wrong number on a call list.
 rather than as a property with no agent, so a later pass can pick those up
 instead of them looking like properties with no agent on them.
 
+**Every empty page is offered to the browser first.** Being choosier than that
+was a bug worth recording. The test used to be "an error, or an empty page
+where the counter says there is more" — but a soft-blocked *first* page has
+neither. It arrives as a 200 with content and no results, so there is no
+error, and the page counter it would have carried is exactly what it is
+missing. The crawl gave up on page 1 without ever opening the browser, on a
+search it had walked to completion an hour earlier. At a genuine end, offering
+the page costs one extra read.
+
 **An empty result page is only the end at the end.** Page 40 of a 26-page
 search comes back empty because the search finished. Page 8 of a 190-page
 search comes back empty because Redfin declined to answer. The crawler used to

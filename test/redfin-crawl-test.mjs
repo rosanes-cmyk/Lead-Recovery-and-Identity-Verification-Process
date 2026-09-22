@@ -213,6 +213,39 @@ check('and what it returns is collected', viaBrowser.properties.length === 2, St
 check('the crawl carries on through the refusals', viaBrowser.through === 2, String(viaBrowser.through))
 check('and stops when the fallback cannot help either', viaBrowser.pagesRead === 2, String(viaBrowser.pagesRead))
 
+// A soft-blocked page 1: a 200, with content, no property cards, and no page
+// counter. No error to trip on, and no total to compare against — the crawl
+// used to give up here without ever opening the browser, which is exactly how
+// a live run died on page 1 of a 190-page search.
+const softPageOne = {
+  impl: async (url) => {
+    const m = String(url).match(/\/page-(\d+)$/)
+    const n = m ? Number(m[1]) : 1
+    if (n === 1) return { ok: true, status: 200, text: async () => '<html><body>Just a moment while we verify your browser.</body></html>' }
+    return { ok: true, status: 200, text: async () => `<html>Viewing page ${n} of 3<div class="bp-Homecard__Price"><span class="bp-Homecard__Price--value">$1</span></div><a class="bp-Homecard__Address" href="/CA/San-Francisco/${n}-C-St/home/${n}" target="_blank">${n} C St</a></html>` }
+  },
+}
+let offered = []
+const rescuedPageOne = await crawlSearch(base, {
+  fetchImpl: softPageOne.impl,
+  delayMs: 0,
+  onRefused: async ({ page }) => {
+    offered.push(page)
+    return { properties: [{ url: 'https://www.redfin.com/CA/San-Francisco/1-C-St/home/1', address: '1 C St', price: 1 }], totalPages: 3 }
+  },
+})
+check('a blank page 1 is offered to the fallback', offered.includes(1), JSON.stringify(offered))
+check('and the crawl is not abandoned on it', rescuedPageOne.through === 3, String(rescuedPageOne.through))
+check('collecting the whole search', rescuedPageOne.properties.length === 3, String(rescuedPageOne.properties.length))
+// The counter only exists on pages the browser fetched, and without adopting
+// it every later page looks like the end of the search.
+check('the page count is taken from the fallback', rescuedPageOne.totalPages === 3, String(rescuedPageOne.totalPages))
+check('and the crawl reports itself finished', rescuedPageOne.partial === false)
+
+// With no fallback available it still has to report the refusal honestly.
+const noHelp = await crawlSearch(base, { fetchImpl: softPageOne.impl, delayMs: 0 })
+check('with no fallback a blank page 1 is still a refusal', noHelp.refused === true)
+
 // The browser reader itself, against a stand-in page object.
 const fakePage = (html) => ({ goto: async () => {}, waitForTimeout: async () => {}, content: async () => html })
 const fx2 = fs.readFileSync(path.join(here, 'fixtures', 'redfin-search-sold.html'), 'utf-8')
