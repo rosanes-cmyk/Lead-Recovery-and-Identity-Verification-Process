@@ -308,6 +308,40 @@ export class AgentList extends EventEmitter {
     return a
   }
 
+  /**
+   * Put back on their feet any runs that the server died in the middle of.
+   *
+   * "running", "crawling" and "paused" all describe a process, and the process
+   * does not survive a restart — but the state is written to disk, so it does.
+   * A run left marked running is then refused by every button that checks
+   * isActive(), and a paused one has lost the in-memory gate it is waiting on,
+   * so neither can ever be started again. Nothing is running at startup by
+   * definition, so any run claiming otherwise is a leftover.
+   *
+   * Nothing is lost: every property read is in results.jsonl and every page
+   * walked is in job.json, so these runs resume exactly where they stopped.
+   */
+  static recoverInterrupted() {
+    const recovered = []
+    let dirs = []
+    try {
+      dirs = fs.readdirSync(config.runsDir).filter((d) => d.startsWith('agents_'))
+    } catch { return recovered }
+    for (const id of dirs) {
+      const file = path.join(jobDir(id), 'job.json')
+      try {
+        const job = JSON.parse(fs.readFileSync(file, 'utf-8'))
+        if (!['running', 'crawling', 'paused'].includes(job.state)) continue
+        const was = job.state
+        job.state = 'ready'
+        job.interruptedAt = new Date().toISOString()
+        fs.writeFileSync(file, JSON.stringify(job))
+        recovered.push({ id, was })
+      } catch { /* an unreadable run is not worth failing startup over */ }
+    }
+    return recovered
+  }
+
   static load(id) {
     try {
       const job = JSON.parse(fs.readFileSync(path.join(jobDir(id), 'job.json'), 'utf-8'))
@@ -366,6 +400,7 @@ export class AgentList extends EventEmitter {
 
   _setState(state, message) {
     if (state === 'paused' && message) this._lastPauseMessage = message
+    if (message) this._lastStateMessage = message
     this.state = state
     this._saveJob()
     this._emit('state', { state, message })
@@ -544,6 +579,35 @@ export class AgentList extends EventEmitter {
     }
     this._emit('crawled', { ...this.status(), properties: this.properties.length })
     return this.status()
+  }
+
+  /**
+   * Run a phase, and never leave the state lying about what happened.
+   *
+   * A rejected start() used to leave the run marked "running" with nothing
+   * running it — the same dead end a restart causes, where every later Start
+   * is refused because the run claims to be going.
+   */
+  async startSafely() {
+    try {
+      return await this.start()
+    } catch (err) {
+      const msg = String(err?.message || err)
+      if (this.isActive()) this._setState('stopped', `The run stopped unexpectedly: ${msg}. Everything read so far is saved — press Start to carry on.`)
+      this._log(`Run failed: ${msg}`, 'error')
+      return this.status()
+    }
+  }
+
+  async findPropertiesSafely() {
+    try {
+      return await this.findProperties()
+    } catch (err) {
+      const msg = String(err?.message || err)
+      if (this.isActive()) this._setState('ready', `Walking the search stopped unexpectedly: ${msg}. Anything collected is saved.`)
+      this._log(`Walking the search failed: ${msg}`, 'error')
+      return this.status()
+    }
   }
 
   async start() {

@@ -342,6 +342,12 @@ function loadAgents(id) {
 }
 const activeAgents = () => [...agentJobs.values()].find((a) => a.isActive())
 
+// A restart leaves runs claiming to be going when nothing is. Put them back to
+// ready before the first request can be refused on their account.
+for (const r of AgentList.recoverInterrupted()) {
+  console.log(`  Recovered an agent-list run that was ${r.was} when the app last stopped: ${r.id} — press Start to carry on.`)
+}
+
 // Several Redfin search exports at once: a city comes down in batches.
 app.post('/api/agents/upload', express.json({ limit: '60mb' }), (req, res) => {
   try {
@@ -387,7 +393,7 @@ app.post('/api/agents/:id/crawl', express.json(), (req, res) => {
     return res.status(400).json({ error: String(err?.message || err) })
   }
   res.json(a.status())
-  a.findProperties().catch((err) => a._log(`Walking the search failed: ${String(err?.message || err)}`, 'error'))
+  a.findPropertiesSafely()
 })
 
 app.get('/api/agents', (req, res) => res.json(AgentList.list()))
@@ -410,7 +416,7 @@ app.post('/api/agents/:id/start', (req, res) => {
     return res.status(400).json({ error: String(err?.message || err) })
   }
   res.json(a.status())
-  a.start().catch((err) => a._log(`Run failed: ${String(err?.message || err)}`, 'error'))
+  a.startSafely()
 })
 
 app.post('/api/agents/:id/control/:action', (req, res) => {

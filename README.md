@@ -540,6 +540,17 @@ Turn it off with `useBrowser: false` if you would rather a run fail than open a
 window. It will then record the refused properties as blocked, which is honest
 but empty.
 
+**A restart does not strand a run.** "running", "crawling" and "paused" all
+describe a process, and the process does not survive restarting the app — but
+the state is written to disk, so it does. A run left marked running is then
+refused by everything that checks whether it is active, and a paused one has
+lost the in-memory gate it was waiting on, so neither can ever be started
+again: the app answers "This run is already going" forever. Nothing is running
+at startup by definition, so any run claiming otherwise is put back to ready
+when the app boots, and says so on the console. Nothing is lost — every
+property read is in `results.jsonl` and every page walked is in `job.json`, so
+press Start and it carries on from where it stopped.
+
 **If Redfin starts refusing.** Five consecutive failures of any kind pause the
 run with a banner rather than burning through the list collecting nothing.
 Wait, raise the pause between properties, and Resume.

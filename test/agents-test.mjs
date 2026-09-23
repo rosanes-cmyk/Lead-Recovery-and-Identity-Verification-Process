@@ -412,6 +412,56 @@ try {
     globalThis.fetch = origFetch
   }
 
+  // --- runs the server died in the middle of --------------------------------
+  // "running" describes a process; the process does not survive a restart but
+  // the state on disk does, so the run is refused by every button that checks
+  // isActive() and can never be started again. This is what stranded a live
+  // run at 127 of 6,449.
+  console.log('\n[Agents] Recovering a run the server died during')
+  const fsx = await import('node:fs')
+  const pathx = await import('node:path')
+  const stranded = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(stranded)
+  stranded.properties = [{ url: 'https://www.redfin.com/CA/San-Francisco/1-S-St/home/1', address: '1 S St', price: null, soldDate: '', dom: null, propertyType: '' }]
+  stranded.state = 'running'
+  stranded._saveJob()
+  check('the stranded run is refused before recovery', AgentList.load(stranded.id).isActive() === true)
+
+  const pausedToo = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(pausedToo)
+  pausedToo.state = 'paused'
+  pausedToo._saveJob()
+  const crawling = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(crawling)
+  crawling.state = 'crawling'
+  crawling._saveJob()
+  const finished = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(finished)
+  finished.state = 'done'
+  finished._saveJob()
+
+  const recovered = AgentList.recoverInterrupted()
+  const ids = recovered.map((r) => r.id)
+  check('a run left running is recovered', ids.includes(stranded.id), JSON.stringify(recovered))
+  check('so is one left paused, whose gate died with the process', ids.includes(pausedToo.id))
+  check('and one left mid-crawl', ids.includes(crawling.id))
+  check('a finished run is left alone', !ids.includes(finished.id))
+  check('it reports what each one was', recovered.find((r) => r.id === stranded.id)?.was === 'running')
+
+  const back = AgentList.load(stranded.id)
+  check('the recovered run can be started again', back.isActive() === false && back.state === 'ready', back.state)
+  check('and keeps its properties', back.properties.length === 1)
+  check('recovering twice is harmless', AgentList.recoverInterrupted().every((r) => r.id !== stranded.id))
+
+  // A phase that throws must not leave the same wreckage behind.
+  const thrower = AgentList.createFromSearch({ searchUrl: SEARCH_URL })
+  made.push(thrower)
+  thrower.properties = [{ url: 'https://www.redfin.com/CA/San-Francisco/2-S-St/home/2', address: '2 S St', price: null, soldDate: '', dom: null, propertyType: '' }]
+  thrower.start = async () => { thrower._setState('running'); throw new Error('the wheels came off') }
+  await thrower.startSafely()
+  check('a run whose start throws does not stay marked running', thrower.isActive() === false, thrower.state)
+  check('and says what happened', /wheels came off/.test(thrower._lastStateMessage || ''), thrower._lastStateMessage)
+
   let noSearch = ''
   try { await b.findProperties() } catch (err) { noSearch = err.message }
   check('a file-built run has no search to walk', /files/.test(noSearch), noSearch)
