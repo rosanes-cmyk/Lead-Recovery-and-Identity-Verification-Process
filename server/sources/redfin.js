@@ -17,11 +17,40 @@ const UA =
 
 // Words that mark the kind of property we buy. Order matters only for display.
 // The names of the signals, for anything that needs to explain the filter.
-export const AGENT_DEAL_SIGNALS = [
+/**
+ * The signals the brief actually asks for: "fixers, probate, trust and as-is".
+ *
+ * These decide whether a property counts as our kind of deal, and therefore
+ * whether an agent is on the call list at all.
+ */
+export const CORE_DEAL_SIGNALS = [
   'fixer', 'as-is', 'probate', 'trust sale', 'estate sale', 'conservatorship',
   'court confirmation', 'needs work', 'contractor special', 'tear down',
-  'deferred maintenance', 'investor', 'vacant',
+  'deferred maintenance',
 ]
+
+/**
+ * Worth knowing, not worth a phone call on their own.
+ *
+ * "Vacant" was counted as a deal signal and should not have been. In San
+ * Francisco "delivered vacant at close of escrow" is a premium — no tenant
+ * buyout in a rent-controlled city — so it marks a well-prepared sale rather
+ * than a motivated seller. On the first real run it put ten of twenty-one
+ * agents on the list on its own. "Investor" is the same kind of word: it
+ * describes who the listing is aimed at, not the state of the building.
+ *
+ * They are still matched and still reported, so a property that is both a
+ * fixer and vacant says so — they just cannot put anyone on the list by
+ * themselves.
+ */
+export const CONTEXT_SIGNALS = ['investor', 'vacant']
+
+export const AGENT_DEAL_SIGNALS = [...CORE_DEAL_SIGNALS, ...CONTEXT_SIGNALS]
+
+// Of a property's signals, the ones that make it our kind of deal.
+export function coreSignals(signals = []) {
+  return signals.filter((s) => CORE_DEAL_SIGNALS.includes(s))
+}
 
 const SIGNALS = [
   ['fixer', /\bfixer(?:[- ]upper)?\b/i],

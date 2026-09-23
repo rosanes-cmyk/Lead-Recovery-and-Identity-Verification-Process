@@ -604,12 +604,33 @@ deal each agent listed:
 | Share % | Three of five matters far more than three of ninety. Blank on a pre-filtered run, which has no denominator |
 | Last Deal | A name that went quiet two years ago sinks |
 | Median DOM | An agent whose as-is listings sit is the one a cash buyer helps |
-| Signals | Which of the thirteen markers they actually see |
+| Signals | Which of the eleven deal markers they actually see |
+| Also Seen | Vacant and investor, counted across everything they listed. Context, not deals |
 | Example Properties | Three addresses, so any name can be checked |
 
 `Download the working` gives every property read, with its agent, signals,
 remarks and status — including the ones that produced nothing, so the list can
 always be audited back to source.
+
+### Vacant is context, not a deal
+
+The brief asks for "fixers, probate, trust and as-is". Eleven markers serve
+that: fixer, as-is, probate, trust sale, estate sale, conservatorship, court
+confirmation, needs work, contractor special, tear down, deferred maintenance.
+Only these put an agent on the call list.
+
+**"Vacant" used to count and should not have.** In San Francisco "delivered
+vacant at close of escrow" is a premium — no tenant buyout in a rent-controlled
+city — so it marks a well-prepared sale rather than a motivated seller. On the
+first real run it put ten of twenty-one agents on the list on its own, against
+remarks like "all three units will be vacant, no tenant buyouts required".
+"Investor" is the same sort of word: it says who the listing was aimed at, not
+what condition the building is in.
+
+Both are still matched and still reported, in an **Also Seen** column counted
+across everything the agent listed — "eight of their ten sales were vacant" is
+worth knowing. They just cannot put anyone on the call list by themselves, and
+a property that is both a fixer and vacant counts once, as a fixer.
 
 ### Two things it is careful about
 

@@ -2,6 +2,7 @@
 // ranked list of listing agents.
 import { parseSearchExport, mergeSearchExports, findUrlColumn, looksLikePropertyUrl } from '../server/sources/redfin-search.js'
 import { rollupAgents, personKey, surnameOf, mergeAbbreviatedKeys, agentsToRows, rollupSummary, AGENT_COLUMNS } from '../server/agents.js'
+import { coreSignals, CORE_DEAL_SIGNALS, CONTEXT_SIGNALS, dealSignals as sigs } from '../server/sources/redfin.js'
 
 let pass = 0, fail = 0
 const check = (name, cond, detail) => {
@@ -94,6 +95,43 @@ check('an empty run summarises without dividing by zero', rollupSummary([], []).
 // ---- the runner ------------------------------------------------------------------
 console.log('\n[Agents] The runner')
 const fs = await import('node:fs')
+// --- what counts as our kind of deal ----------------------------------------
+// The brief says "fixers, probate, trust and as-is". "Vacant" was counted as a
+// deal signal and should not have been: in San Francisco "delivered vacant at
+// close of escrow" is a premium, not distress, and on the first real run it put
+// ten of twenty-one agents on the call list on its own.
+console.log('\n[Agents] Vacant is context, not a deal')
+check('vacant is not a deal signal', !CORE_DEAL_SIGNALS.includes('vacant'))
+check('neither is investor', !CORE_DEAL_SIGNALS.includes('investor'))
+check('but both are still matched', CONTEXT_SIGNALS.includes('vacant') && CONTEXT_SIGNALS.includes('investor'))
+check('the brief\'s four families are all there', ['fixer', 'as-is', 'probate', 'trust sale'].every((x) => CORE_DEAL_SIGNALS.includes(x)))
+check('a vacant listing carries the signal', sigs('Delivered vacant at close of escrow.').includes('vacant'))
+check('but it is not a deal', coreSignals(sigs('Delivered vacant at close of escrow.')).length === 0)
+check('a fixer that is also vacant is still a deal', coreSignals(sigs('Fixer, delivered vacant.')).join() === 'fixer')
+
+const MIXED = [
+  { listingAgent: { name: 'Shameran Anderer', brokerage: 'BarbCo' }, signals: ['as-is', 'probate', 'court confirmation'], address: '225 Granville Way', soldDate: '2026-05-28', price: 2925000 },
+  { listingAgent: { name: 'Ning Ho', brokerage: 'Marcus & Millichap' }, signals: ['vacant'], address: '863 Greenwich St', soldDate: '2025-11-21', price: 1200000 },
+  { listingAgent: { name: 'Ali Mafi', brokerage: 'Redfin' }, signals: ['investor'], address: '47 Curtis St', soldDate: '2025-06-20', price: 1160000 },
+  { listingAgent: { name: 'Kevin Wong', brokerage: 'Compass' }, signals: ['fixer', 'vacant'], address: '1285 45th Ave', soldDate: '2025-03-24', price: 1100000 },
+  { listingAgent: { name: 'Kevin Wong', brokerage: 'Compass' }, signals: ['vacant'], address: '9 Other St', soldDate: '2025-04-01', price: 1000000 },
+]
+const mixed = rollupAgents(MIXED)
+check('a vacant-only agent is off the list', !mixed.some((a) => a.name === 'Ning Ho'), JSON.stringify(mixed.map((a) => a.name)))
+check('an investor-only agent is off the list', !mixed.some((a) => a.name === 'Ali Mafi'))
+check('a probate agent is on it', mixed.some((a) => a.name === 'Shameran Anderer'))
+const kw = mixed.find((a) => a.name === 'Kevin Wong')
+check('a fixer that was also vacant counts once, as a fixer', kw?.ourDeals === 1, String(kw?.ourDeals))
+check('and the signal column shows only the deal', kw?.signals === 'fixer (1)', kw?.signals)
+// Nothing is thrown away: context is counted across everything they listed,
+// because "most of their sales were vacant" is itself worth knowing.
+check('vacant survives as context', kw?.context === 'vacant (2)', kw?.context)
+check('an agent with no context says nothing', mixed.find((a) => a.name === 'Shameran Anderer')?.context === '')
+check('the column is in the output', AGENT_COLUMNS.includes('Also Seen'))
+check('and is filled in', agentsToRows(mixed).find((r) => r.Agent === 'Kevin Wong')['Also Seen'] === 'vacant (2)')
+// Share is still measured against everything they listed, not just the deals.
+check('total sales still counts every listing', kw?.totalSales === 2, String(kw?.totalSales))
+
 const { AgentList } = await import('../server/agents.js')
 const { dealSignals } = await import('../server/sources/redfin.js')
 const made = []

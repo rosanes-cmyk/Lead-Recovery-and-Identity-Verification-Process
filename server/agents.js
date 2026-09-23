@@ -9,7 +9,6 @@
 // folded into a score, because a score hides its own reasoning and an operator
 // ranking a call list should be able to sort on what they care about.
 
-import { AGENT_DEAL_SIGNALS } from './sources/redfin.js'
 
 // Two spellings of one person. Middle initials and suffixes vary between
 // listings, so compare first and last name, and keep the brokerage out of it —
@@ -116,14 +115,22 @@ export function rollupAgents(rows = [], { minDeals = 1, prefiltered = false } = 
 
   const agents = []
   for (const [key, listings] of byPerson) {
-    const ours = listings.filter((r) => (r.signals || []).length)
+    // Only the brief's signals put an agent on the call list. "Vacant" and
+    // "investor" describe how a sale was presented, not the state of the
+    // building, so they ride along as context instead of counting as a deal.
+    const ours = listings.filter((r) => coreSignals(r.signals || []).length)
     if (ours.length < minDeals) continue
     const dates = ours.map((r) => (r.soldDate ? new Date(r.soldDate) : null)).filter((d) => d && !Number.isNaN(d.getTime()))
     dates.sort((a, b) => b - a)
     // Which signals this agent actually sees, most common first.
     const tally = {}
-    for (const r of ours) for (const s of r.signals || []) tally[s] = (tally[s] || 0) + 1
+    for (const r of ours) for (const s of coreSignals(r.signals || [])) tally[s] = (tally[s] || 0) + 1
     const kinds = Object.entries(tally).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s} (${n})`)
+    // Context across everything they listed, not only the deals, because
+    // "eight of their ten sales were vacant" is itself worth knowing.
+    const ctx = {}
+    for (const r of listings) for (const sig of r.signals || []) if (CONTEXT_SIGNALS.includes(sig)) ctx[sig] = (ctx[sig] || 0) + 1
+    const context = Object.entries(ctx).sort((a, b) => b[1] - a[1]).map(([sig, n]) => `${sig} (${n})`).join(', ')
     agents.push({
       key,
       // Prefer the fullest spelling seen: "Kenneth Kohlmyer" over "K. Kohlmyer".
@@ -146,6 +153,7 @@ export function rollupAgents(rows = [], { minDeals = 1, prefiltered = false } = 
       medianDom: median(ours.map((r) => r.dom)),
       medianPrice: median(ours.map((r) => r.price)),
       signals: kinds.join(', '),
+      context,
       examples: ours.slice(0, 3).map((r) => r.address).filter(Boolean).join(' | '),
     })
   }
@@ -169,6 +177,7 @@ export const AGENT_COLUMNS = [
   'Median DOM',
   'Median Price',
   'Signals',
+  'Also Seen',
   'Example Properties',
 ]
 
@@ -186,6 +195,8 @@ export function agentsToRows(agents = []) {
     'Median DOM': a.medianDom == null ? '' : String(a.medianDom),
     'Median Price': a.medianPrice == null ? '' : `$${a.medianPrice.toLocaleString('en-US')}`,
     Signals: a.signals,
+    // Context, not deals: vacant and investor across everything they listed.
+    'Also Seen': a.context || '',
     'Example Properties': a.examples,
   }))
 }
@@ -194,14 +205,15 @@ export function agentsToRows(agents = []) {
 // answer before acting on it.
 export function rollupSummary(rows = [], agents = []) {
   const withAgent = rows.filter((r) => r?.listingAgent?.name).length
-  const ours = rows.filter((r) => (r.signals || []).length).length
+  const ours = rows.filter((r) => coreSignals(r.signals || []).length).length
   return {
     properties: rows.length,
     withAgent,
     ourKind: ours,
     ourKindPercent: rows.length ? Math.round((ours / rows.length) * 100) : 0,
     agents: agents.length,
-    namedSignals: AGENT_DEAL_SIGNALS,
+    namedSignals: CORE_DEAL_SIGNALS,
+    contextSignals: CONTEXT_SIGNALS,
   }
 }
 
@@ -217,7 +229,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { toCsv } from './csv.js'
-import { lookupRedfin, describePage, readRedfinInBrowser } from './sources/redfin.js'
+import { lookupRedfin, describePage, readRedfinInBrowser, coreSignals, CORE_DEAL_SIGNALS, CONTEXT_SIGNALS } from './sources/redfin.js'
 import { mergeSearchExports } from './sources/redfin-search.js'
 import { crawlSearch, normaliseSearchUrl, soldSearchUrl, readSearchInBrowser } from './sources/redfin-crawl.js'
 import { getPage } from './browser.js'
@@ -459,7 +471,7 @@ export class AgentList extends EventEmitter {
       total: this.properties.length,
       read: read.length,
       withAgent: read.filter((r) => r.listingAgent?.name).length,
-      ourKind: read.filter((r) => (r.signals || []).length).length,
+      ourKind: read.filter((r) => coreSignals(r.signals || []).length).length,
       blocked: read.filter((r) => r.blocked).length,
     }
   }
@@ -848,7 +860,7 @@ export class AgentList extends EventEmitter {
   isPrefiltered() {
     const read = [...this.results.values()].filter((r) => r.listingAgent?.name)
     if (read.length < 5) return false
-    return read.every((r) => (r.signals || []).length)
+    return read.every((r) => coreSignals(r.signals || []).length)
   }
 
   agents() {
