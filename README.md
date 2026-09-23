@@ -612,6 +612,41 @@ deal each agent listed:
 remarks and status — including the ones that produced nothing, so the list can
 always be audited back to source.
 
+Its **Why** column quotes the phrase that fired each signal, with context
+either side. The file used to carry the first 300 characters of the remarks
+instead, which on a real listing is the agent's throat-clearing: on the first
+pilot, three of four "as-is" findings could not be checked from it at all
+because the phrase sat past the cut.
+
+### What a pilot measured
+
+189 properties, walked and read on 23 Sep 2026, as a 40-page slice of the
+190-page city search:
+
+| | |
+| --- | --- |
+| Read successfully | 153 (81%) |
+| Blocked by Redfin | 29 (15%) |
+| Loaded but carried no agent | 7 (4%) |
+| **Carried a deal signal** | **12 of 153 — 7.8%** |
+| Distinct listing agents seen | 108 across 153 listings |
+
+The deals were real: "Fixer Upper! The property has extensive water damage",
+"Silver Terrace Fixer", "Charming Noe Valley fixer", "positioned for a
+full-scale redevelopment opportunity", "First time on the market in over 50
+years" (a trust sale).
+
+Scaling the hit rate to the full 6,455-property search gives roughly 400 deals.
+How many named agents that becomes depends on how much they repeat, which 153
+listings cannot settle: somewhere between about 180 and 380. The brief's
+150-250 is reachable, and only the full run will say where in that range it
+lands.
+
+**`Median DOM` is empty on a crawl-sourced run** — 0 of 153 rows carried it.
+Redfin's search cards do not include days on market, and only an uploaded
+export does. It is derivable from a property page's own history, listed date
+to sold date, and that is not built yet.
+
 ### Vacant is context, not a deal
 
 The brief asks for "fixers, probate, trust and as-is". Eleven markers serve

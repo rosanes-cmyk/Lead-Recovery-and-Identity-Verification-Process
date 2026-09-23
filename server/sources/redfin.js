@@ -185,6 +185,33 @@ export function dealSignals(remarks = '') {
   return SIGNALS.filter(([, re]) => re.test(text)).map(([label]) => label)
 }
 
+/**
+ * The words that fired each signal, with enough around them to judge.
+ *
+ * The working file exists so a name on the list can be checked, and it was
+ * keeping the first 300 characters of the remarks — which on a real run is
+ * usually the estate-agent throat-clearing, not the phrase that mattered.
+ * Three of four "as-is" findings could not be verified from it at all.
+ *
+ * This quotes the match instead, so every row carries its own evidence.
+ */
+export function signalQuotes(remarks = '', { window = 55 } = {}) {
+  const text = String(remarks || '').replace(/\s+/g, ' ').trim()
+  if (!text) return []
+  const out = []
+  for (const [label, re] of SIGNALS) {
+    const m = text.match(re)
+    if (!m || m.index == null) continue
+    const from = Math.max(0, m.index - window)
+    const to = Math.min(text.length, m.index + m[0].length + window)
+    out.push({
+      signal: label,
+      quote: `${from > 0 ? '…' : ''}${text.slice(from, to)}${to < text.length ? '…' : ''}`,
+    })
+  }
+  return out
+}
+
 // The newest event in the property's own history. This is where the MLS number
 // has to come from: a Redfin page carries dozens of mlsId values belonging to
 // nearby and similar homes, and taking the first one returns a neighbour's

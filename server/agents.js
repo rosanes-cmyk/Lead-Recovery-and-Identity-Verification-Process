@@ -229,7 +229,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { toCsv } from './csv.js'
-import { lookupRedfin, describePage, readRedfinInBrowser, coreSignals, CORE_DEAL_SIGNALS, CONTEXT_SIGNALS } from './sources/redfin.js'
+import { lookupRedfin, describePage, readRedfinInBrowser, coreSignals, CORE_DEAL_SIGNALS, CONTEXT_SIGNALS, signalQuotes } from './sources/redfin.js'
 import { mergeSearchExports } from './sources/redfin-search.js'
 import { crawlSearch, normaliseSearchUrl, soldSearchUrl, readSearchInBrowser } from './sources/redfin-crawl.js'
 import { getPage } from './browser.js'
@@ -780,6 +780,11 @@ export class AgentList extends EventEmitter {
       listingAgent: res?.listingAgent || null,
       buyerAgent: res?.buyerAgent || null,
       signals: res?.signals || [],
+      // The phrase that fired each signal. The first 300 characters of the
+      // remarks are usually the agent's throat-clearing, not the words that
+      // decided this — on the first pilot three of four "as-is" findings could
+      // not be checked from the working file at all.
+      quotes: signalQuotes(res?.remarks || ''),
       remarks: String(res?.remarks || '').slice(0, 300),
       blocked: Boolean(res?.blocked),
       error: res?.ok ? '' : String(res?.error || '').slice(0, 160),
@@ -874,7 +879,7 @@ export class AgentList extends EventEmitter {
 
   // The working behind it, so any name on the list can be checked.
   propertiesCsv() {
-    const cols = ['Address', 'Sold Date', 'Price', 'DOM', 'Listing Agent', 'Brokerage', 'DRE', 'Phone', 'Email', 'Signals', 'Remarks', 'Status', 'URL']
+    const cols = ['Address', 'Sold Date', 'Price', 'DOM', 'Listing Agent', 'Brokerage', 'DRE', 'Phone', 'Email', 'Signals', 'Why', 'Remarks', 'Status', 'URL']
     const rows = [...this.results.values()].map((r) => ({
       Address: r.address,
       'Sold Date': r.soldDate,
@@ -886,6 +891,11 @@ export class AgentList extends EventEmitter {
       Phone: r.listingAgent?.phone || r.listingAgent?.brokerPhone || '',
       Email: r.listingAgent?.email || '',
       Signals: (r.signals || []).join(', '),
+      // Rebuilt from the remarks for rows saved before quotes were kept, so an
+      // older run's file is auditable too.
+      Why: (r.quotes?.length ? r.quotes : signalQuotes(r.remarks || ''))
+        .map((q) => `${q.signal}: ${q.quote}`)
+        .join('  |  '),
       Remarks: r.remarks,
       Status: r.blocked ? 'blocked by Redfin' : r.listingAgent?.name ? 'read' : r.error || 'no agent on the page',
       URL: r.url,

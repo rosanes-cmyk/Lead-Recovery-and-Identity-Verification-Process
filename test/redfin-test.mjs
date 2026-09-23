@@ -2,6 +2,7 @@
 // actually served for 547 Missouri St, so the escaping, the nested agent blocks
 // and the two-agent "Bought with" case are the real thing.
 import fs from 'node:fs'
+import { signalQuotes as sq } from '../server/sources/redfin.js'
 import {
   parseRedfinHtml, parseAgents, parseRemarks, parseMls, dealSignals, parseLatestSale,
   sliceEscapedJson, parseEscapedJson, looksBlocked, lookupRedfin, fetchRedfin,
@@ -86,6 +87,22 @@ const noUrl = await lookupRedfin('')
 check('no url -> clear reason', noUrl.ok === false && /No Redfin page/.test(noUrl.error))
 const wrongSite = await lookupRedfin('https://www.zillow.com/x')
 check('non-Redfin url refused', wrongSite.ok === false)
+
+console.log('\n[Redfin] Every signal carries its own evidence')
+// The working file used to keep the first 300 characters of the remarks, which
+// on a real listing is the agent's throat-clearing. On the first pilot three of
+// four "as-is" findings could not be checked from it at all.
+const LONG = 'Rising three stories above one of Corona Heights most coveted streets, this beautifully appointed two-unit building offers exceptional flexibility for an owner-user. Generous light throughout the day, period detail retained where it matters, and a large landscaped garden to the rear. The property is being sold strictly as-is with no repairs or credits.'
+const q = sq(LONG)
+check('the signal is found past the 300-character cut', q.length === 1 && q[0].signal === 'as-is', JSON.stringify(q))
+check('and the quote carries the phrase', /sold strictly as-is/.test(q[0].quote), q[0].quote)
+check('with context either side', /no repairs or credits/.test(q[0].quote))
+check('and is marked as an excerpt', q[0].quote.startsWith('\u2026'), q[0].quote.slice(0, 3))
+const two = sq('Charming Noe Valley fixer, sold as-is, needs work throughout.')
+check('several signals each get a quote', two.length === 3, JSON.stringify(two.map((x) => x.signal)))
+check('a quote short enough not to be cut is not marked', !sq('Silver Terrace Fixer')[0].quote.includes('\u2026'), sq('Silver Terrace Fixer')[0].quote)
+check('no remarks means no quotes', sq('').length === 0)
+check('remarks with nothing in them means no quotes', sq('A lovely home in a quiet street.').length === 0)
 
 console.log('\n[Redfin] Refusals are not pages, and are not worth asking twice')
 // Redfin throttles with a 202 and an empty body. A 2xx is not a page, and
