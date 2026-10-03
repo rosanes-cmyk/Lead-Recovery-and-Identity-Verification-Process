@@ -69,10 +69,30 @@ rather than emitted broken when there is no unibox URL.
 | `uniboxUrl` | `unibox_url` |
 | `chatWebhook` | the Google Chat space webhook URL, as a constant |
 
-## Deliberately no image
+## Showing the picture
 
-Google Chat cards take an `image` widget, and the first real image of an email
-is easy to extract. It is left out because rendering it makes Google fetch the
-image from the sender's server, which registers as an open — it would tell
-every sender when their mail was read. The cleaned text reads well enough
-without it.
+An image-built reply reads as a wall of tracking links in Chat while Instantly
+renders it properly, so the card takes the first real picture out of the email
+and shows it above the text.
+
+**This needs the HTML body.** The text Instantly sends as
+`reply_text_snippet` contains no image URLs at all — every link in it is a
+`t.apemail.net/c/<token>` redirect with no file extension, so nothing in it
+says which one is a picture. Map the webhook's HTML field to `replyHtml` and
+the image appears; leave it unmapped and the card is text-only, with no broken
+widget.
+
+The first `<img>` is usually not the one you want. Marketing templates open
+with a 1x1 open-tracking pixel, so `firstImage` skips anything 1 pixel wide or
+tall, and anything whose URL reads as a pixel, beacon, spacer or `/o/` open
+tracker.
+
+One consequence worth knowing: when Chat renders that image it is Google
+fetching it from the sender's server, which registers as an email open. The
+sender can see when their mail was read.
+
+## Bulk mail is let through by default
+
+`skipBulk` is off unless set to `yes` in Input Data. An agent's newsletter is
+still an agent who has your address and is active, and that is the campaign
+owner's call rather than this file's.
