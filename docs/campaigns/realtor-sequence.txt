@@ -1,0 +1,268 @@
+WHAT THE REALTORS ACTUALLY RECEIVE
+Campaign: Realtors July 2026  (Paused) — 4,867 emails sent, 1,713 leads
+Near-identical copy also runs in: Oakland Realtor Campaign, San Francisco
+County Realtor, Phase 1 - Peninsula Listing Agents.
+Sent from: bryan@ / carlo@ / juan@ / lawrence@ / rosanes@ / seth@ twinhomebuyer.com
+One step per day. Plain text. No open or link tracking.
+============================================================================
+
+----------------------------------------------------------------------------
+STEP 1, variant 1 of 5   (day 1)
+SUBJECT:  When the deal falls apart late
+----------------------------------------------------------------------------
+
+Hi {{firstName}},
+
+I'm Juan Diaz, founder of Twin Home Buyer — a direct Bay Area buyer and licensed California General Contractor (CA GC Lic. #1066892). I buy with my own funds, through the listing agent.
+
+Appraisal short, insurance falls through, lender balks at the condition — usually at the worst time, and now you're the one telling the seller.
+
+Send me the address and the problem. I'll tell you if we can buy it, the terms, and how fast we close. Straight answer, same day.
+
+Your client stays yours. I'm the call you make when the first buyer can't perform.
+
+Juan Diaz
+Twin Home Buyer
+CA GC Lic. #1066892
+(650) 844-3415
+170 Glenn Way, Suite 5, San Carlos, CA 94070
+
+Click here to unsubscribe
+
+----------------------------------------------------------------------------
+STEP 1, variant 2 of 5   (day 1)
+SUBJECT:  A contractor's read before you negotiate credits
+----------------------------------------------------------------------------
+
+Hi {{firstName}},
+
+Juan Diaz, Twin Home Buyer. Not every seller wants staging, open houses, photos online, and strangers walking the house.
+
+Estate, tenants in place, a sensitive family situation, or they just want discretion — for those, I can give you a private, as-is option with you involved start to finish.
+
+I buy directly, cash, through the agent. Most homes should still hit the market — but when privacy matters more than max exposure, it helps to have a real alternative ready.
+
+Juan Diaz
+Twin Home Buyer
+CA GC Lic. #1066892
+(650) 844-3415
+170 Glenn Way, Suite 5, San Carlos, CA 94070
+
+Click here to unsubscribe
+
+----------------------------------------------------------------------------
+STEP 1, variant 3 of 5   (day 1)
+SUBJECT:  A quiet option for the seller who wants privacy
+----------------------------------------------------------------------------
+
+Hi {{firstName}},
+
+Juan Diaz, Twin Home Buyer. Not every seller wants staging, open houses, photos online, and strangers walking the house.
+
+Estate, tenants in place, a sensitive family situation, or they just want discretion — for those, I can give you a private, as-is option with you involved start to finish.
+
+I buy directly, cash, through the agent. Most homes should still hit the market — but when privacy matters more than max exposure, it helps to have a real alternative ready.
+
+Juan Diaz
+Twin Home Buyer
+CA GC Lic. #1066892
+(650) 844-3415
+170 Glenn Way, Suite 5, San Carlos, CA 94070
+
+Click here to unsubscribe
+
+----------------------------------------------------------------------------
+STEP 1, variant 4 of 5   (day 1)
+SUBJECT:  The second opinion (trusted advisor angle)
+----------------------------------------------------------------------------
+
+Hi {{firstName}},
+
+Juan Diaz with Twin Home Buyer. When a deal gets messy, speed only helps if the answer's reliable.
+
+Can the buyer perform? What are the real terms? How fast can they close? Will they tell you the second something changes? With me, yes — a clear offer and an honest timeline if it fits, and a fast no if it doesn't.
+
+I buy directly, cash, as-is, through the agent. Keep my number for the deal where uncertainty has become the biggest problem.
+
+Juan Diaz
+Twin Home Buyer
+CA GC Lic. #1066892
+(650) 844-3415
+170 Glenn Way, Suite 5, San Carlos, CA 94070
+
+Click here to unsubscribe
+
+----------------------------------------------------------------------------
+STEP 1, variant 5 of 5   (day 1)
+SUBJECT:  When you just need a buyer who performs
+----------------------------------------------------------------------------
+
+Hi {{firstName}},
+
+Juan Diaz with Twin Home Buyer. When a deal gets messy, speed only helps if the answer's reliable.
+
+Can the buyer perform? What are the real terms? How fast can they close? Will they tell you the second something changes? With me, yes — a clear offer and an honest timeline if it fits, and a fast no if it doesn't.
+
+I buy directly, cash, as-is, through the agent. Keep my number for the deal where uncertainty has become the biggest problem.
+
+Juan Diaz
+Twin Home Buyer
+CA GC Lic. #1066892
+(650) 844-3415
+170 Glenn Way, Suite 5, San Carlos, CA 94070
+
+Click here to unsubscribe
+
+----------------------------------------------------------------------------
+STEP 2   (day 2)
+SUBJECT:  After the Buyer Walks
+----------------------------------------------------------------------------
+
+Hi {{firstName}},
+
+Juan Diaz here. I buy Bay Area properties directly, through the listing agent, for cash and as-is.
+
+The buyer canceling isn't always the hardest part. The hard part is deciding what to tell the seller next.
+
+Should they relist, lower the price, repair the inspection items, or find a buyer who will take the property exactly as it sits?
+
+Send me the situation, and I'll give you a real second option before you make that call. Sometimes relisting is still the right move, and I'll tell you that. Other times, the seller is out of patience and wants a more certain closing.
+
+Either way, you can walk into the conversation with an answer instead of a guess.
+
+Juan Diaz
+Twin Home Buyer
+CA GC Lic. #1066892
+(650) 844-3415
+170 Glenn Way, Suite 5, San Carlos, CA 94070
+
+Click here to unsubscribe
+
+----------------------------------------------------------------------------
+STEP 3   (day 3)
+SUBJECT:  When the Inspection Blows Up the Deal
+----------------------------------------------------------------------------
+
+Hi {{firstName}},
+
+Juan Diaz here with Twin Home Buyer. I'm a direct Bay Area buyer and a licensed California General Contractor (CA GC Lic. #1066892).
+
+Foundation problems, sewer lines, outdated electrical systems, drainage issues, and dry rot — one inspection report can change the entire deal overnight.
+
+Before you negotiate credits or tell the seller to start over, I can help you understand the real scope: what's serious, what's being overstated, and what the repairs may realistically cost.
+
+I won't price a project from a photo or interfere with your inspector. I'll help you separate the major problems from the noise. If an as-is sale makes more sense, I'll tell you that too.
+
+Keep me in mind when an inspection report raises more questions than answers.
+
+Juan Diaz
+Twin Home Buyer
+CA GC Lic. #1066892
+(650) 844-3415
+170 Glenn Way, Suite 5, San Carlos, CA 94070
+
+Click here to unsubscribe
+
+----------------------------------------------------------------------------
+STEP 4   (day 4)
+SUBJECT:  When the Seller Wants It Quiet
+----------------------------------------------------------------------------
+
+Hi {{firstName}},
+
+Juan Diaz here. I buy properties directly through the listing agent, for cash and as-is. I can also keep the process private when the seller needs discretion.
+
+Not every seller wants staging, professional photos, open houses, online exposure, and strangers walking through the property.
+
+It may be an estate, a sensitive family situation, tenants in place, a house full of belongings, or simply a seller who values privacy.
+
+When that happens, I can provide a private as-is option while keeping you involved from start to finish. Most homes should still be exposed to the open market, and I'll never tell a seller otherwise. But when privacy and simplicity matter more than maximum exposure, it helps to have a real alternative ready.
+
+Keep me in mind for the seller who wants a quiet and straightforward closing.
+
+Juan Diaz
+Twin Home Buyer
+CA GC Lic. #1066892
+(650) 844-3415
+170 Glenn Way, Suite 5, San Carlos, CA 94070
+
+Click here to unsubscribe
+
+----------------------------------------------------------------------------
+STEP 5   (day 5)
+SUBJECT:  Before You Advise the Seller
+----------------------------------------------------------------------------
+
+Hi {{firstName}},
+
+Juan Diaz here with Twin Home Buyer. I've spent more than 25 years buying, building, and evaluating Bay Area properties, always working through the listing agent.
+
+Sometimes the difficult part isn't finding a buyer. It's deciding what to recommend to the seller.
+
+Should they make repairs, list the property as-is, investigate the permit history, explore an ADU opportunity, or consider a direct offer?
+
+Run the situation by me, and I'll give you a straightforward second opinion from both the investment and construction sides. There's no expectation that we buy it. If a traditional listing is the best option, I'll tell you.
+
+My value is helping you understand the potential costs, risks, and options before you make your recommendation.
+
+Call me when the right answer isn't obvious.
+
+Juan Diaz
+Twin Home Buyer
+CA GC Lic. #1066892
+(650) 844-3415
+170 Glenn Way, Suite 5, San Carlos, CA 94070
+
+Click here to unsubscribe
+
+----------------------------------------------------------------------------
+STEP 6   (day 6)
+SUBJECT:  When the Property Doesn't Match the Records
+----------------------------------------------------------------------------
+
+Hi {{firstName}},
+
+Juan Diaz here. I'm a direct Bay Area buyer with a contractor background, and I work through the listing agent.
+
+Garage conversions, unpermitted additions, older second units, unfinished remodels, or square footage that doesn't match the public record can make a property difficult to price and finance.
+
+The seller may see additional value. The appraiser, lender, and insurance company may see additional risk.
+
+With my contractor background and California General Contractor license, I can help identify the important construction questions before anyone makes promises about permits, value, or ADU potential.
+
+I can't speak for the city or guarantee an approval, but I can help identify the likely risks and determine whether the property still makes sense as an as-is purchase.
+
+One call upfront can prevent weeks of confusion later.
+
+Juan Diaz
+Twin Home Buyer
+CA GC Lic. #1066892
+(650) 844-3415
+170 Glenn Way, Suite 5, San Carlos, CA 94070
+
+Click here to unsubscribe
+
+----------------------------------------------------------------------------
+STEP 7   (day 7)
+SUBJECT:  When You Just Need a Straight Answer
+----------------------------------------------------------------------------
+
+Hi {{firstName}},
+
+Juan Diaz here with Twin Home Buyer. I buy properties directly through the listing agent when a deal needs a reliable closing.
+
+When a transaction becomes complicated, speed only matters when the answer is dependable.
+
+What you really need to know is whether the buyer can perform, what the actual terms are, how quickly they can close, and whether they'll communicate immediately when something changes.
+
+If the property fits, you'll receive a clear offer and an honest timeline. If it doesn't, I'll tell you quickly so you can move on without wasting time.
+
+I'm not asking to see every listing. Just keep my number for the deal where uncertainty has become the biggest problem.
+
+Juan Diaz
+Twin Home Buyer
+CA GC Lic. #1066892
+(650) 844-3415
+170 Glenn Way, Suite 5, San Carlos, CA 94070
+
+Click here to unsubscribe
