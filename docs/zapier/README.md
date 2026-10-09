@@ -5,7 +5,7 @@ step, kept here because it was written and tested against real traffic and
 would otherwise live only in a Zapier editor where nobody can review it.
 
 Everything above the wiring marker at the bottom of the file is pure, and
-`test/zapier-chat-test.mjs` runs it — 78 checks with the Instantly API stubbed,
+`test/zapier-chat-test.mjs` runs it — 86 checks with the Instantly API stubbed,
 `npm run test:zapier`.
 
 ## Where it goes
@@ -122,8 +122,23 @@ message — `GET /api/v2/emails/{id}` with a bearer token — which returns both
 replies that get past the event and bulk checks.
 
 Every failure there returns null on purpose. A missing key, a refused call, a
-network error, anything over eight seconds: the card still posts, text-only. A
+network error, anything over five seconds: the card still posts, text-only. A
 step that throws posts nothing, which is worse than a card without a picture.
+
+Five seconds is not arbitrary. Zapier kills a Code step at its plan's limit —
+30 seconds on Professional and Team, but as little as 10 on lower tiers and
+**1 second on Free**, where this cannot work at all. Capping the Instantly call
+at five leaves room for the Chat post that follows it.
+
+Because a swallowed failure is invisible, the step reports what happened:
+`picture: "ok"`, `"failed"` or `"skipped"` in its output. A wrong API key shows
+up as `failed` on every run in the Zap history instead of quietly costing every
+picture.
+
+Instantly builds attachment URLs out of the raw filename, so a photo called
+`IMG 1234.jpg` arrives with a literal space in its URL. Chat cannot fetch that,
+so spaces are escaped — only spaces, since re-encoding an already-escaped URL
+would break it.
 
 Two kinds of picture come back, and they are not equal:
 

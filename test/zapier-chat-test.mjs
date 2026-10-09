@@ -126,6 +126,16 @@ globalThis.fetch = async () => { throw new Error('network down') }
 check('a thrown network error returns null', await fetchEmail('x', 'k') === null)
 globalThis.fetch = serve({})
 check('photosOf copes with no attachments at all', photosOf({}).length === 0 && photosOf(null).length === 0)
+check('a filename with a space is encoded — Chat cannot fetch a raw space', (() => {
+  const p = photosOf({ attachment_json: { files: [
+    { filename: 'IMG 1234.jpg', type: 'image/jpeg', url: 'https://att.instantly/v1/o/e/IMG 1234.jpg' }] } })
+  return p[0].url === 'https://att.instantly/v1/o/e/IMG%201234.jpg'
+})())
+check('an already-escaped URL is not double-encoded', (() => {
+  const p = photosOf({ attachment_json: { files: [
+    { filename: 'a b.jpg', type: 'image/jpeg', url: 'https://att/IMG%201234.jpg' }] } })
+  return p[0].url === 'https://att/IMG%201234.jpg'
+})())
 check('photosOf keeps images and drops other files', (() => {
   const p = photosOf({ attachment_json: { files: [
     { filename: 'a.pdf', type: 'application/pdf', url: 'https://x/a.pdf' },
@@ -174,6 +184,10 @@ check('the Reply button is there when the URL is',
   buttons((await decide({ ...base, replyText: 'x' })).card)[0].onClick.openLink.url === base.uniboxUrl)
 check('a failed API call still produces a card',
   (await decide({ ...base, replyText: 'still fine' })).post === true)
+check('…and says the lookup failed, so a bad key is visible in the Zap history',
+  (await decide({ ...base, replyText: 'x' })).lookup === 'failed')
+check('no key at all reports the lookup as skipped, not failed',
+  (await decide({ ...base, instantlyKey: '', replyText: 'x' })).lookup === 'skipped')
 check('…and that card is text-only, with no gap where a picture would be',
   !imageOf((await decide({ ...base, replyText: 'still fine' })).card))
 
@@ -215,6 +229,8 @@ globalThis.fetch = serve({ body: { html: '<img src="https://cdn/x.jpg">' } })
 calls = []
 await decide({ ...base, replyText: 'x', replyHtml: '<img src="https://inline/y.jpg">' })
 check('a mapped replyHtml short-circuits the fetch', calls.length === 0)
+check('…and reports the lookup as skipped',
+  (await decide({ ...base, replyText: 'x', replyHtml: '<img src="https://i/y.jpg">' })).lookup === 'skipped')
 check('…and that HTML is what gets shown',
   imageOf((await decide({ ...base, replyText: 'x', replyHtml: '<img src="https://inline/y.jpg">' })).card)
     .imageUrl === 'https://inline/y.jpg')
@@ -268,6 +284,11 @@ check('posts with JSON.stringify, never a hand-built string',
 check('documents Email Id, which is how the picture is found', /emailId\s*<-\s*Email Id/.test(SRC))
 check('documents the Instantly key as a typed constant', /instantlyKey\s*=\s*an Instantly API key/.test(SRC))
 check('says plainly that the webhook carries no HTML', /webhook does not carry the email body as HTML/.test(SRC))
+check('a refused Chat post throws rather than reading as success',
+  /if \(!res\.ok\)[\s\S]{0,120}throw new Error\('Google Chat refused the card/.test(SRC))
+check('…and carries the explanation Chat sends back', /await res\.text\(\)/.test(SRC))
+check('the Instantly call is capped well inside a Zapier step budget',
+  /\}\), 5000\);/.test(SRC))
 check('no stray imports or exports', !/^\s*(import|export)\s/m.test(SRC))
 
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : fail + ' CHECK(S) FAILED'} (${pass} passed, ${fail} failed)`)

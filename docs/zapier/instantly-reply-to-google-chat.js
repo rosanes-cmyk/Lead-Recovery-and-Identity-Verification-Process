@@ -100,7 +100,7 @@ async function fetchEmail(id, key) {
   try {
     const res = await withTimeout(fetch(API + encodeURIComponent(String(id)), {
       headers: { Authorization: 'Bearer ' + String(key) },
-    }), 8000);
+    }), 5000);
     if (!res || !res.ok) return null;
     return await res.json();
   } catch (e) {
@@ -109,9 +109,14 @@ async function fetchEmail(id, key) {
 }
 
 // The files Instantly stored with the message, narrowed to actual pictures.
+// Instantly builds these URLs out of the raw filename, so "IMG 1234.jpg" arrives
+// with a literal space in it. Chat cannot fetch that, so encode it — and only
+// the space, since re-encoding a URL that is already escaped would break it.
 function photosOf(email) {
   const files = (email && email.attachment_json && email.attachment_json.files) || [];
-  return files.filter(f => f && f.url && /^image\//i.test(String(f.type || '')));
+  return files
+    .filter(f => f && f.url && /^image\//i.test(String(f.type || '')))
+    .map(f => Object.assign({}, f, { url: String(f.url).trim().replace(/ /g, '%20') }));
 }
 
 function buildCard(d, subject, body, html, photos) {
@@ -197,15 +202,19 @@ async function decide(d) {
   // Use the HTML if the webhook ever starts sending it; otherwise go and get it.
   let html = String(d.replyHtml || '');
   let photos = [];
-  if (!html || !d.replyHtml) {
-    const email = await fetchEmail(d.emailId, d.instantlyKey);
-    if (email) {
-      html = html || String((email.body && email.body.html) || '');
-      photos = photosOf(email);
+  let lookup = 'skipped';
+  if (!d.replyHtml) {
+    if (d.emailId && d.instantlyKey) {
+      const email = await fetchEmail(d.emailId, d.instantlyKey);
+      lookup = email ? 'ok' : 'failed';
+      if (email) {
+        html = String((email.body && email.body.html) || '');
+        photos = photosOf(email);
+      }
     }
   }
 
-  return { post: true, card: buildCard(d, subject, body, html, photos) };
+  return { post: true, lookup, card: buildCard(d, subject, body, html, photos) };
 }
 
 // ===== Zapier wiring. Everything above is pure and covered by test/zapier-chat-test.mjs =====
@@ -219,5 +228,8 @@ if (!decision.post) {
     headers: { 'Content-Type': 'application/json; charset=UTF-8' },
     body: JSON.stringify(decision.card),   // <- escaping stops being our problem
   });
-  output = { posted: res.ok, status: res.status };
+  if (!res.ok) {
+    throw new Error('Google Chat refused the card: ' + res.status + ' ' + (await res.text()));
+  }
+  output = { posted: true, status: res.status, picture: decision.lookup };
 }
