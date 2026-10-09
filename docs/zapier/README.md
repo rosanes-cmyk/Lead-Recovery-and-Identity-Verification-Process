@@ -5,7 +5,7 @@ step, kept here because it was written and tested against real traffic and
 would otherwise live only in a Zapier editor where nobody can review it.
 
 Everything above the wiring marker at the bottom of the file is pure, and
-`test/zapier-chat-test.mjs` runs it — 104 checks with the Instantly API stubbed,
+`test/zapier-chat-test.mjs` runs it — 117 checks with the Instantly API stubbed,
 `npm run test:zapier`.
 
 ## Where it goes
@@ -169,6 +169,25 @@ text at 3,000 characters — a 42-image newsletter renders as 30 pictures, 38
 widgets and 3.2 KB, with a line saying how many were held back. Both ceilings
 are constants at the top of the file.
 
+## Three ways to lay the pictures out
+
+`imageLayout` in Input Data picks one. Unset, or set to anything unrecognised,
+it is `grid`.
+
+- **`grid`** — thumbnails, two columns up to four pictures and three above that.
+  The shortest card that still shows everything at once. One trap: inside a
+  `Grid` the URL field is **`imageUri`**, not the `imageUrl` every other widget
+  uses, and the wrong one renders nothing without complaint.
+- **`carousel`** — one picture at a time with arrows, a `carouselCards[]` entry
+  each. The most compact of the three. Google documents it for Chat apps, and
+  whether a one-way webhook gets working arrows is not stated anywhere — if they
+  turn out to be dead, use `grid`.
+- **`stack`** — the original: full-width, one under another, folded behind
+  Chat's own "Show more" past the first.
+
+A reply with a single picture is shown plainly under all three. There is no
+sense making a one-cell grid, a one-slide carousel, or collapsing one image.
+
 ## Keeping a long email short
 
 Showing every picture made a monthly newsletter into a card you scroll for
@@ -176,10 +195,10 @@ half a minute. Chat can collapse its own sections, so it does: the card is in
 three parts, and only the middle one folds.
 
 - Who replied and the subject — always visible.
-- The pictures — their own section, `collapsible` with
-  `uncollapsibleWidgetsCount: 1`. One shows; the rest sit behind Chat's **Show
-  more**, under a header naming how many there are. A reply with a single
-  picture is never collapsed, because there is nothing to hide.
+- The pictures — their own section, laid out as above. Under `stack` it is
+  `collapsible` with `uncollapsibleWidgetsCount: 1`, so one shows and the rest
+  sit behind Chat's **Show more**. `grid` and `carousel` are compact already and
+  are never collapsed.
 - The body, the campaign, the inbox, the timestamp and the Reply button —
   always visible. The body carries `maxLines: 6`, so a long one gets the same
   treatment from Chat without the card growing.

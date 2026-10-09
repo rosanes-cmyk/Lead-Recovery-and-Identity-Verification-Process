@@ -14,6 +14,7 @@
 //   received     <- Timestamp
 //   uniboxUrl    <- Unibox Url
 //   skipBulk     = "yes" to drop newsletters and autoresponders. Omitted, they post.
+//   imageLayout  = "grid" (default), "carousel", or "stack"
 // Plus two constants, typed in rather than picked from the dropdown:
 //   chatWebhook   = your Google Chat space webhook URL
 //   instantlyKey  = an Instantly API key (Settings > Integrations > API)
@@ -133,6 +134,38 @@ function photosOf(email) {
     .map(f => Object.assign({}, f, { url: String(f.url).trim().replace(/ /g, '%20') }));
 }
 
+// How the pictures are laid out. Three shapes, because a stack of thirty
+// full-width images is a long scroll and the alternatives are worth trying:
+//   grid     - thumbnails, columnCount across. Inside a Grid the URL field is
+//              imageUri, NOT the imageUrl every other widget uses.
+//   carousel - one at a time with arrows. Documented for Chat apps; whether a
+//              one-way webhook gets working arrows is the thing being tested.
+//   stack    - the original, collapsed behind Chat own "Show more".
+// A single picture is always just that picture: no grid cell, no one-slide
+// carousel, nothing to collapse.
+function pictureSection(shots, layout) {
+  if (!shots.length) return [];
+  const alt = (i) => (i ? 'Image ' + (i + 1) : 'The reply');
+  const head = { header: `${shots.length} images in this reply` };
+
+  if (shots.length === 1) {
+    return [{ widgets: [{ image: { imageUrl: shots[0], altText: alt(0) } }] }];
+  }
+  if (layout === 'carousel') {
+    return [{ ...head, widgets: [{ carousel: { carouselCards: shots.map((u, i) => ({
+      widgets: [{ image: { imageUrl: u, altText: alt(i) } }],
+    })) } }] }];
+  }
+  if (layout === 'stack') {
+    return [{ ...head, collapsible: true, uncollapsibleWidgetsCount: 1,
+      widgets: shots.map((u, i) => ({ image: { imageUrl: u, altText: alt(i) } })) }];
+  }
+  return [{ ...head, widgets: [{ grid: {
+    columnCount: shots.length > 4 ? 3 : 2,
+    items: shots.map((u, i) => ({ image: { imageUri: u, altText: alt(i) } })),
+  } }] }];
+}
+
 function buildCard(d, subject, body, html, photos) {
   const pics = images(html);
   // Everything the email shows, in the order it shows it. Attachments lead:
@@ -168,16 +201,7 @@ function buildCard(d, subject, body, html, photos) {
             { decoratedText: { topLabel: 'Lead Email', text: String(d.leadEmail || '—'), wrapText: true } },
             { decoratedText: { topLabel: 'Reply Subject', text: subject || '—', wrapText: true } },
           ] },
-          ...(shots.length ? [{
-            ...(shots.length > 1 ? {
-              header: `${shots.length} images in this reply`,
-              collapsible: true,
-              uncollapsibleWidgetsCount: 1,
-            } : {}),
-            widgets: shots.map((u, i) => ({
-              image: { imageUrl: u, altText: i ? 'Image ' + (i + 1) : 'The reply' },
-            })),
-          }] : []),
+          ...pictureSection(shots, String(d.imageLayout || 'grid').trim().toLowerCase()),
           { widgets: [
             // A picture the step knows about but cannot render: say so rather
             // than leaving a gap where an image should be.

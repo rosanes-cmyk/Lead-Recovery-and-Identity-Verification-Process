@@ -36,7 +36,14 @@ globalThis.fetch = refuse
 const said = card => widgets(card).find(w => w.textParagraph).textParagraph.text
 const widgets = card => card.cardsV2[0].card.sections.reduce((a, sec) => a.concat(sec.widgets), [])
 const sections = card => card.cardsV2[0].card.sections
-const picSection = card => sections(card).find(sec => sec.widgets.some(w => w.image))
+const picSection = card => sections(card).find(sec =>
+  sec.widgets.some(w => w.image || w.grid || w.carousel))
+// every picture URL the card shows, whichever shape the pictures are in
+const shotUrls = card => widgets(card).flatMap(w =>
+  w.image ? [w.image.imageUrl]
+  : w.grid ? w.grid.items.map(it => it.image.imageUri)
+  : w.carousel ? w.carousel.carouselCards.map(cc => cc.widgets[0].image.imageUrl)
+  : [])
 const imageOf = card => (widgets(card).find(w => w.image) || {}).image
 const labelled = (card, label) => {
   const w = widgets(card).find(x => x.decoratedText && x.decoratedText.topLabel === label)
@@ -234,7 +241,7 @@ const bothKindsOne = await decide({ ...base, replyText: 'just the one' })
 globalThis.fetch = serve({ body: { html: '<img src="https://cdn.sig/logo.png">' },
   attachment_json: { files: [{ filename: 'p.jpg', type: 'image/jpeg', url: 'https://att/p.jpg' }] } })
 check('an attachment leads, the template images follow', (() => {
-  const urls = widgets(bothKinds.card).filter(w => w.image).map(w => w.image.imageUrl)
+  const urls = shotUrls(bothKinds.card)
   return urls.length === 2 && urls[0] === 'https://att/p.jpg' && urls[1] === 'https://cdn.sig/logo.png'
 })())
 
@@ -254,7 +261,7 @@ globalThis.fetch = serve({ attachment_json: { files: [
   { filename: 'c.jpg', type: 'image/jpeg', url: 'https://att/c.jpg' }] } })
 c = (await decide({ ...base, replyText: '' })).card
 check('every photo is shown, not just the first', (() => {
-  const urls = widgets(c).filter(w => w.image).map(w => w.image.imageUrl)
+  const urls = shotUrls(c)
   return urls.length === 3 && urls[0] === 'https://att/a.jpg' && urls[2] === 'https://att/c.jpg'
 })())
 check('a picture-only reply says so rather than "(no text)"',
@@ -273,19 +280,57 @@ check('…and that HTML is what gets shown',
 console.log('\n[Zapier→Chat] A whole newsletter')
 const many = Array.from({ length: 42 }, (_, i) => `<img src="https://cdn.news/pic${i}.jpg">`).join('')
 globalThis.fetch = serve({ body: { html: many + '<img src="https://cdn.news/pic0.jpg">' } })
-const big = (await decide({ ...base, replyText: 'October edition' })).card
-const bigShots = widgets(big).filter(w => w.image)
+const big = (await decide({ ...base, imageLayout: 'stack', replyText: 'October edition' })).card
+const bigShots = shotUrls(big).map(u => ({ image: { imageUrl: u } }))
 check('a picture-heavy email shows many, not one', bigShots.length > 10, bigShots.length + ' images')
 check('…capped so the card stays inside Chat limits', bigShots.length === 30)
 check('…and says how many it held back',
   /12 further images not shown/.test(labelled(big, 'More')))
 check('…a repeated image appears once', (() => {
-  const urls = bigShots.map(w => w.image.imageUrl)
+  const urls = shotUrls(big)
   return new Set(urls).size === urls.length
 })())
 check('…and the whole card still fits in 32 KB',
   JSON.stringify(big).length < 32000, JSON.stringify(big).length + ' bytes')
 check('…and inside the 100-widget ceiling', widgets(big).length < 100, widgets(big).length + ' widgets')
+
+console.log('\n[Zapier→Chat] Three ways to lay the pictures out')
+const sixPics = { attachment_json: { files: Array.from({ length: 6 }, (_, i) =>
+  ({ filename: `p${i}.jpg`, type: 'image/jpeg', url: `https://att/p${i}.jpg` })) } }
+globalThis.fetch = serve(sixPics)
+const asGrid = (await decide({ ...base, replyText: 'six' })).card
+const asCarousel = (await decide({ ...base, imageLayout: 'carousel', replyText: 'six' })).card
+const asStack = (await decide({ ...base, imageLayout: 'stack', replyText: 'six' })).card
+const asJunk = (await decide({ ...base, imageLayout: 'GRiD ', replyText: 'six' })).card
+
+check('grid is the default', picSection(asGrid).widgets[0].grid !== undefined)
+check('…with the URL under imageUri, not imageUrl — the Grid gotcha',
+  picSection(asGrid).widgets[0].grid.items[0].image.imageUri === 'https://att/p0.jpg')
+check('…columns chosen by how many there are',
+  picSection(asGrid).widgets[0].grid.columnCount === 3)
+check('…and every picture is in it', shotUrls(asGrid).length === 6)
+check('carousel gives one slide per picture', (() => {
+  const car = picSection(asCarousel).widgets[0].carousel
+  return car.carouselCards.length === 6 && car.carouselCards[0].widgets[0].image.imageUrl === 'https://att/p0.jpg'
+})())
+check('…and carries them all', shotUrls(asCarousel).length === 6)
+check('stack still stacks and collapses',
+  picSection(asStack).widgets.length === 6 && picSection(asStack).collapsible === true)
+check('neither grid nor carousel is collapsed — they are already short',
+  !picSection(asGrid).collapsible && !picSection(asCarousel).collapsible)
+check('an unknown or sloppy layout value falls back to the grid',
+  picSection(asJunk).widgets[0].grid !== undefined)
+check('all three shapes carry identical pictures', (() => {
+  const a = shotUrls(asGrid).join(), b = shotUrls(asCarousel).join(), c2 = shotUrls(asStack).join()
+  return a === b && b === c2
+})())
+globalThis.fetch = serve({ attachment_json: { files: [
+  { filename: 'solo.jpg', type: 'image/jpeg', url: 'https://att/solo.jpg' }] } })
+for (const L of ['grid', 'carousel', 'stack']) {
+  const solo = (await decide({ ...base, imageLayout: L, replyText: 'one' })).card
+  check(`a lone picture is shown plainly under ${L}`,
+    picSection(solo).widgets[0].image !== undefined && !picSection(solo).collapsible)
+}
 
 console.log('\n[Zapier→Chat] Keeping a long email short')
 check('the pictures sit in their own collapsible section', (() => {
