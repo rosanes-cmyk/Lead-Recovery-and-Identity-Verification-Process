@@ -14,7 +14,7 @@
 //   received     <- Timestamp
 //   uniboxUrl    <- Unibox Url
 //   skipBulk     = "yes" to drop newsletters and autoresponders. Omitted, they post.
-//   imageLayout  = "grid" (default), "carousel", or "stack"
+//   imageLayout  = "grid", "carousel" or "stack" to force one. Omitted, it picks by count.
 // Plus two constants, typed in rather than picked from the dropdown:
 //   chatWebhook   = your Google Chat space webhook URL
 //   instantlyKey  = an Instantly API key (Settings > Integrations > API)
@@ -35,6 +35,10 @@ const MAX_IMAGES = 30;
 // the payload, so it is theirs, not ours. Staying under it is the only fix
 // available from here; the grid has no such trouble and shows all thirty.
 const MAX_CAROUSEL = 5;
+// Up to this many pictures a grid shows them all at once and stays short.
+// Past it the grid turns into ten rows of thumbnails, and a carousel - one
+// image tall whatever the count - is the shorter card.
+const GRID_UP_TO = 10;
 const MAX_TEXT = 3000;
 // Lines of body text before Chat hides the rest behind its own "show more".
 const TEXT_LINES = 6;
@@ -184,7 +188,6 @@ function pictureSection(shots, layout, uniboxUrl) {
 }
 
 function buildCard(d, subject, body, html, photos) {
-  const layout = String(d.imageLayout || 'grid').trim().toLowerCase();
   const pics = images(html);
   // Everything the email shows, in the order it shows it. Attachments lead:
   // someone replying with a photo attaches it, while the hosted images are the
@@ -193,6 +196,12 @@ function buildCard(d, subject, body, html, photos) {
   const seen = {};
   const every = photos.map(p => p.url).concat(pics.remote)
     .filter(u => u && !seen[u] && (seen[u] = true));
+  // Chosen by how many there are, unless Input Data names one outright.
+  const asked = String(d.imageLayout || 'auto').trim().toLowerCase();
+  const layout = (asked === 'grid' || asked === 'carousel' || asked === 'stack')
+    ? asked
+    : (every.length > GRID_UP_TO ? 'carousel' : 'grid');
+
   const shots = every.slice(0, layout === 'carousel' ? MAX_CAROUSEL : MAX_IMAGES);
   const hidden = every.length - shots.length;   // count what is left after the
                                                 // duplicates have gone, or a

@@ -5,7 +5,7 @@ step, kept here because it was written and tested against real traffic and
 would otherwise live only in a Zapier editor where nobody can review it.
 
 Everything above the wiring marker at the bottom of the file is pure, and
-`test/zapier-chat-test.mjs` runs it — 126 checks with the Instantly API stubbed,
+`test/zapier-chat-test.mjs` runs it — 137 checks with the Instantly API stubbed,
 `npm run test:zapier`.
 
 ## Where it goes
@@ -171,8 +171,21 @@ are constants at the top of the file.
 
 ## Three ways to lay the pictures out
 
-`imageLayout` in Input Data picks one. Unset, or set to anything unrecognised,
-it is `grid`.
+`imageLayout` in Input Data forces one. Left out — or set to `auto` — the shape
+is chosen by how many pictures there are:
+
+| Pictures | Shape | Why |
+| --- | --- | --- |
+| 1 | the picture | nothing to arrange |
+| 2–10 | grid | all of them at once, and the card stays short |
+| 11+ | carousel | a grid that size is ten rows tall; a carousel is one image tall whatever the count |
+
+The threshold is `GRID_UP_TO` at the top of the file.
+
+Past it you see five pictures rather than all of them, because the carousel is
+capped — see below. That is the deliberate trade: a thirty-image newsletter
+produces a short card saying there are thirty, not a browsable gallery. If you
+would rather see them all, name `grid` outright and accept the ten rows.
 
 - **`grid`** — thumbnails, two columns up to four pictures and three above that,
   cropped to 4:3 so the rows line up. The shortest card that still shows

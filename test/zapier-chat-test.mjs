@@ -294,6 +294,36 @@ check('…and the whole card still fits in 32 KB',
   JSON.stringify(big).length < 32000, JSON.stringify(big).length + ' bytes')
 check('…and inside the 100-widget ceiling', widgets(big).length < 100, widgets(big).length + ' widgets')
 
+console.log('\n[Zapier→Chat] Picking the layout by how many there are')
+const nPics = n => ({ attachment_json: { files: Array.from({ length: n }, (_, i) =>
+  ({ filename: `p${i}.jpg`, type: 'image/jpeg', url: `https://att/p${i}.jpg` })) } })
+const shapeOf = async (n, layout) => {
+  globalThis.fetch = serve(nPics(n))
+  const card = (await decide({ ...base, ...(layout ? { imageLayout: layout } : {}), replyText: 'x' })).card
+  const w = picSection(card).widgets[0]
+  return { kind: w.grid ? 'grid' : w.carousel ? 'carousel' : 'image',
+           shown: shotUrls(card).length, card }
+}
+check('one picture is just the picture', (await shapeOf(1)).kind === 'image')
+check('two is a grid', (await shapeOf(2)).kind === 'grid')
+const ten = await shapeOf(10)
+check('ten is still a grid, and shows all ten', ten.kind === 'grid' && ten.shown === 10)
+const eleven = await shapeOf(11)
+check('eleven tips over to a carousel — a grid that size is ten rows tall',
+  eleven.kind === 'carousel')
+check('…capped at five, because that is where Chat stops going back',
+  eleven.shown === 5)
+check('…and the other six are counted, not silently dropped', (() => {
+  const w = widgets(eleven.card).find(x => x.decoratedText && x.decoratedText.topLabel === 'More')
+  return /6 further images not shown/.test(w.decoratedText.text)
+})())
+const thirty = await shapeOf(30)
+check('thirty is a carousel too', thirty.kind === 'carousel' && thirty.shown === 5)
+check('naming a layout outright beats the count', (await shapeOf(30, 'grid')).kind === 'grid')
+check('…and that forced grid shows all thirty', (await shapeOf(30, 'grid')).shown === 30)
+check('a forced stack at eleven still stacks', (await shapeOf(11, 'stack')).shown === 11)
+check('"auto" means the same as leaving it out', (await shapeOf(11, 'auto')).kind === 'carousel')
+
 console.log('\n[Zapier→Chat] Three ways to lay the pictures out')
 const sixPics = { attachment_json: { files: Array.from({ length: 6 }, (_, i) =>
   ({ filename: `p${i}.jpg`, type: 'image/jpeg', url: `https://att/p${i}.jpg` })) } }
