@@ -33,8 +33,10 @@ const serve = (payload) => async (url, opts) => {
 globalThis.fetch = refuse
 
 // the text a card actually shows
-const said = card => card.cardsV2[0].card.sections[0].widgets.find(w => w.textParagraph).textParagraph.text
-const widgets = card => card.cardsV2[0].card.sections[0].widgets
+const said = card => widgets(card).find(w => w.textParagraph).textParagraph.text
+const widgets = card => card.cardsV2[0].card.sections.reduce((a, sec) => a.concat(sec.widgets), [])
+const sections = card => card.cardsV2[0].card.sections
+const picSection = card => sections(card).find(sec => sec.widgets.some(w => w.image))
 const imageOf = card => (widgets(card).find(w => w.image) || {}).image
 const labelled = (card, label) => {
   const w = widgets(card).find(x => x.decoratedText && x.decoratedText.topLabel === label)
@@ -226,6 +228,11 @@ check('…with the Reply button still last', buttons(c).slice(-1)[0].text === 'R
 globalThis.fetch = serve({ body: { html: '<img src="https://cdn.sig/logo.png">' },
   attachment_json: { files: [{ filename: 'p.jpg', type: 'image/jpeg', url: 'https://att/p.jpg' }] } })
 const bothKinds = await decide({ ...base, replyText: 'x' })
+globalThis.fetch = serve({ attachment_json: { files: [
+  { filename: 'solo.jpg', type: 'image/jpeg', url: 'https://att/solo.jpg' }] } })
+const bothKindsOne = await decide({ ...base, replyText: 'just the one' })
+globalThis.fetch = serve({ body: { html: '<img src="https://cdn.sig/logo.png">' },
+  attachment_json: { files: [{ filename: 'p.jpg', type: 'image/jpeg', url: 'https://att/p.jpg' }] } })
 check('an attachment leads, the template images follow', (() => {
   const urls = widgets(bothKinds.card).filter(w => w.image).map(w => w.image.imageUrl)
   return urls.length === 2 && urls[0] === 'https://att/p.jpg' && urls[1] === 'https://cdn.sig/logo.png'
@@ -279,6 +286,27 @@ check('…a repeated image appears once', (() => {
 check('…and the whole card still fits in 32 KB',
   JSON.stringify(big).length < 32000, JSON.stringify(big).length + ' bytes')
 check('…and inside the 100-widget ceiling', widgets(big).length < 100, widgets(big).length + ' widgets')
+
+console.log('\n[Zapier→Chat] Keeping a long email short')
+check('the pictures sit in their own collapsible section', (() => {
+  const sec = picSection(big)
+  return sec.collapsible === true && sec.uncollapsibleWidgetsCount === 1
+})())
+check('…with a header saying what is behind it', /30 images in this reply/.test(picSection(big).header))
+check('…so only one picture shows until it is opened',
+  picSection(big).uncollapsibleWidgetsCount === 1)
+check('a single picture is never hidden behind a click', (() => {
+  const sec = picSection(bothKindsOne.card)
+  return sec.collapsible === undefined && sec.widgets.length === 1
+})())
+check('the body collapses too, rather than running down the card',
+  widgets(big).find(w => w.textParagraph).textParagraph.maxLines === 6)
+check('who replied and the Reply button are never collapsed', (() => {
+  const first = sections(big)[0], last = sections(big)[sections(big).length - 1]
+  return first.collapsible === undefined && last.collapsible === undefined
+    && first.widgets.some(w => w.decoratedText && w.decoratedText.topLabel === 'Lead Email')
+    && last.widgets.some(w => w.buttonList)
+})())
 
 // ---- the original bug: the card could not survive ordinary replies ----------------
 console.log('\n[Zapier→Chat] Characters that used to break the card')

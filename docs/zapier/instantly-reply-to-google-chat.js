@@ -29,6 +29,8 @@ const API = 'https://api.instantly.ai/api/v2/emails/';
 // well inside both, and is more of a newsletter than anyone scrolls anyway.
 const MAX_IMAGES = 30;
 const MAX_TEXT = 3000;
+// Lines of body text before Chat hides the rest behind its own "show more".
+const TEXT_LINES = 6;
 
 const BULK = /powered by activepipe|this email was sent to|list-unsubscribe|click here to unsubscribe|view this email in your browser/i;
 const AUTO = /^(out of office|automatic reply|auto-reply|undeliverable|delivery status notification)/i;
@@ -157,13 +159,26 @@ function buildCard(d, subject, body, html, photos) {
       cardId: 'instantly-reply-alert',
       card: {
         header: { title: '📩 New Instantly Reply', subtitle: 'Response required' },
-        sections: [{
-          widgets: [
+        // Three sections so a long email stays a short card. Chat collapses a
+        // section itself: the pictures past the first sit behind "Show more",
+        // and maxLines does the same for a long body. Nothing is dropped —
+        // it is one click away.
+        sections: [
+          { widgets: [
             { decoratedText: { topLabel: 'Lead Email', text: String(d.leadEmail || '—'), wrapText: true } },
             { decoratedText: { topLabel: 'Reply Subject', text: subject || '—', wrapText: true } },
-            ...shots.map((u, i) => ({
+          ] },
+          ...(shots.length ? [{
+            ...(shots.length > 1 ? {
+              header: `${shots.length} images in this reply`,
+              collapsible: true,
+              uncollapsibleWidgetsCount: 1,
+            } : {}),
+            widgets: shots.map((u, i) => ({
               image: { imageUrl: u, altText: i ? 'Image ' + (i + 1) : 'The reply' },
             })),
+          }] : []),
+          { widgets: [
             // A picture the step knows about but cannot render: say so rather
             // than leaving a gap where an image should be.
             ...(!shots.length && pics.inline ? [{
@@ -173,7 +188,7 @@ function buildCard(d, subject, body, html, photos) {
                 wrapText: true,
               },
             }] : []),
-            { textParagraph: { text: note } },
+            { textParagraph: { text: note, maxLines: TEXT_LINES } },
             ...(hidden > 0 ? [{ decoratedText: {
               topLabel: 'More', wrapText: true,
               text: `${hidden} further image${hidden > 1 ? 's' : ''} not shown — open in Instantly for the whole email`,
@@ -193,8 +208,8 @@ function buildCard(d, subject, body, html, photos) {
                 altText: 'Open Instantly and email this lead',
               }] : []),
             ] } }] : []),
-          ],
-        }],
+          ] },
+        ],
       },
     }],
   };

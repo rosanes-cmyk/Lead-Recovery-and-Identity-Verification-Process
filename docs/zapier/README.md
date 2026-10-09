@@ -5,7 +5,7 @@ step, kept here because it was written and tested against real traffic and
 would otherwise live only in a Zapier editor where nobody can review it.
 
 Everything above the wiring marker at the bottom of the file is pure, and
-`test/zapier-chat-test.mjs` runs it — 98 checks with the Instantly API stubbed,
+`test/zapier-chat-test.mjs` runs it — 104 checks with the Instantly API stubbed,
 `npm run test:zapier`.
 
 ## Where it goes
@@ -168,6 +168,25 @@ A Chat card holds 100 widgets and 32 KB, so the pictures stop at thirty and the
 text at 3,000 characters — a 42-image newsletter renders as 30 pictures, 38
 widgets and 3.2 KB, with a line saying how many were held back. Both ceilings
 are constants at the top of the file.
+
+## Keeping a long email short
+
+Showing every picture made a monthly newsletter into a card you scroll for
+half a minute. Chat can collapse its own sections, so it does: the card is in
+three parts, and only the middle one folds.
+
+- Who replied and the subject — always visible.
+- The pictures — their own section, `collapsible` with
+  `uncollapsibleWidgetsCount: 1`. One shows; the rest sit behind Chat's **Show
+  more**, under a header naming how many there are. A reply with a single
+  picture is never collapsed, because there is nothing to hide.
+- The body, the campaign, the inbox, the timestamp and the Reply button —
+  always visible. The body carries `maxLines: 6`, so a long one gets the same
+  treatment from Chat without the card growing.
+
+Nothing is dropped to achieve this. Everything is one click away, and the
+things you need in order to decide whether to care — who it was, what they
+wrote, and the button to answer them — never move.
 
 A `cid:` reference with no matching attachment record cannot be shown by
 anything outside the mailbox, so the card says how many are attached rather than
