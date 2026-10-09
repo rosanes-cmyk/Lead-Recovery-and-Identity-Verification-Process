@@ -225,8 +225,11 @@ check('…with the Reply button still last', buttons(c).slice(-1)[0].text === 'R
 
 globalThis.fetch = serve({ body: { html: '<img src="https://cdn.sig/logo.png">' },
   attachment_json: { files: [{ filename: 'p.jpg', type: 'image/jpeg', url: 'https://att/p.jpg' }] } })
-check('an attachment beats a hosted image — a signature logo never wins',
-  imageOf((await decide({ ...base, replyText: 'x' })).card).imageUrl === 'https://att/p.jpg')
+const bothKinds = await decide({ ...base, replyText: 'x' })
+check('an attachment leads, the template images follow', (() => {
+  const urls = widgets(bothKinds.card).filter(w => w.image).map(w => w.image.imageUrl)
+  return urls.length === 2 && urls[0] === 'https://att/p.jpg' && urls[1] === 'https://cdn.sig/logo.png'
+})())
 
 globalThis.fetch = serve({ body: { html: '<img src="https://cdn.example.com/listing.jpg">' } })
 check('a hosted image is used when there is no attachment',
@@ -243,8 +246,10 @@ globalThis.fetch = serve({ attachment_json: { files: [
   { filename: 'b.jpg', type: 'image/jpeg', url: 'https://att/b.jpg' },
   { filename: 'c.jpg', type: 'image/jpeg', url: 'https://att/c.jpg' }] } })
 c = (await decide({ ...base, replyText: '' })).card
-check('the first of several photos is the one shown', imageOf(c).imageUrl === 'https://att/a.jpg')
-check('the rest are counted', /2 more images/.test(labelled(c, 'Also attached')))
+check('every photo is shown, not just the first', (() => {
+  const urls = widgets(c).filter(w => w.image).map(w => w.image.imageUrl)
+  return urls.length === 3 && urls[0] === 'https://att/a.jpg' && urls[2] === 'https://att/c.jpg'
+})())
 check('a picture-only reply says so rather than "(no text)"',
   said(c) === '(the reply is a picture, with no text)')
 
@@ -257,6 +262,23 @@ check('…and reports the lookup as skipped',
 check('…and that HTML is what gets shown',
   imageOf((await decide({ ...base, replyText: 'x', replyHtml: '<img src="https://inline/y.jpg">' })).card)
     .imageUrl === 'https://inline/y.jpg')
+
+console.log('\n[Zapier→Chat] A whole newsletter')
+const many = Array.from({ length: 42 }, (_, i) => `<img src="https://cdn.news/pic${i}.jpg">`).join('')
+globalThis.fetch = serve({ body: { html: many + '<img src="https://cdn.news/pic0.jpg">' } })
+const big = (await decide({ ...base, replyText: 'October edition' })).card
+const bigShots = widgets(big).filter(w => w.image)
+check('a picture-heavy email shows many, not one', bigShots.length > 10, bigShots.length + ' images')
+check('…capped so the card stays inside Chat limits', bigShots.length === 30)
+check('…and says how many it held back',
+  /12 further images not shown/.test(labelled(big, 'More')))
+check('…a repeated image appears once', (() => {
+  const urls = bigShots.map(w => w.image.imageUrl)
+  return new Set(urls).size === urls.length
+})())
+check('…and the whole card still fits in 32 KB',
+  JSON.stringify(big).length < 32000, JSON.stringify(big).length + ' bytes')
+check('…and inside the 100-widget ceiling', widgets(big).length < 100, widgets(big).length + ' widgets')
 
 // ---- the original bug: the card could not survive ordinary replies ----------------
 console.log('\n[Zapier→Chat] Characters that used to break the card')

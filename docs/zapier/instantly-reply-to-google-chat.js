@@ -25,6 +25,11 @@
 
 const API = 'https://api.instantly.ai/api/v2/emails/';
 
+// A Chat card holds 100 widgets and 32 KB. Thirty pictures plus the text sits
+// well inside both, and is more of a newsletter than anyone scrolls anyway.
+const MAX_IMAGES = 30;
+const MAX_TEXT = 3000;
+
 const BULK = /powered by activepipe|this email was sent to|list-unsubscribe|click here to unsubscribe|view this email in your browser/i;
 const AUTO = /^(out of office|automatic reply|auto-reply|undeliverable|delivery status notification)/i;
 
@@ -128,16 +133,23 @@ function photosOf(email) {
 
 function buildCard(d, subject, body, html, photos) {
   const pics = images(html);
-  // An attachment is the reply; a hosted image is usually a signature logo. So
-  // when both exist, the attachment wins.
-  const shown = (photos[0] && photos[0].url) || pics.remote[0] || '';
-  const said = clean(unquote(body), 600);
+  // Everything the email shows, in the order it shows it. Attachments lead:
+  // someone replying with a photo attaches it, while the hosted images are the
+  // template around it. Duplicates drop out — a logo repeated in every row of a
+  // newsletter should appear once.
+  const seen = {};
+  const every = photos.map(p => p.url).concat(pics.remote)
+    .filter(u => u && !seen[u] && (seen[u] = true));
+  const shots = every.slice(0, MAX_IMAGES);
+  const hidden = every.length - shots.length;   // count what is left after the
+                                                // duplicates have gone, or a
+                                                // repeated logo inflates it
+
+  const said = clean(unquote(body), MAX_TEXT);
   const note = said
-    || (shown ? '(the reply is a picture, with no text)'
+    || (shots.length ? '(the reply is a picture, with no text)'
       : pics.inline ? '(the reply is an attached picture, with no text)'
         : '(no text)');
-
-  const extra = photos.slice(1, 4);
 
   return {
     text: 'New Instantly reply received',
@@ -149,10 +161,12 @@ function buildCard(d, subject, body, html, photos) {
           widgets: [
             { decoratedText: { topLabel: 'Lead Email', text: String(d.leadEmail || '—'), wrapText: true } },
             { decoratedText: { topLabel: 'Reply Subject', text: subject || '—', wrapText: true } },
-            ...(shown ? [{ image: { imageUrl: shown, altText: 'The reply' } }] : []),
+            ...shots.map((u, i) => ({
+              image: { imageUrl: u, altText: i ? 'Image ' + (i + 1) : 'The reply' },
+            })),
             // A picture the step knows about but cannot render: say so rather
             // than leaving a gap where an image should be.
-            ...(!shown && pics.inline ? [{
+            ...(!shots.length && pics.inline ? [{
               decoratedText: {
                 topLabel: 'Attached',
                 text: `📎 ${pics.inline} image${pics.inline > 1 ? 's' : ''} — open in Instantly to see ${pics.inline > 1 ? 'them' : 'it'}`,
@@ -160,9 +174,9 @@ function buildCard(d, subject, body, html, photos) {
               },
             }] : []),
             { textParagraph: { text: note } },
-            ...(extra.length ? [{ decoratedText: {
-              topLabel: 'Also attached', wrapText: true,
-              text: `${extra.length} more image${extra.length > 1 ? 's' : ''}`,
+            ...(hidden > 0 ? [{ decoratedText: {
+              topLabel: 'More', wrapText: true,
+              text: `${hidden} further image${hidden > 1 ? 's' : ''} not shown — open in Instantly for the whole email`,
             } }] : []),
             { decoratedText: { topLabel: 'Campaign', text: String(d.campaign || '—'), wrapText: true } },
             { decoratedText: { topLabel: 'Receiving Inbox', text: String(d.inbox || '—'), wrapText: true } },

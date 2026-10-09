@@ -5,7 +5,7 @@ step, kept here because it was written and tested against real traffic and
 would otherwise live only in a Zapier editor where nobody can review it.
 
 Everything above the wiring marker at the bottom of the file is pure, and
-`test/zapier-chat-test.mjs` runs it — 93 checks with the Instantly API stubbed,
+`test/zapier-chat-test.mjs` runs it — 98 checks with the Instantly API stubbed,
 `npm run test:zapier`.
 
 ## Where it goes
@@ -157,10 +157,17 @@ Two kinds of picture come back, and they are not equal:
 - **Hosted in the HTML** — a marketing template's images, or a logo in a
   signature.
 
-**The attachment wins when both are present**, because an attachment is the
-reply while a hosted image is usually just a signature logo. Templates also open
-with a 1x1 open-tracking pixel, so anything 1 pixel wide or tall is skipped, as
-is any URL that reads as a pixel, beacon, spacer or `/o/` open tracker.
+**Every picture is shown, in the order the email shows them**, attachments
+first: someone replying with a photo attaches it, while the hosted images are the
+template around it. Duplicates drop out, so a logo repeated in every row of a
+newsletter appears once. Templates also open with a 1x1 open-tracking pixel, so
+anything 1 pixel wide or tall is skipped, as is any URL that reads as a pixel,
+beacon, spacer or `/o/` open tracker.
+
+A Chat card holds 100 widgets and 32 KB, so the pictures stop at thirty and the
+text at 3,000 characters — a 42-image newsletter renders as 30 pictures, 38
+widgets and 3.2 KB, with a line saying how many were held back. Both ceilings
+are constants at the top of the file.
 
 A `cid:` reference with no matching attachment record cannot be shown by
 anything outside the mailbox, so the card says how many are attached rather than
