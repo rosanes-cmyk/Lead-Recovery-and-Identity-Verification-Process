@@ -153,10 +153,15 @@ function photosOf(email) {
 //   stack    - the original, collapsed behind Chat own "Show more".
 // A single picture is always just that picture: no grid cell, no one-slide
 // carousel, nothing to collapse.
-function pictureSection(shots, layout, uniboxUrl) {
+function pictureSection(shots, layout, uniboxUrl, total) {
   if (!shots.length) return [];
   const alt = (i) => (i ? 'Image ' + (i + 1) : 'The reply');
-  const head = { header: `${shots.length} images in this reply` };
+  // Say how many the reply has, not how many survived the cap. "5 images in
+  // this reply" when the email holds thirty is a lie the card tells quietly.
+  const all = total || shots.length;
+  const head = { header: all > shots.length
+    ? `${all} images in this reply — showing ${shots.length}`
+    : `${all} images in this reply` };
   // An Image carries its own onClick, so tapping one opens that picture full
   // size in a browser. A Grid does not: its single onClick is shared by every
   // item, so a per-thumbnail link is impossible and the whole grid opens the
@@ -228,7 +233,7 @@ function buildCard(d, subject, body, html, photos) {
             { decoratedText: { topLabel: 'Lead Email', text: String(d.leadEmail || '—'), wrapText: true } },
             { decoratedText: { topLabel: 'Reply Subject', text: subject || '—', wrapText: true } },
           ] },
-          ...pictureSection(shots, layout, d.uniboxUrl),
+          ...pictureSection(shots, layout, d.uniboxUrl, every.length),
           { widgets: [
             // A picture the step knows about but cannot render: say so rather
             // than leaving a gap where an image should be.

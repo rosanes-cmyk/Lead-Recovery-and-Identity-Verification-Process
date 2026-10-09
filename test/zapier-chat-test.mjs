@@ -313,6 +313,10 @@ check('eleven tips over to a carousel — a grid that size is ten rows tall',
   eleven.kind === 'carousel')
 check('…capped at five, because that is where Chat stops going back',
   eleven.shown === 5)
+check('…and the header still says eleven — capping is not recounting',
+  picSection(eleven.card).header === '11 images in this reply — showing 5')
+check('an uncapped set just states the number',
+  picSection(ten.card).header === '10 images in this reply')
 check('…and the other six are counted, not silently dropped', (() => {
   const w = widgets(eleven.card).find(x => x.decoratedText && x.decoratedText.topLabel === 'More')
   return /6 further images not shown/.test(w.decoratedText.text)
@@ -401,7 +405,8 @@ check('the pictures sit in their own collapsible section', (() => {
   const sec = picSection(big)
   return sec.collapsible === true && sec.uncollapsibleWidgetsCount === 1
 })())
-check('…with a header saying what is behind it', /30 images in this reply/.test(picSection(big).header))
+check('…with a header saying what is behind it, counting the reply and not the cap',
+  picSection(big).header === '42 images in this reply — showing 30')
 check('…so only one picture shows until it is opened',
   picSection(big).uncollapsibleWidgetsCount === 1)
 check('a single picture is never hidden behind a click', (() => {

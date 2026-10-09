@@ -5,7 +5,7 @@ step, kept here because it was written and tested against real traffic and
 would otherwise live only in a Zapier editor where nobody can review it.
 
 Everything above the wiring marker at the bottom of the file is pure, and
-`test/zapier-chat-test.mjs` runs it — 137 checks with the Instantly API stubbed,
+`test/zapier-chat-test.mjs` runs it — 139 checks with the Instantly API stubbed,
 `npm run test:zapier`.
 
 ## Where it goes
@@ -181,6 +181,11 @@ is chosen by how many pictures there are:
 | 11+ | carousel | a grid that size is ten rows tall; a carousel is one image tall whatever the count |
 
 The threshold is `GRID_UP_TO` at the top of the file.
+
+The section header counts what the reply holds, not what survived the cap —
+`30 images in this reply — showing 5`. Saying "5 images in this reply" about an
+email carrying thirty is a lie the card tells quietly, and a test holds the
+distinction in place.
 
 Past it you see five pictures rather than all of them, because the carousel is
 capped — see below. That is the deliberate trade: a thirty-image newsletter
