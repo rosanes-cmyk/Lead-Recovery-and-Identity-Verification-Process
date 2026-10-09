@@ -143,26 +143,37 @@ function photosOf(email) {
 //   stack    - the original, collapsed behind Chat own "Show more".
 // A single picture is always just that picture: no grid cell, no one-slide
 // carousel, nothing to collapse.
-function pictureSection(shots, layout) {
+function pictureSection(shots, layout, uniboxUrl) {
   if (!shots.length) return [];
   const alt = (i) => (i ? 'Image ' + (i + 1) : 'The reply');
   const head = { header: `${shots.length} images in this reply` };
+  // An Image carries its own onClick, so tapping one opens that picture full
+  // size in a browser. A Grid does not: its single onClick is shared by every
+  // item, so a per-thumbnail link is impossible and the whole grid opens the
+  // thread in Instantly instead.
+  const pic = (u, i) => ({ image: {
+    imageUrl: u, altText: alt(i), onClick: { openLink: { url: u } },
+  } });
 
-  if (shots.length === 1) {
-    return [{ widgets: [{ image: { imageUrl: shots[0], altText: alt(0) } }] }];
-  }
+  if (shots.length === 1) return [{ widgets: [pic(shots[0], 0)] }];
+
   if (layout === 'carousel') {
     return [{ ...head, widgets: [{ carousel: { carouselCards: shots.map((u, i) => ({
-      widgets: [{ image: { imageUrl: u, altText: alt(i) } }],
+      widgets: [pic(u, i)],
     })) } }] }];
   }
   if (layout === 'stack') {
     return [{ ...head, collapsible: true, uncollapsibleWidgetsCount: 1,
-      widgets: shots.map((u, i) => ({ image: { imageUrl: u, altText: alt(i) } })) }];
+      widgets: shots.map(pic) }];
   }
   return [{ ...head, widgets: [{ grid: {
     columnCount: shots.length > 4 ? 3 : 2,
-    items: shots.map((u, i) => ({ image: { imageUri: u, altText: alt(i) } })),
+    // Without a crop the thumbnails keep their own shapes and the rows go
+    // ragged. 4:3 lines them up.
+    items: shots.map((u, i) => ({
+      image: { imageUri: u, altText: alt(i), cropStyle: { type: 'RECTANGLE_4_3' } },
+    })),
+    ...(uniboxUrl ? { onClick: { openLink: { url: String(uniboxUrl) } } } : {}),
   } }] }];
 }
 
@@ -201,7 +212,7 @@ function buildCard(d, subject, body, html, photos) {
             { decoratedText: { topLabel: 'Lead Email', text: String(d.leadEmail || '—'), wrapText: true } },
             { decoratedText: { topLabel: 'Reply Subject', text: subject || '—', wrapText: true } },
           ] },
-          ...pictureSection(shots, String(d.imageLayout || 'grid').trim().toLowerCase()),
+          ...pictureSection(shots, String(d.imageLayout || 'grid').trim().toLowerCase(), d.uniboxUrl),
           { widgets: [
             // A picture the step knows about but cannot render: say so rather
             // than leaving a gap where an image should be.

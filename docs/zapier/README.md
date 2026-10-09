@@ -5,7 +5,7 @@ step, kept here because it was written and tested against real traffic and
 would otherwise live only in a Zapier editor where nobody can review it.
 
 Everything above the wiring marker at the bottom of the file is pure, and
-`test/zapier-chat-test.mjs` runs it — 117 checks with the Instantly API stubbed,
+`test/zapier-chat-test.mjs` runs it — 123 checks with the Instantly API stubbed,
 `npm run test:zapier`.
 
 ## Where it goes
@@ -174,19 +174,32 @@ are constants at the top of the file.
 `imageLayout` in Input Data picks one. Unset, or set to anything unrecognised,
 it is `grid`.
 
-- **`grid`** — thumbnails, two columns up to four pictures and three above that.
-  The shortest card that still shows everything at once. One trap: inside a
-  `Grid` the URL field is **`imageUri`**, not the `imageUrl` every other widget
-  uses, and the wrong one renders nothing without complaint.
+- **`grid`** — thumbnails, two columns up to four pictures and three above that,
+  cropped to 4:3 so the rows line up. The shortest card that still shows
+  everything at once. One trap: inside a `Grid` the URL field is **`imageUri`**,
+  not the `imageUrl` every other widget uses, and the wrong one renders nothing
+  without complaint.
 - **`carousel`** — one picture at a time with arrows, a `carouselCards[]` entry
-  each. The most compact of the three. Google documents it for Chat apps, and
-  whether a one-way webhook gets working arrows is not stated anywhere — if they
-  turn out to be dead, use `grid`.
+  each. Google documents it for Chat apps and says nothing about webhooks;
+  tested against a live space, **the arrows work**. The catch is height: slides
+  size to the tallest picture in the set, so a short one sits in a tall black
+  box, and there is no crop setting on a plain `Image` to prevent it.
 - **`stack`** — the original: full-width, one under another, folded behind
   Chat's own "Show more" past the first.
 
 A reply with a single picture is shown plainly under all three. There is no
 sense making a one-cell grid, a one-slide carousel, or collapsing one image.
+
+## Opening a picture
+
+An `Image` carries its own `onClick`, so tapping a picture under `carousel` or
+`stack` opens that one full size in a browser.
+
+A `Grid` cannot do this. Its single `onClick` is shared by every item — the
+item's id arrives as a callback parameter, which a one-way webhook has no way to
+receive — so a per-thumbnail link is impossible. The whole grid opens the thread
+in Instantly instead, which is the next most useful thing, and carries no
+`onClick` at all when there is no thread URL rather than a dead one.
 
 ## Keeping a long email short
 

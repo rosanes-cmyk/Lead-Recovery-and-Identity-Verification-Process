@@ -320,6 +320,28 @@ check('neither grid nor carousel is collapsed — they are already short',
   !picSection(asGrid).collapsible && !picSection(asCarousel).collapsible)
 check('an unknown or sloppy layout value falls back to the grid',
   picSection(asJunk).widgets[0].grid !== undefined)
+check('tapping a stacked picture opens it full size', (() => {
+  const w = picSection(asStack).widgets[0]
+  return w.image.onClick.openLink.url === 'https://att/p0.jpg'
+})())
+check('tapping a carousel slide opens that one, not the first', (() => {
+  const cc = picSection(asCarousel).widgets[0].carousel.carouselCards[3]
+  return cc.widgets[0].image.onClick.openLink.url === 'https://att/p3.jpg'
+})())
+check('a lone picture is tappable too', (() => {
+  const solo = buildCard(base, 'S', 't', '',
+    [{ url: 'https://att/solo.jpg', type: 'image/jpeg', filename: 'solo.jpg' }])
+  return picSection(solo).widgets[0].image.onClick.openLink.url === 'https://att/solo.jpg'
+})())
+check('the grid opens the thread, since one onClick is shared by every thumbnail',
+  picSection(asGrid).widgets[0].grid.onClick.openLink.url === base.uniboxUrl)
+check('…and crops to 4:3 so the rows are not ragged',
+  picSection(asGrid).widgets[0].grid.items[0].image.cropStyle.type === 'RECTANGLE_4_3')
+check('a grid with no thread to open carries no dead onClick', (() => {
+  const g = buildCard({ ...base, uniboxUrl: '' }, 'S', 't', '',
+    [0,1,2].map(i => ({ url: 'https://a/' + i + '.jpg', type: 'image/jpeg', filename: 'x' })))
+  return picSection(g).widgets[0].grid.onClick === undefined
+})())
 check('all three shapes carry identical pictures', (() => {
   const a = shotUrls(asGrid).join(), b = shotUrls(asCarousel).join(), c2 = shotUrls(asStack).join()
   return a === b && b === c2
