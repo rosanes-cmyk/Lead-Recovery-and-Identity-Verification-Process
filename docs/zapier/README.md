@@ -171,10 +171,13 @@ Two consequences worth knowing:
 - When Chat renders a hosted image it is Google fetching it from the sender's
   server, which registers as an email open. The sender can see when their mail
   was read.
-- Whether Chat can fetch an Instantly attachment URL is not something the
-  payload states. If those URLs turn out to need a login, the inline image will
-  render blank and the button beside it is the fallback. One line to drop the
-  inline if it comes to that.
+- Instantly serves attachments with no authentication. Checked directly: a plain
+  unauthenticated GET of an `attachments.unibox.instantly.ai` URL returns 200 and
+  the file. So Chat can fetch them and the inline picture renders — but it also
+  means anyone holding one of those links can download the attachment, no login
+  required. Posting the URL into a Chat space hands it to everyone in that space,
+  which is the intent here; it is worth knowing before those links go anywhere
+  else.
 
 ## Which events post
 
