@@ -81,6 +81,15 @@ sends both `Email` and `Lead Email`, and no HTML field at all.
 | `chatWebhook` | the Google Chat space webhook URL, typed in | where it posts |
 | `instantlyKey` | an Instantly API key, typed in | fetching the picture |
 
+Scope that key to **`emails:read`** and nothing else. Instantly's reference for
+`GET /api/v2/emails/{id}` accepts `emails:read`, `emails:all`, `all:read` or
+`all:all`; the step only ever reads one email by id, so the narrowest of those is
+the right one. The key sits in plain text inside a Zapier step, readable by
+anyone who can open that Zap — a leaked `emails:read` key exposes message
+contents, while a leaked `all:all` key lets someone delete campaigns. If the
+dashboard offers nothing finer, `all:read` is an acceptable fallback; `all:all`
+is not.
+
 `reply_text` is the full body; `reply_text_snippet` is a teaser and will cut a
 long reply mid-sentence. Map both — the snippet is used only when the full body
 is empty.
