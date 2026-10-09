@@ -278,12 +278,12 @@ check('…and that HTML is what gets shown',
     .imageUrl === 'https://inline/y.jpg')
 
 console.log('\n[Zapier→Chat] A whole newsletter')
-const many = Array.from({ length: 42 }, (_, i) => `<img src="https://cdn.news/pic${i}.jpg">`).join('')
+const many = Array.from({ length: 72 }, (_, i) => `<img src="https://cdn.news/pic${i}.jpg">`).join('')
 globalThis.fetch = serve({ body: { html: many + '<img src="https://cdn.news/pic0.jpg">' } })
 const big = (await decide({ ...base, imageLayout: 'stack', replyText: 'October edition' })).card
 const bigShots = shotUrls(big).map(u => ({ image: { imageUrl: u } }))
 check('a picture-heavy email shows many, not one', bigShots.length > 10, bigShots.length + ' images')
-check('…capped so the card stays inside Chat limits', bigShots.length === 30)
+check('…capped only where Chat would refuse the card', bigShots.length === 60)
 check('…and says how many it held back',
   /12 further images not shown/.test(labelled(big, 'More')))
 check('…a repeated image appears once', (() => {
@@ -311,20 +311,16 @@ check('ten is still a grid, and shows all ten', ten.kind === 'grid' && ten.shown
 const eleven = await shapeOf(11)
 check('eleven tips over to a carousel — a grid that size is ten rows tall',
   eleven.kind === 'carousel')
-check('…capped at five, because that is where Chat stops going back',
-  eleven.shown === 5)
-check('…and the header still says eleven — capping is not recounting',
-  picSection(eleven.card).header === '11 images in this reply — showing 5')
-check('an uncapped set just states the number',
-  picSection(ten.card).header === '10 images in this reply')
-check('…and the other six are counted, not silently dropped', (() => {
-  const w = widgets(eleven.card).find(x => x.decoratedText && x.decoratedText.topLabel === 'More')
-  return /6 further images not shown/.test(w.decoratedText.text)
-})())
+check('…showing all eleven, with nothing held back for being a carousel',
+  eleven.shown === 11)
+check('the header just states the number when nothing is held back',
+  picSection(eleven.card).header === '11 images in this reply'
+  && picSection(ten.card).header === '10 images in this reply')
 const thirty = await shapeOf(30)
-check('thirty is a carousel too', thirty.kind === 'carousel' && thirty.shown === 5)
+check('thirty is a carousel, and all thirty are in it',
+  thirty.kind === 'carousel' && thirty.shown === 30)
 check('naming a layout outright beats the count', (await shapeOf(30, 'grid')).kind === 'grid')
-check('…and that forced grid shows all thirty', (await shapeOf(30, 'grid')).shown === 30)
+check('…and that forced grid shows all thirty too', (await shapeOf(30, 'grid')).shown === 30)
 check('a forced stack at eleven still stacks', (await shapeOf(11, 'stack')).shown === 11)
 check('"auto" means the same as leaving it out', (await shapeOf(11, 'auto')).kind === 'carousel')
 
@@ -349,14 +345,7 @@ check('carousel gives one slide per picture', (() => {
 })())
 // Chat's own carousel stops going backwards past roughly six slides. Nothing in
 // the payload causes it and nothing in the payload can fix it, so stay under.
-check('…but stops at five, short of where Chat breaks going back',
-  shotUrls(asCarousel).length === 5, '6 pictures in, 5 slides out')
-check('…and says the rest are not shown', (() => {
-  const w = widgets(asCarousel).find(x => x.decoratedText && x.decoratedText.topLabel === 'More')
-  return /1 further image not shown/.test(w.decoratedText.text)
-})())
-check('grid is not capped the same way — it has no such trouble',
-  shotUrls(asGrid).length === 6)
+check('…and carries every one of them', shotUrls(asCarousel).length === 6)
 check('stack still stacks and collapses',
   picSection(asStack).widgets.length === 6 && picSection(asStack).collapsible === true)
 check('neither grid nor carousel is collapsed — they are already short',
@@ -405,8 +394,8 @@ check('the pictures sit in their own collapsible section', (() => {
   const sec = picSection(big)
   return sec.collapsible === true && sec.uncollapsibleWidgetsCount === 1
 })())
-check('…with a header saying what is behind it, counting the reply and not the cap',
-  picSection(big).header === '42 images in this reply — showing 30')
+check('…with a header counting the reply, not the cap',
+  picSection(big).header === '72 images in this reply — showing 60')
 check('…so only one picture shows until it is opened',
   picSection(big).uncollapsibleWidgetsCount === 1)
 check('a single picture is never hidden behind a click', (() => {

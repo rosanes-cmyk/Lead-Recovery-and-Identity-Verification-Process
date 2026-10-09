@@ -26,18 +26,13 @@
 
 const API = 'https://api.instantly.ai/api/v2/emails/';
 
-// A Chat card holds 100 widgets and 32 KB. Thirty pictures plus the text sits
-// well inside both, and is more of a newsletter than anyone scrolls anyway.
-const MAX_IMAGES = 30;
-// Carousels get fewer. Past roughly half a dozen slides Chat stops going back
-// — you can still move forward, but the arrow will not return you past a
-// certain point. Google documents no limit on carouselCards and this is not in
-// the payload, so it is theirs, not ours. Staying under it is the only fix
-// available from here; the grid has no such trouble and shows all thirty.
-const MAX_CAROUSEL = 5;
-// Up to this many pictures a grid shows them all at once and stays short.
-// Past it the grid turns into ten rows of thumbnails, and a carousel - one
-// image tall whatever the count - is the shorter card.
+// A Chat card holds 100 widgets and 32 KB. Measured with real attachment URLs,
+// a carousel of 80 comes to 29 KB and one of 100 goes over, so 60 leaves room
+// to spare. Grid and carousel are a single widget each whatever they hold; only
+// a forced stack spends one per picture, and 60 of those still clears 100.
+// This cap exists to stop Chat rejecting the card, not to tidy it: the step
+// throws on a refusal, so going over would cost the whole notification.
+const MAX_IMAGES = 60;
 const GRID_UP_TO = 10;
 const MAX_TEXT = 3000;
 // Lines of body text before Chat hides the rest behind its own "show more".
@@ -207,7 +202,7 @@ function buildCard(d, subject, body, html, photos) {
     ? asked
     : (every.length > GRID_UP_TO ? 'carousel' : 'grid');
 
-  const shots = every.slice(0, layout === 'carousel' ? MAX_CAROUSEL : MAX_IMAGES);
+  const shots = every.slice(0, MAX_IMAGES);
   const hidden = every.length - shots.length;   // count what is left after the
                                                 // duplicates have gone, or a
                                                 // repeated logo inflates it

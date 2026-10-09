@@ -5,7 +5,7 @@ step, kept here because it was written and tested against real traffic and
 would otherwise live only in a Zapier editor where nobody can review it.
 
 Everything above the wiring marker at the bottom of the file is pure, and
-`test/zapier-chat-test.mjs` runs it — 139 checks with the Instantly API stubbed,
+`test/zapier-chat-test.mjs` runs it — 135 checks with the Instantly API stubbed,
 `npm run test:zapier`.
 
 ## Where it goes
@@ -183,14 +183,15 @@ is chosen by how many pictures there are:
 The threshold is `GRID_UP_TO` at the top of the file.
 
 The section header counts what the reply holds, not what survived the cap —
-`30 images in this reply — showing 5`. Saying "5 images in this reply" about an
-email carrying thirty is a lie the card tells quietly, and a test holds the
+`72 images in this reply — showing 60`. Saying "60 images in this reply" about an
+email carrying seventy-two is a lie the card tells quietly, and a test holds the
 distinction in place.
 
-Past it you see five pictures rather than all of them, because the carousel is
-capped — see below. That is the deliberate trade: a thirty-image newsletter
-produces a short card saying there are thirty, not a browsable gallery. If you
-would rather see them all, name `grid` outright and accept the ten rows.
+Either way every picture is shown. The only ceiling is `MAX_IMAGES`, which is
+about Chat refusing the card rather than tidiness: measured with real attachment
+URLs, a carousel of 80 comes to 29 KB against a 32 KB limit and one of 100 goes
+over, so it sits at 60. Going over would not trim the card, it would lose the
+whole notification — the step throws when Chat refuses.
 
 - **`grid`** — thumbnails, two columns up to four pictures and three above that,
   cropped to 4:3 so the rows line up. The shortest card that still shows
@@ -202,14 +203,11 @@ would rather see them all, name `grid` outright and accept the ten rows.
   tested against a live space, **the arrows work** — but only so far. Past
   roughly half a dozen slides Chat stops going backwards: forward still moves,
   and the back arrow will not return you past a certain point. Google documents
-  no limit on `carouselCards`, nothing in the payload causes it, and nothing in
-  the payload fixes it, so the carousel is capped at **five** slides and the
-  rest are counted in the "not shown" line. The other catch is height: slides
-  size to the tallest picture in the set, so a short one sits in a tall black
-  box, and a plain `Image` has no crop setting to prevent it.
-
-  Which makes the carousel the right pick for a reply carrying two or three
-  photographs, and the wrong one for a newsletter.
+  no limit on `carouselCards`, and nothing in the payload causes it or fixes it.
+  It is a known and accepted cost: every picture goes in regardless, and the way
+  to reach a late one is to keep going forward. The other catch is height:
+  slides size to the tallest picture in the set, so a short one sits in a tall
+  black box, and a plain `Image` has no crop setting to prevent it.
 - **`stack`** — the original: full-width, one under another, folded behind
   Chat's own "Show more" past the first.
 
