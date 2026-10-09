@@ -3,17 +3,26 @@
 // or a backslash in someone's reply.
 //
 // Input Data to map (left side = these names, right side = the Catch Hook field):
-//   eventType    <- event_type          drop anything that is not a human reply
-//   leadEmail    <- lead_email
-//   replySubject <- reply_subject
-//   replyText    <- reply_text          the FULL body. reply_text_snippet is a teaser
-//   replySnippet <- reply_text_snippet  fallback, only used if replyText is empty
-//   replyHtml    <- reply_html          needed to show a picture
-//   campaign     <- campaign_name
-//   inbox        <- email_account
-//   received     <- timestamp
-//   uniboxUrl    <- unibox_url
-// Plus one constant: chatWebhook = your Google Chat space webhook URL.
+//   eventType    <- Event Type          drop anything that is not a human reply
+//   leadEmail    <- Lead Email
+//   replySubject <- Reply Subject
+//   replyText    <- Reply Text          the FULL body. Reply Text Snippet is a teaser
+//   replySnippet <- Reply Text Snippet  fallback, only used if replyText is empty
+//   emailId      <- Email Id            lets the step fetch the picture
+//   campaign     <- Campaign Name
+//   inbox        <- Email Account
+//   received     <- Timestamp
+//   uniboxUrl    <- Unibox Url
+// Plus two constants, typed in rather than picked from the dropdown:
+//   chatWebhook   = your Google Chat space webhook URL
+//   instantlyKey  = an Instantly API key (Settings > Integrations > API)
+//
+// Instantly's webhook does not carry the email body as HTML — checked against a
+// live payload, there is no such field. So to show a picture the step asks
+// Instantly for the message itself, by Email Id. Leave instantlyKey unset and
+// everything else still works; the card is simply text-only.
+
+const API = 'https://api.instantly.ai/api/v2/emails/';
 
 const BULK = /powered by activepipe|this email was sent to|list-unsubscribe|click here to unsubscribe|view this email in your browser/i;
 const AUTO = /^(out of office|automatic reply|auto-reply|undeliverable|delivery status notification)/i;
@@ -59,10 +68,10 @@ function clean(text, max) {
     .trim();
 }
 
-// Pictures in the reply. Two kinds, and only one can be shown:
+// Pictures referenced inside the HTML. Two kinds:
 //   remote — hosted on https, so Chat can fetch and render it
-//   inline — an attached photo, referenced as cid:. Chat cannot reach those,
-//            so the card says a picture is attached instead of showing nothing.
+//   inline — an attached photo, written as cid:. That identifier means nothing
+//            outside the message, so it is counted, never rendered.
 // Skips the 1x1 open-tracking pixels and spacer GIFs every template carries.
 function images(html) {
   const remote = [];
@@ -78,13 +87,45 @@ function images(html) {
   return { remote, inline };
 }
 
-function buildCard(d, subject, body) {
-  const pics = images(d.replyHtml);
+const withTimeout = (p, ms) => Promise.race([
+  p,
+  new Promise((_, rej) => setTimeout(() => rej(new Error('instantly timed out')), ms)),
+]);
+
+// Ask Instantly for the message. Every failure returns null on purpose: a card
+// without a picture beats no card at all, and a Zap step that throws posts
+// nothing.
+async function fetchEmail(id, key) {
+  if (!id || !key) return null;
+  try {
+    const res = await withTimeout(fetch(API + encodeURIComponent(String(id)), {
+      headers: { Authorization: 'Bearer ' + String(key) },
+    }), 8000);
+    if (!res || !res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+// The files Instantly stored with the message, narrowed to actual pictures.
+function photosOf(email) {
+  const files = (email && email.attachment_json && email.attachment_json.files) || [];
+  return files.filter(f => f && f.url && /^image\//i.test(String(f.type || '')));
+}
+
+function buildCard(d, subject, body, html, photos) {
+  const pics = images(html);
+  // An attachment is the reply; a hosted image is usually a signature logo. So
+  // when both exist, the attachment wins.
+  const shown = (photos[0] && photos[0].url) || pics.remote[0] || '';
   const said = clean(unquote(body), 600);
   const note = said
-    || (pics.remote.length ? '(the reply is a picture, with no text)'
+    || (shown ? '(the reply is a picture, with no text)'
       : pics.inline ? '(the reply is an attached picture, with no text)'
         : '(no text)');
+
+  const extra = photos.slice(1, 4);
 
   return {
     text: 'New Instantly reply received',
@@ -96,8 +137,10 @@ function buildCard(d, subject, body) {
           widgets: [
             { decoratedText: { topLabel: 'Lead Email', text: String(d.leadEmail || '—'), wrapText: true } },
             { decoratedText: { topLabel: 'Reply Subject', text: subject || '—', wrapText: true } },
-            ...(pics.remote.length ? [{ image: { imageUrl: pics.remote[0], altText: 'The reply' } }] : []),
-            ...(!pics.remote.length && pics.inline ? [{
+            ...(shown ? [{ image: { imageUrl: shown, altText: 'The reply' } }] : []),
+            // A picture the step knows about but cannot render: say so rather
+            // than leaving a gap where an image should be.
+            ...(!shown && pics.inline ? [{
               decoratedText: {
                 topLabel: 'Attached',
                 text: `📎 ${pics.inline} image${pics.inline > 1 ? 's' : ''} — open in Instantly to see ${pics.inline > 1 ? 'them' : 'it'}`,
@@ -105,14 +148,25 @@ function buildCard(d, subject, body) {
               },
             }] : []),
             { textParagraph: { text: note } },
+            ...(extra.length ? [{ decoratedText: {
+              topLabel: 'Also attached', wrapText: true,
+              text: `${extra.length} more image${extra.length > 1 ? 's' : ''}`,
+            } }] : []),
             { decoratedText: { topLabel: 'Campaign', text: String(d.campaign || '—'), wrapText: true } },
             { decoratedText: { topLabel: 'Receiving Inbox', text: String(d.inbox || '—'), wrapText: true } },
             { decoratedText: { topLabel: 'Received', text: String(d.received || '—'), wrapText: true } },
-            ...(d.uniboxUrl ? [{ buttonList: { buttons: [{
-              text: 'Reply in Instantly', type: 'FILLED',
-              onClick: { openLink: { url: String(d.uniboxUrl) } },
-              altText: 'Open Instantly and email this lead',
-            }] } }] : []),
+            ...(d.uniboxUrl || photos.length ? [{ buttonList: { buttons: [
+              ...(photos.length ? [{
+                text: photos.length > 1 ? 'Open the photos' : 'Open the photo',
+                onClick: { openLink: { url: String(photos[0].url) } },
+                altText: 'Open the attached picture',
+              }] : []),
+              ...(d.uniboxUrl ? [{
+                text: 'Reply in Instantly', type: 'FILLED',
+                onClick: { openLink: { url: String(d.uniboxUrl) } },
+                altText: 'Open Instantly and email this lead',
+              }] : []),
+            ] } }] : []),
           ],
         }],
       },
@@ -120,7 +174,7 @@ function buildCard(d, subject, body) {
   };
 }
 
-function decide(d) {
+async function decide(d) {
   // Instantly fires auto_reply_received for autoresponders, separately from
   // reply_received. Reading the event name is exact where matching subject
   // lines only guesses. Unmapped, this check stands aside.
@@ -140,12 +194,23 @@ function decide(d) {
     return { post: false, reason: 'bulk or automated mail, not a reply' };
   }
 
-  return { post: true, card: buildCard(d, subject, body) };
+  // Use the HTML if the webhook ever starts sending it; otherwise go and get it.
+  let html = String(d.replyHtml || '');
+  let photos = [];
+  if (!html || !d.replyHtml) {
+    const email = await fetchEmail(d.emailId, d.instantlyKey);
+    if (email) {
+      html = html || String((email.body && email.body.html) || '');
+      photos = photosOf(email);
+    }
+  }
+
+  return { post: true, card: buildCard(d, subject, body, html, photos) };
 }
 
 // ===== Zapier wiring. Everything above is pure and covered by test/zapier-chat-test.mjs =====
 
-const decision = decide(inputData);
+const decision = await decide(inputData);
 if (!decision.post) {
   output = { posted: false, reason: decision.reason };
 } else {

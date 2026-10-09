@@ -4,6 +4,10 @@
 // so everything above the wiring marker is pure, and this file evaluates that
 // prefix and exercises it. If the marker ever moves, these tests fail loudly
 // rather than silently testing nothing.
+//
+// The step calls Instantly to fetch the email body, so `fetch` is stubbed here.
+// It defaults to a flat refusal: every test that does not care about the API
+// proves the card still gets built when the API gives nothing.
 import fs from 'node:fs'
 
 let pass = 0, fail = 0
@@ -16,16 +20,29 @@ const SRC = fs.readFileSync('docs/zapier/instantly-reply-to-google-chat.js', 'ut
 const MARK = '// ===== Zapier wiring'
 const at = SRC.indexOf(MARK)
 if (at < 0) { console.log('  FAIL  wiring marker missing — cannot load the pure helpers'); process.exit(1) }
-const { unquote, clean, images, buildCard, decide } =
-  new Function(SRC.slice(0, at) + '\nreturn { unquote, clean, images, buildCard, decide };')()
+const { unquote, clean, images, buildCard, decide, fetchEmail, photosOf } =
+  new Function(SRC.slice(0, at) +
+    '\nreturn { unquote, clean, images, buildCard, decide, fetchEmail, photosOf };')()
+
+let calls = []
+const refuse = async () => ({ ok: false, status: 404 })
+const serve = (payload) => async (url, opts) => {
+  calls.push({ url, auth: opts && opts.headers && opts.headers.Authorization })
+  return { ok: true, status: 200, json: async () => payload }
+}
+globalThis.fetch = refuse
 
 // the text a card actually shows
 const said = card => card.cardsV2[0].card.sections[0].widgets.find(w => w.textParagraph).textParagraph.text
 const widgets = card => card.cardsV2[0].card.sections[0].widgets
 const imageOf = card => (widgets(card).find(w => w.image) || {}).image
-const attachNote = card => {
-  const w = widgets(card).find(x => x.decoratedText && x.decoratedText.topLabel === 'Attached')
+const labelled = (card, label) => {
+  const w = widgets(card).find(x => x.decoratedText && x.decoratedText.topLabel === label)
   return w ? w.decoratedText.text : ''
+}
+const buttons = card => {
+  const w = widgets(card).find(x => x.buttonList)
+  return w ? w.buttonList.buttons : []
 }
 
 // ---- the quoted thread ------------------------------------------------------------
@@ -70,8 +87,8 @@ check('blank lines left by stripping a link collapse',
 check('capped at 600 by default', clean('x'.repeat(900)).length === 600)
 check('custom cap honoured', clean('x'.repeat(900), 50).length === 50)
 
-// ---- pictures ---------------------------------------------------------------------
-console.log('\n[Zapier→Chat] Pictures')
+// ---- pictures inside the HTML -----------------------------------------------------
+console.log('\n[Zapier→Chat] Pictures in the HTML')
 check('a hosted picture is found',
   images('<img src="https://cdn.example.com/house.jpg">').remote[0] === 'https://cdn.example.com/house.jpg')
 check('1x1 open-tracking pixel is skipped',
@@ -93,23 +110,50 @@ check('several attachments are counted',
   images('<img src="cid:a"><img src="cid:b"><img src="cid:c">').inline === 3)
 check('no html at all is safe', images(undefined).remote.length === 0 && images(undefined).inline === 0)
 
+// ---- asking Instantly for the message ---------------------------------------------
+console.log('\n[Zapier→Chat] Fetching the email from Instantly')
+calls = []; globalThis.fetch = serve({ body: { html: '<p>hi</p>' } })
+check('no API key means no call at all', await fetchEmail('abc', '') === null && calls.length === 0)
+check('no email id means no call at all', await fetchEmail('', 'key') === null && calls.length === 0)
+const got = await fetchEmail('019fc39c-1121-7b08-9835-5', 'k_live_123')
+check('calls v2 emails with the id in the path',
+  calls.length === 1 && calls[0].url === 'https://api.instantly.ai/api/v2/emails/019fc39c-1121-7b08-9835-5')
+check('sends a bearer token', calls[0].auth === 'Bearer k_live_123')
+check('returns the parsed email', got && got.body.html === '<p>hi</p>')
+globalThis.fetch = refuse
+check('a refused call returns null, it does not throw', await fetchEmail('x', 'k') === null)
+globalThis.fetch = async () => { throw new Error('network down') }
+check('a thrown network error returns null', await fetchEmail('x', 'k') === null)
+globalThis.fetch = serve({})
+check('photosOf copes with no attachments at all', photosOf({}).length === 0 && photosOf(null).length === 0)
+check('photosOf keeps images and drops other files', (() => {
+  const p = photosOf({ attachment_json: { files: [
+    { filename: 'a.pdf', type: 'application/pdf', url: 'https://x/a.pdf' },
+    { filename: 'b.jpg', type: 'image/jpeg', url: 'https://x/b.jpg' },
+    { filename: 'c.png', type: 'image/png' },            // no url — unusable
+  ] } })
+  return p.length === 1 && p[0].filename === 'b.jpg'
+})())
+
 // ---- which event ------------------------------------------------------------------
 console.log('\n[Zapier→Chat] Which events post')
-check('reply_received posts', decide({ eventType: 'reply_received', replyText: 'hi' }).post === true)
-check('auto_reply_received is dropped by name, not by guesswork', (() => {
-  const d = decide({ eventType: 'auto_reply_received', replyText: 'I am away until Monday' })
-  return d.post === false && /auto_reply_received/.test(d.reason)
-})())
+globalThis.fetch = refuse
+check('reply_received posts', (await decide({ eventType: 'reply_received', replyText: 'hi' })).post === true)
+const dropped = await decide({ eventType: 'auto_reply_received', replyText: 'I am away until Monday' })
+check('auto_reply_received is dropped by name, not by guesswork',
+  dropped.post === false && /auto_reply_received/.test(dropped.reason))
 check('an unmapped eventType does not block anything',
-  decide({ replyText: 'hi' }).post === true)
+  (await decide({ replyText: 'hi' })).post === true)
 check('bulk mail passes by default',
-  decide({ replyText: 'Powered by ActivePipe. Click here to unsubscribe' }).post === true)
-check('skipBulk=yes drops a newsletter', (() => {
-  const d = decide({ skipBulk: 'yes', replyText: 'Powered by ActivePipe\nclick here to unsubscribe' })
-  return d.post === false && /bulk/.test(d.reason)
-})())
+  (await decide({ replyText: 'Powered by ActivePipe. Click here to unsubscribe' })).post === true)
+check('skipBulk=yes drops a newsletter',
+  (await decide({ skipBulk: 'yes', replyText: 'Powered by ActivePipe\nclick here to unsubscribe' })).post === false)
 check('skipBulk=yes drops an out-of-office by subject',
-  decide({ skipBulk: 'yes', replySubject: 'Automatic reply: your note', replyText: 'away' }).post === false)
+  (await decide({ skipBulk: 'yes', replySubject: 'Automatic reply: your note', replyText: 'away' })).post === false)
+globalThis.fetch = serve({ body: { html: '' } })
+calls = []
+await decide({ eventType: 'auto_reply_received', replyText: 'away', emailId: 'x', instantlyKey: 'k' })
+check('a dropped event never calls Instantly — no wasted API quota', calls.length === 0)
 
 // ---- the card --------------------------------------------------------------------
 console.log('\n[Zapier→Chat] The card')
@@ -117,39 +161,67 @@ const base = {
   leadEmail: 'agent@example.com', replySubject: 'Re: After the buyer walks',
   campaign: 'Oakland Realtor Campaign', inbox: 'juan@twinhomebuyer.com',
   received: '2026-10-02T17:04:00Z', uniboxUrl: 'https://app.instantly.ai/app/unibox/1',
+  emailId: '019fc39c', instantlyKey: 'k_live',
 }
+globalThis.fetch = refuse
 check('full reply_text is preferred over the snippet',
-  said(decide({ ...base, replyText: 'the whole body', replySnippet: 'the whole b…' }).card) === 'the whole body')
+  said((await decide({ ...base, replyText: 'the whole body', replySnippet: 'the whole b…' })).card) === 'the whole body')
 check('the snippet is used when reply_text is empty',
-  said(decide({ ...base, replyText: '', replySnippet: 'only a teaser' }).card) === 'only a teaser')
-check('a hosted picture appears above the text',
-  imageOf(decide({ ...base, replyText: 'look', replyHtml: '<img src="https://x.com/a.jpg">' }).card)
-    .imageUrl === 'https://x.com/a.jpg')
-check('an attached photo says so instead of showing nothing', (() => {
-  const c = decide({ ...base, replyText: 'see attached', replyHtml: '<img src="cid:x">' }).card
-  return !imageOf(c) && /1 image/.test(attachNote(c))
-})())
-check('two attachments read as plural',
-  /2 images — open in Instantly to see them/.test(
-    attachNote(decide({ ...base, replyText: 'x', replyHtml: '<img src="cid:a"><img src="cid:b">' }).card)))
+  said((await decide({ ...base, replyText: '', replySnippet: 'only a teaser' })).card) === 'only a teaser')
+check('no unibox URL and no photo means no button at all',
+  buttons((await decide({ ...base, uniboxUrl: '', replyText: 'x' })).card).length === 0)
+check('the Reply button is there when the URL is',
+  buttons((await decide({ ...base, replyText: 'x' })).card)[0].onClick.openLink.url === base.uniboxUrl)
+check('a failed API call still produces a card',
+  (await decide({ ...base, replyText: 'still fine' })).post === true)
+check('…and that card is text-only, with no gap where a picture would be',
+  !imageOf((await decide({ ...base, replyText: 'still fine' })).card))
+
+console.log('\n[Zapier→Chat] Pictures, end to end')
+globalThis.fetch = serve({ body: { html: '<p>see photo</p><img src="cid:ii_1">' },
+  attachment_json: { files: [{ filename: 'house.jpg', type: 'image/jpeg', url: 'https://att.instantly/house.jpg' }] } })
+let c = (await decide({ ...base, replyText: 'Here is the place' })).card
+check('an attached photo is shown in the card', imageOf(c) && imageOf(c).imageUrl === 'https://att.instantly/house.jpg')
+check('…and a button opens it full size',
+  buttons(c)[0].text === 'Open the photo' && buttons(c)[0].onClick.openLink.url === 'https://att.instantly/house.jpg')
+check('…with the Reply button still last', buttons(c).slice(-1)[0].text === 'Reply in Instantly')
+
+globalThis.fetch = serve({ body: { html: '<img src="https://cdn.sig/logo.png">' },
+  attachment_json: { files: [{ filename: 'p.jpg', type: 'image/jpeg', url: 'https://att/p.jpg' }] } })
+check('an attachment beats a hosted image — a signature logo never wins',
+  imageOf((await decide({ ...base, replyText: 'x' })).card).imageUrl === 'https://att/p.jpg')
+
+globalThis.fetch = serve({ body: { html: '<img src="https://cdn.example.com/listing.jpg">' } })
+check('a hosted image is used when there is no attachment',
+  imageOf((await decide({ ...base, replyText: 'x' })).card).imageUrl === 'https://cdn.example.com/listing.jpg')
+
+globalThis.fetch = serve({ body: { html: '<img src="cid:ii_1">' } })
+c = (await decide({ ...base, replyText: '' })).card
+check('a cid picture with no attachment record says so', /1 image/.test(labelled(c, 'Attached')))
+check('…and the text says the reply is a picture',
+  said(c) === '(the reply is an attached picture, with no text)')
+
+globalThis.fetch = serve({ attachment_json: { files: [
+  { filename: 'a.jpg', type: 'image/jpeg', url: 'https://att/a.jpg' },
+  { filename: 'b.jpg', type: 'image/jpeg', url: 'https://att/b.jpg' },
+  { filename: 'c.jpg', type: 'image/jpeg', url: 'https://att/c.jpg' }] } })
+c = (await decide({ ...base, replyText: '' })).card
+check('the first of several photos is the one shown', imageOf(c).imageUrl === 'https://att/a.jpg')
+check('the rest are counted', /2 more images/.test(labelled(c, 'Also attached')))
 check('a picture-only reply says so rather than "(no text)"',
-  said(decide({ ...base, replyText: '', replyHtml: '<img src="https://x.com/a.jpg">' }).card)
-  === '(the reply is a picture, with no text)')
-check('an attachment-only reply says so',
-  said(decide({ ...base, replyText: '', replyHtml: '<img src="cid:x">' }).card)
-  === '(the reply is an attached picture, with no text)')
-check('a truly empty reply still says something',
-  said(decide({ ...base, replyText: '' }).card) === '(no text)')
-check('no unibox URL means no button, not a broken one', (() => {
-  const c = decide({ ...base, uniboxUrl: '', replyText: 'x' }).card
-  return !widgets(c).some(w => w.buttonList)
-})())
-check('the button is there when the URL is',
-  widgets(decide({ ...base, replyText: 'x' }).card)
-    .find(w => w.buttonList).buttonList.buttons[0].onClick.openLink.url === base.uniboxUrl)
+  said(c) === '(the reply is a picture, with no text)')
+
+globalThis.fetch = serve({ body: { html: '<img src="https://cdn/x.jpg">' } })
+calls = []
+await decide({ ...base, replyText: 'x', replyHtml: '<img src="https://inline/y.jpg">' })
+check('a mapped replyHtml short-circuits the fetch', calls.length === 0)
+check('…and that HTML is what gets shown',
+  imageOf((await decide({ ...base, replyText: 'x', replyHtml: '<img src="https://inline/y.jpg">' })).card)
+    .imageUrl === 'https://inline/y.jpg')
 
 // ---- the original bug: the card could not survive ordinary replies ----------------
 console.log('\n[Zapier→Chat] Characters that used to break the card')
+globalThis.fetch = refuse
 for (const [label, body] of [
   ['a double quote', 'He said "yes" to the price'],
   ['a line break', 'line one\nline two'],
@@ -157,7 +229,7 @@ for (const [label, body] of [
   ['all three at once', 'he said "yes"\non C:\\x\tand left'],
   ['a curly quote and emoji', '“ADU” sounds good 👍🏽'],
 ]) {
-  const card = decide({ ...base, replyText: body }).card
+  const card = (await decide({ ...base, replyText: body })).card
   const round = JSON.parse(JSON.stringify(card))
   check(`${label} survives JSON.stringify`, said(round) === clean(unquote(body), 600))
 }
@@ -165,36 +237,37 @@ for (const [label, body] of [
 // ---- real replies pulled from the Instantly audit ---------------------------------
 console.log('\n[Zapier→Chat] Real replies')
 check('Don Dunbar keeps his two addresses', (() => {
-  const t = said(decide({ ...base, replyText:
-    'good daY\nWHAt aRE YOU LOOKING FOR\nDUPLEX 7443 wELD ST\n2 PROPERTIES ON ONE LOT 670 32ND ST' }).card)
+  const t = said(buildCard(base, '', 'good daY\nWHAt aRE YOU LOOKING FOR\nDUPLEX 7443 wELD ST\n2 PROPERTIES ON ONE LOT 670 32ND ST', '', []))
   return t.includes('7443 wELD ST') && t.includes('670 32ND ST')
 })())
 check('Jonathan Lee shows his words, not the thread under them', (() => {
-  const t = said(decide({ ...base, replyText:
-    'Just came from an easy fixer at 115 Forest View Rd in Woodside. My friend is the trustee.\n\n'
+  const t = said(buildCard(base, '', 'Just came from an easy fixer at 115 Forest View Rd in Woodside. My friend is the trustee.\n\n'
     + 'On Mon, Sep 1, 2026 at 9:14 AM Juan Diaz <juan@twinhomebuyer.com> wrote:\n'
-    + '> I buy Bay Area properties directly\n> CA GC Lic. #1066892' }).card)
+    + '> I buy Bay Area properties directly\n> CA GC Lic. #1066892', '', []))
   return t.includes('115 Forest View Rd') && !t.includes('1066892') && !t.includes('>')
 })())
+check('John Anagnostou, the live sample, comes out clean', (() => {
+  const t = said(buildCard(base, '', 'Stop\nJohn Anagnostou\n650-255-7840\nJohnanagnostou@me.com\n> > > >', '', []))
+  return t.startsWith('Stop') && !t.includes('>')
+})())
 check('Thom Ruben: signature only, with a photo attached, reads honestly', (() => {
-  const c = decide({ ...base,
-    replyText: 'Sent from my iPhone! Please pardon any syntax errors, Siri has comprehension issues!',
-    replyHtml: '<img src="cid:ii_abc123">' }).card
-  return said(c) === '(the reply is an attached picture, with no text)' && /1 image/.test(attachNote(c))
+  const c2 = buildCard(base, '', 'Sent from my iPhone! Please pardon any syntax errors, Siri has comprehension issues!',
+    '<img src="cid:ii_abc123">', [])
+  return said(c2) === '(the reply is an attached picture, with no text)' && /1 image/.test(labelled(c2, 'Attached'))
 })())
 check('the ActivePipe newsletter loses its tracking wall', (() => {
-  const t = said(decide({ ...base, replyText:
-    'Your October: bluegrass, Blue Angels\nhttps://u1964677.ct.sendgrid.net/ls/click?upn=u001.abcdefghijklmnop\nPowered by ActivePipe' }).card)
+  const t = said(buildCard(base, '', 'Your October: bluegrass, Blue Angels\nhttps://u1964677.ct.sendgrid.net/ls/click?upn=u001.abcdefghijklmnop\nPowered by ActivePipe', '', []))
   return !t.includes('sendgrid') && t.includes('Blue Angels')
 })())
 
 // ---- the step is still pasteable into Zapier --------------------------------------
 console.log('\n[Zapier→Chat] Still a Zapier step')
-check('reads inputData and assigns output', /decide\(inputData\)/.test(SRC) && /output\s*=/.test(SRC))
+check('reads inputData and assigns output', /await decide\(inputData\)/.test(SRC) && /output\s*=/.test(SRC))
 check('posts with JSON.stringify, never a hand-built string',
   /body:\s*JSON\.stringify\(decision\.card\)/.test(SRC))
-check('documents reply_html, without which no picture can be shown', /replyHtml\s*<-\s*reply_html/.test(SRC))
-check('documents reply_text as the full body', /replyText\s*<-\s*reply_text\b/.test(SRC))
+check('documents Email Id, which is how the picture is found', /emailId\s*<-\s*Email Id/.test(SRC))
+check('documents the Instantly key as a typed constant', /instantlyKey\s*=\s*an Instantly API key/.test(SRC))
+check('says plainly that the webhook carries no HTML', /webhook does not carry the email body as HTML/.test(SRC))
 check('no stray imports or exports', !/^\s*(import|export)\s/m.test(SRC))
 
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : fail + ' CHECK(S) FAILED'} (${pass} passed, ${fail} failed)`)
