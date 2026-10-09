@@ -175,14 +175,14 @@ check('auto_reply_received is dropped by name, not by guesswork',
   dropped.post === false && /auto_reply_received/.test(dropped.reason))
 check('an unmapped eventType does not block anything',
   (await decide({ replyText: 'hi' })).post === true)
-check('bulk mail is DROPPED by default — it is the thing this exists to stop',
-  (await decide({ replyText: 'Powered by ActivePipe. Click here to unsubscribe' })).post === false)
-check('skipBulk=no lets a newsletter through for anyone who wants them',
-  (await decide({ skipBulk: 'no', replyText: 'Powered by ActivePipe\nclick here to unsubscribe' })).post === true)
+check('bulk mail posts by default — dropping it is the owner\'s call, not this file\'s',
+  (await decide({ replyText: 'Powered by ActivePipe. Click here to unsubscribe' })).post === true)
+check('skipBulk=yes drops a newsletter for anyone who wants that',
+  (await decide({ skipBulk: 'yes', replyText: 'Powered by ActivePipe\nclick here to unsubscribe' })).post === false)
 check('an ordinary reply is never mistaken for bulk',
   (await decide({ replyText: 'Yes, 1195 Palou might be a good fit. Call me.' })).post === true)
-check('an out-of-office is dropped by subject',
-  (await decide({ replySubject: 'Automatic reply: your note', replyText: 'away' })).post === false)
+check('skipBulk=yes also drops an out-of-office by subject',
+  (await decide({ skipBulk: 'yes', replySubject: 'Automatic reply: your note', replyText: 'away' })).post === false)
 globalThis.fetch = serve({ body: { html: '' } })
 calls = []
 await decide({ eventType: 'auto_reply_received', replyText: 'away', emailId: 'x', instantlyKey: 'k' })

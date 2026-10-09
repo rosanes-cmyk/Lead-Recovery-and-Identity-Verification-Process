@@ -13,7 +13,7 @@
 //   inbox        <- Email Account
 //   received     <- Timestamp
 //   uniboxUrl    <- Unibox Url
-//   skipBulk     = "no" to let newsletters through. Omit it and they are dropped.
+//   skipBulk     = "yes" to drop newsletters and autoresponders. Omitted, they post.
 // Plus two constants, typed in rather than picked from the dropdown:
 //   chatWebhook   = your Google Chat space webhook URL
 //   instantlyKey  = an Instantly API key (Settings > Integrations > API)
@@ -198,10 +198,10 @@ async function decide(d) {
   const subject = String(d.replySubject || '').trim();
   const body = String(d.replyText || d.replySnippet || '');
 
-  // A newsletter is not a lead replying, and one posted in full is a screenful
-  // of flattened markup nobody can read. On unless deliberately turned off:
-  // set skipBulk to "no" in Input Data to let bulk mail through.
-  if (String(d.skipBulk || 'yes').toLowerCase() !== 'no'
+  // A newsletter is not a lead replying. Off unless asked for: whether these
+  // are worth seeing is the campaign owner's call, not this file's. Set
+  // skipBulk to "yes" in Input Data to drop them.
+  if (String(d.skipBulk || '').toLowerCase() === 'yes'
       && (BULK.test(body) || AUTO.test(subject))) {
     return { post: false, reason: 'bulk or automated mail, not a reply' };
   }

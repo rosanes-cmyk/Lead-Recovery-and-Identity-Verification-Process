@@ -189,20 +189,15 @@ which event it was in the Zap history.
 The subject-line check is still there behind `skipBulk`, for the autoresponders
 that arrive as ordinary replies because the sender's server did not mark them.
 
-## Bulk mail is dropped by default
+## Bulk mail is let through by default
 
-`skipBulk` is on unless set to `no` in Input Data.
+`skipBulk` is off unless set to `yes` in Input Data. An agent's newsletter is
+still an agent who has your address and is active, and whether that is worth a
+notification is the campaign owner's call rather than this file's.
 
-This was the other way round at first, on the reasoning that an agent's
-newsletter is still an agent who has your address and is active. A live test
-settled it. Catherine Abalos's ActivePipe newsletter arrived and posted a card
-carrying forty-odd bare `[` characters, seven `[https://…/empty.gif]` fragments
-and a postal address broken one line per field — six hundred characters of
-flattened markup, in the space where replies from real people are supposed to be
-noticed. The goal was always that a reply from a person reaches a person fast
-and readably, and that nothing else does. A newsletter is nothing else.
-
-Anyone who wants them back sets `skipBulk` to `no`.
+It was briefly the other way round, after a newsletter posted a screenful of
+flattened markup. That was the markup's fault, not the newsletter's — see below
+— and changing a default nobody asked for is not the way to fix a rendering bug.
 
 ## Flattened HTML
 
