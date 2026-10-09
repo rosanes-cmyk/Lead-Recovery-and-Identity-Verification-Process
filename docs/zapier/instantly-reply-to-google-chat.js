@@ -13,6 +13,7 @@
 //   inbox        <- Email Account
 //   received     <- Timestamp
 //   uniboxUrl    <- Unibox Url
+//   skipBulk     = "no" to let newsletters through. Omit it and they are dropped.
 // Plus two constants, typed in rather than picked from the dropdown:
 //   chatWebhook   = your Google Chat space webhook URL
 //   instantlyKey  = an Instantly API key (Settings > Integrations > API)
@@ -58,6 +59,12 @@ function unquote(text) {
 function clean(text, max) {
   return String(text || '')
     .replace(TRACKER, '')
+    // What is left when an HTML email is flattened to text: every image and
+    // link becomes a [url] fragment, and the table cells around them leave bare
+    // brackets. None of it is anything a person typed.
+    .replace(/\[\s*https?:\/\/[^\]]*\]/gi, '')
+    .replace(/\bhttps?:\/\/\S+\.(?:gif|png|jpe?g|webp|svg)\b/gi, '')
+    .replace(/^[\s\[\]()]+$/gm, '')
     .replace(/\bhttps?:\/\/\S{120,}/g, '')        // anything that long is a token
     .replace(/\S+@\S+\?subject=\S+/g, '')
     // Keep the gap between paragraphs — dropping every empty line runs a reply
@@ -191,10 +198,10 @@ async function decide(d) {
   const subject = String(d.replySubject || '').trim();
   const body = String(d.replyText || d.replySnippet || '');
 
-  // A newsletter is not a lead replying. Off by default: an agent's newsletter
-  // is still an agent who has your address and is active. Set skipBulk to "yes"
-  // in Input Data to drop them.
-  if (String(d.skipBulk || '').toLowerCase() === 'yes'
+  // A newsletter is not a lead replying, and one posted in full is a screenful
+  // of flattened markup nobody can read. On unless deliberately turned off:
+  // set skipBulk to "no" in Input Data to let bulk mail through.
+  if (String(d.skipBulk || 'yes').toLowerCase() !== 'no'
       && (BULK.test(body) || AUTO.test(subject))) {
     return { post: false, reason: 'bulk or automated mail, not a reply' };
   }

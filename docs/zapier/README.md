@@ -5,7 +5,7 @@ step, kept here because it was written and tested against real traffic and
 would otherwise live only in a Zapier editor where nobody can review it.
 
 Everything above the wiring marker at the bottom of the file is pure, and
-`test/zapier-chat-test.mjs` runs it — 86 checks with the Instantly API stubbed,
+`test/zapier-chat-test.mjs` runs it — 93 checks with the Instantly API stubbed,
 `npm run test:zapier`.
 
 ## Where it goes
@@ -189,8 +189,29 @@ which event it was in the Zap history.
 The subject-line check is still there behind `skipBulk`, for the autoresponders
 that arrive as ordinary replies because the sender's server did not mark them.
 
-## Bulk mail is let through by default
+## Bulk mail is dropped by default
 
-`skipBulk` is off unless set to `yes` in Input Data. An agent's newsletter is
-still an agent who has your address and is active, and that is the campaign
-owner's call rather than this file's.
+`skipBulk` is on unless set to `no` in Input Data.
+
+This was the other way round at first, on the reasoning that an agent's
+newsletter is still an agent who has your address and is active. A live test
+settled it. Catherine Abalos's ActivePipe newsletter arrived and posted a card
+carrying forty-odd bare `[` characters, seven `[https://…/empty.gif]` fragments
+and a postal address broken one line per field — six hundred characters of
+flattened markup, in the space where replies from real people are supposed to be
+noticed. The goal was always that a reply from a person reaches a person fast
+and readably, and that nothing else does. A newsletter is nothing else.
+
+Anyone who wants them back sets `skipBulk` to `no`.
+
+## Flattened HTML
+
+The plain text Instantly sends for an HTML email is the markup walked over: each
+image and link becomes a `[url]` fragment and the table cells around them leave
+bare brackets. Those are stripped — the bracketed URLs, image URLs from any host
+at all, and any line that is nothing but brackets. Brackets inside a sentence
+are left alone, because `the price [as discussed] is firm` is something a person
+wrote.
+
+It is not a substitute for dropping bulk mail; it is what keeps a genuine reply
+readable when the sender's client writes HTML.

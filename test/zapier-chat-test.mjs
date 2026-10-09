@@ -84,6 +84,27 @@ check('runs of blank lines collapse to one', clean('a\n\n\n\n\nb') === 'a\n\nb')
 check('blank lines left by stripping a link collapse',
   clean('Your October\nhttps://u1.ct.sendgrid.net/ls/click?upn=abc\n\nPowered by ActivePipe')
   === 'Your October\n\nPowered by ActivePipe')
+// Catherine Abalos's ActivePipe newsletter, as the webhook actually sent it.
+const NEWSLETTER = [
+  'Catherine Abalos, (415) 286-5045', '[', '[', '[',
+  '[https://d2wn0fwevmicfp.cloudfront.net/images/empty.gif]',
+  '[https://d2wn0fwevmicfp.cloudfront.net/images/empty.gif]',
+  '[', '[https://d2wn0fwevmicfp.cloudfront.net/images/empty.gif]',
+  '592', '[', '3rd St.', '[', 'San Francisco', '[', 'California', '[', '94107',
+  '[', 'https://kinokorealestate.com/', '[', '(415',
+].join('\n')
+const cleaned = clean(NEWSLETTER)
+check('a flattened HTML email loses its [url] image fragments',
+  !cleaned.includes('empty.gif') && !cleaned.includes('cloudfront'))
+check('…and its bare bracket lines', !/^\s*\[\s*$/m.test(cleaned))
+check('…while the words a person could use survive',
+  cleaned.includes('Catherine Abalos') && cleaned.includes('San Francisco') && cleaned.includes('94107'))
+check('…and it shrinks to something readable',
+  cleaned.length < NEWSLETTER.length / 2, `${NEWSLETTER.length} -> ${cleaned.length} chars`)
+check('a bare image URL goes even from a host nothing recognises',
+  !clean('see https://d2wn0fwevmicfp.cloudfront.net/images/empty.gif here').includes('cloudfront'))
+check('brackets inside a sentence are left alone',
+  clean('the price [as discussed] is firm') === 'the price [as discussed] is firm')
 check('capped at 600 by default', clean('x'.repeat(900)).length === 600)
 check('custom cap honoured', clean('x'.repeat(900), 50).length === 50)
 
@@ -154,12 +175,14 @@ check('auto_reply_received is dropped by name, not by guesswork',
   dropped.post === false && /auto_reply_received/.test(dropped.reason))
 check('an unmapped eventType does not block anything',
   (await decide({ replyText: 'hi' })).post === true)
-check('bulk mail passes by default',
-  (await decide({ replyText: 'Powered by ActivePipe. Click here to unsubscribe' })).post === true)
-check('skipBulk=yes drops a newsletter',
-  (await decide({ skipBulk: 'yes', replyText: 'Powered by ActivePipe\nclick here to unsubscribe' })).post === false)
-check('skipBulk=yes drops an out-of-office by subject',
-  (await decide({ skipBulk: 'yes', replySubject: 'Automatic reply: your note', replyText: 'away' })).post === false)
+check('bulk mail is DROPPED by default — it is the thing this exists to stop',
+  (await decide({ replyText: 'Powered by ActivePipe. Click here to unsubscribe' })).post === false)
+check('skipBulk=no lets a newsletter through for anyone who wants them',
+  (await decide({ skipBulk: 'no', replyText: 'Powered by ActivePipe\nclick here to unsubscribe' })).post === true)
+check('an ordinary reply is never mistaken for bulk',
+  (await decide({ replyText: 'Yes, 1195 Palou might be a good fit. Call me.' })).post === true)
+check('an out-of-office is dropped by subject',
+  (await decide({ replySubject: 'Automatic reply: your note', replyText: 'away' })).post === false)
 globalThis.fetch = serve({ body: { html: '' } })
 calls = []
 await decide({ eventType: 'auto_reply_received', replyText: 'away', emailId: 'x', instantlyKey: 'k' })
