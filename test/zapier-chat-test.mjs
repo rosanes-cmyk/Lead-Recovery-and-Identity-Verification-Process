@@ -311,9 +311,18 @@ check('…columns chosen by how many there are',
 check('…and every picture is in it', shotUrls(asGrid).length === 6)
 check('carousel gives one slide per picture', (() => {
   const car = picSection(asCarousel).widgets[0].carousel
-  return car.carouselCards.length === 6 && car.carouselCards[0].widgets[0].image.imageUrl === 'https://att/p0.jpg'
+  return car.carouselCards[0].widgets[0].image.imageUrl === 'https://att/p0.jpg'
 })())
-check('…and carries them all', shotUrls(asCarousel).length === 6)
+// Chat's own carousel stops going backwards past roughly six slides. Nothing in
+// the payload causes it and nothing in the payload can fix it, so stay under.
+check('…but stops at five, short of where Chat breaks going back',
+  shotUrls(asCarousel).length === 5, '6 pictures in, 5 slides out')
+check('…and says the rest are not shown', (() => {
+  const w = widgets(asCarousel).find(x => x.decoratedText && x.decoratedText.topLabel === 'More')
+  return /1 further image not shown/.test(w.decoratedText.text)
+})())
+check('grid is not capped the same way — it has no such trouble',
+  shotUrls(asGrid).length === 6)
 check('stack still stacks and collapses',
   picSection(asStack).widgets.length === 6 && picSection(asStack).collapsible === true)
 check('neither grid nor carousel is collapsed — they are already short',
@@ -342,9 +351,12 @@ check('a grid with no thread to open carries no dead onClick', (() => {
     [0,1,2].map(i => ({ url: 'https://a/' + i + '.jpg', type: 'image/jpeg', filename: 'x' })))
   return picSection(g).widgets[0].grid.onClick === undefined
 })())
-check('all three shapes carry identical pictures', (() => {
-  const a = shotUrls(asGrid).join(), b = shotUrls(asCarousel).join(), c2 = shotUrls(asStack).join()
-  return a === b && b === c2
+check('grid and stack carry identical pictures', (() => {
+  return shotUrls(asGrid).join() === shotUrls(asStack).join()
+})())
+check('…and the carousel carries the same ones, just fewer of them', (() => {
+  const car = shotUrls(asCarousel)
+  return car.every((u, i) => u === shotUrls(asGrid)[i])
 })())
 globalThis.fetch = serve({ attachment_json: { files: [
   { filename: 'solo.jpg', type: 'image/jpeg', url: 'https://att/solo.jpg' }] } })

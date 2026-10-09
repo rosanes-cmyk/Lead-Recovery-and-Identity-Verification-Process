@@ -5,7 +5,7 @@ step, kept here because it was written and tested against real traffic and
 would otherwise live only in a Zapier editor where nobody can review it.
 
 Everything above the wiring marker at the bottom of the file is pure, and
-`test/zapier-chat-test.mjs` runs it — 123 checks with the Instantly API stubbed,
+`test/zapier-chat-test.mjs` runs it — 126 checks with the Instantly API stubbed,
 `npm run test:zapier`.
 
 ## Where it goes
@@ -181,9 +181,17 @@ it is `grid`.
   without complaint.
 - **`carousel`** — one picture at a time with arrows, a `carouselCards[]` entry
   each. Google documents it for Chat apps and says nothing about webhooks;
-  tested against a live space, **the arrows work**. The catch is height: slides
+  tested against a live space, **the arrows work** — but only so far. Past
+  roughly half a dozen slides Chat stops going backwards: forward still moves,
+  and the back arrow will not return you past a certain point. Google documents
+  no limit on `carouselCards`, nothing in the payload causes it, and nothing in
+  the payload fixes it, so the carousel is capped at **five** slides and the
+  rest are counted in the "not shown" line. The other catch is height: slides
   size to the tallest picture in the set, so a short one sits in a tall black
-  box, and there is no crop setting on a plain `Image` to prevent it.
+  box, and a plain `Image` has no crop setting to prevent it.
+
+  Which makes the carousel the right pick for a reply carrying two or three
+  photographs, and the wrong one for a newsletter.
 - **`stack`** — the original: full-width, one under another, folded behind
   Chat's own "Show more" past the first.
 

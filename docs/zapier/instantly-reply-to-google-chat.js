@@ -29,6 +29,12 @@ const API = 'https://api.instantly.ai/api/v2/emails/';
 // A Chat card holds 100 widgets and 32 KB. Thirty pictures plus the text sits
 // well inside both, and is more of a newsletter than anyone scrolls anyway.
 const MAX_IMAGES = 30;
+// Carousels get fewer. Past roughly half a dozen slides Chat stops going back
+// — you can still move forward, but the arrow will not return you past a
+// certain point. Google documents no limit on carouselCards and this is not in
+// the payload, so it is theirs, not ours. Staying under it is the only fix
+// available from here; the grid has no such trouble and shows all thirty.
+const MAX_CAROUSEL = 5;
 const MAX_TEXT = 3000;
 // Lines of body text before Chat hides the rest behind its own "show more".
 const TEXT_LINES = 6;
@@ -178,6 +184,7 @@ function pictureSection(shots, layout, uniboxUrl) {
 }
 
 function buildCard(d, subject, body, html, photos) {
+  const layout = String(d.imageLayout || 'grid').trim().toLowerCase();
   const pics = images(html);
   // Everything the email shows, in the order it shows it. Attachments lead:
   // someone replying with a photo attaches it, while the hosted images are the
@@ -186,7 +193,7 @@ function buildCard(d, subject, body, html, photos) {
   const seen = {};
   const every = photos.map(p => p.url).concat(pics.remote)
     .filter(u => u && !seen[u] && (seen[u] = true));
-  const shots = every.slice(0, MAX_IMAGES);
+  const shots = every.slice(0, layout === 'carousel' ? MAX_CAROUSEL : MAX_IMAGES);
   const hidden = every.length - shots.length;   // count what is left after the
                                                 // duplicates have gone, or a
                                                 // repeated logo inflates it
@@ -212,7 +219,7 @@ function buildCard(d, subject, body, html, photos) {
             { decoratedText: { topLabel: 'Lead Email', text: String(d.leadEmail || '—'), wrapText: true } },
             { decoratedText: { topLabel: 'Reply Subject', text: subject || '—', wrapText: true } },
           ] },
-          ...pictureSection(shots, String(d.imageLayout || 'grid').trim().toLowerCase(), d.uniboxUrl),
+          ...pictureSection(shots, layout, d.uniboxUrl),
           { widgets: [
             // A picture the step knows about but cannot render: say so rather
             // than leaving a gap where an image should be.
